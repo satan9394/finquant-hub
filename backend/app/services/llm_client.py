@@ -104,6 +104,60 @@ class LLMClient:
         usage = data.get("usage") or {}
         return content, tool_calls, usage.get("total_tokens")
 
+    async def chat_with_tools_safe(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> tuple[str, list[dict], int | None]:
+        """与 chat_with_tools 相同，但自动清理 DeepSeek 非标字段。
+
+        DeepSeek 可能返回 reasoning_content 字段，再次发送时需清理。
+        """
+        payload = {
+            "model": self.model,
+            "messages": self._sanitize_messages(messages),
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+        if tools:
+            payload["tools"] = tools
+        url = f"{self.base_url}/chat/completions"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as http:
+                resp = await http.post(url, json=payload, headers=self._headers())
+        except httpx.HTTPError as e:
+            raise LLMError(f"网络错误：{e}") from e
+        if resp.status_code != 200:
+            raise LLMError(f"API 返回 {resp.status_code}：{resp.text[:300]}")
+        data = resp.json()
+        choice = data["choices"][0]["message"]
+        content = choice.get("content") or ""
+        raw_calls = choice.get("tool_calls") or []
+        tool_calls = []
+        for tc in raw_calls:
+            tool_calls.append({
+                "id": tc["id"],
+                "type": tc["type"],
+                "function": {
+                    "name": tc["function"]["name"],
+                    "arguments": tc["function"]["arguments"],
+                },
+            })
+        usage = data.get("usage") or {}
+        return content, tool_calls, usage.get("total_tokens")
+
+    def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
+        """清理消息中的 DeepSeek 非标字段。"""
+        cleaned = []
+        for msg in messages:
+            copy = {k: v for k, v in msg.items() if k not in ("reasoning_content",)}
+            # 当 role=assistant 且包含 tool_calls 时，content 必须为 None
+            if copy.get("role") == "assistant" and copy.get("tool_calls"):
+                copy["content"] = None
+            cleaned.append(copy)
+        return cleaned
+
     async def chat_with_tools_loop(
         self,
         messages: list[dict],

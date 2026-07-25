@@ -187,7 +187,8 @@ async def calc_pnl(portfolio_id: int) -> dict:
         current_price = 0.0
         change_pct = 0.0
 
-        q = quotes.get(p["ticker"].lower())
+        tc = _tencent_code(p["ticker"])
+        q = quotes.get(tc)
         if q:
             current_price = q["price"]
             market_value = p["shares"] * current_price

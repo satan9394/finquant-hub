@@ -38,7 +38,7 @@ async def _call_agent(
 
     # 最多 5 轮 tool_use 循环
     for _round in range(5):
-        content, tool_calls, _ = await client.chat_with_tools(messages, tools)
+        content, tool_calls, _ = await client.chat_with_tools_safe(messages, tools)
 
         if not tool_calls:
             # Agent 给出最终回答
