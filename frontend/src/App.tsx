@@ -1,7 +1,7 @@
 /* ============================================================
  * App — 主应用（AntD ProLayout + 路由）
  * ============================================================ */
-import { useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ConfigProvider, theme as antTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -21,16 +21,16 @@ import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
 import ModelSelector from './components/ModelSelector';
 
-import Dashboard from './pages/Dashboard';
-import Chat from './pages/Chat';
-import Discussion from './pages/Discussion';
-import Knowledge from './pages/Knowledge';
-import Models from './pages/Models';
-import Settings from './pages/Settings';
-import StockAnalysis from './pages/StockAnalysis';
-import Research from './pages/Research';
-import Portfolio from './pages/Portfolio';
-import Screening from './pages/Screening';
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Chat = lazy(() => import('./pages/Chat'));
+const Discussion = lazy(() => import('./pages/Discussion'));
+const Knowledge = lazy(() => import('./pages/Knowledge'));
+const Models = lazy(() => import('./pages/Models'));
+const Settings = lazy(() => import('./pages/Settings'));
+const StockAnalysis = lazy(() => import('./pages/StockAnalysis'));
+const Research = lazy(() => import('./pages/Research'));
+const Portfolio = lazy(() => import('./pages/Portfolio'));
+const Screening = lazy(() => import('./pages/Screening'));
 
 const menuItems = [
   { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
@@ -91,6 +91,7 @@ function AppLayout() {
       location={{ pathname: menuKey }}
       siderWidth={160}
     >
+      <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}>页面加载中…</div>}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/chat" element={<Chat />} />
@@ -104,6 +105,7 @@ function AppLayout() {
         <Route path="/screening" element={<Screening />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </ProLayout>
   );
 }
