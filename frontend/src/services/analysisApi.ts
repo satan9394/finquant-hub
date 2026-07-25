@@ -44,21 +44,43 @@ export async function requestAnalysis(data: AnalysisRequest): Promise<AnalysisRe
 
 /** 获取分组列表 */
 export async function fetchPortfolioGroups(): Promise<PortfolioGroup[]> {
-  const res = await apiClient.get('/portfolio/groups');
+  const res = await apiClient.get('/portfolio');
   return res.data.items ?? [];
 }
 
 /** 获取投资组合摘要 */
 export async function fetchPortfolioSummary(): Promise<PortfolioSummary> {
-  const res = await apiClient.get('/portfolio/summary');
-  return res.data;
+  const groups = await fetchPortfolioGroups();
+  const reports = await Promise.all(groups.map((group) => apiClient.get(`/portfolio/${group.id}/pnl`)));
+  const group_summaries = reports.map((res, index) => ({
+    group_id: groups[index].id,
+    group_name: groups[index].name,
+    invested: res.data.total_cost,
+    current: res.data.total_market_value,
+    profit: res.data.total_pnl,
+    profit_percent: res.data.total_pnl_pct,
+  }));
+  const total_invested = group_summaries.reduce((sum, item) => sum + item.invested, 0);
+  const total_current = group_summaries.reduce((sum, item) => sum + item.current, 0);
+  return {
+    total_invested,
+    total_current,
+    total_profit: total_current - total_invested,
+    total_profit_percent: total_invested ? (total_current - total_invested) / total_invested * 100 : 0,
+    group_summaries,
+  };
 }
 
 /** 获取持仓列表 */
 export async function fetchPortfolioHoldings(groupId?: number): Promise<PortfolioHolding[]> {
-  const params = groupId != null ? { group_id: groupId } : {};
-  const res = await apiClient.get('/portfolio/holdings', { params });
-  return res.data.items ?? [];
+  if (groupId == null) return [];
+  const res = await apiClient.get(`/portfolio/${groupId}/pnl`);
+  return (res.data.positions ?? []).map((position: any) => ({
+    id: position.id, group_id: groupId, code: position.ticker, name: position.name,
+    shares: position.shares, cost_price: position.avg_cost, current_price: position.current_price,
+    market_value: position.market_value, cost_value: position.cost,
+    profit: position.pnl, profit_percent: position.pnl_pct,
+  }));
 }
 
 /** 添加持仓 */
@@ -69,8 +91,10 @@ export async function addPortfolioHolding(data: {
   shares: number;
   cost_price: number;
 }): Promise<PortfolioHolding> {
-  const res = await apiClient.post('/portfolio/holdings', data);
-  return res.data;
+  const res = await apiClient.post(`/portfolio/${data.group_id}/positions`, {
+    ticker: data.code, name: data.name, shares: data.shares, avg_cost: data.cost_price,
+  });
+  return { ...res.data, group_id: data.group_id, code: res.data.ticker, cost_price: res.data.avg_cost };
 }
 
 /** 更新持仓 */
@@ -78,19 +102,26 @@ export async function updatePortfolioHolding(
   id: number,
   data: Partial<Pick<PortfolioHolding, 'shares' | 'cost_price' | 'group_id'>>
 ): Promise<PortfolioHolding> {
-  const res = await apiClient.put(`/portfolio/holdings/${id}`, data);
-  return res.data;
+  const res = await apiClient.put(`/portfolio/positions/${id}`, {
+    shares: data.shares, avg_cost: data.cost_price,
+  });
+  return { ...res.data, code: res.data.ticker, cost_price: res.data.avg_cost };
 }
 
 /** 删除持仓 */
 export async function deletePortfolioHolding(id: number): Promise<void> {
-  await apiClient.delete(`/portfolio/holdings/${id}`);
+  await apiClient.delete(`/portfolio/positions/${id}`);
 }
 
 /** 获取持仓配置分布 */
 export async function fetchPortfolioAllocation(): Promise<PortfolioAllocation[]> {
-  const res = await apiClient.get('/portfolio/allocation');
-  return res.data.items ?? [];
+  const summary = await fetchPortfolioSummary();
+  return summary.group_summaries.map((group) => ({
+    group_id: group.group_id,
+    group_name: group.group_name,
+    weight: summary.total_current ? group.current / summary.total_current : 0,
+    items: [],
+  }));
 }
 
 // ==================== 信号 ====================

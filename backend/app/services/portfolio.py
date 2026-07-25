@@ -161,21 +161,24 @@ async def delete_position(position_id: int) -> bool:
 # 实时盈亏计算
 # ------------------------------------------------------------------
 
-async def calc_pnl(portfolio_id: int) -> dict:
+async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
     """计算组合实时盈亏，返回汇总 + 逐持仓明细。"""
     positions = await list_positions(portfolio_id)
     if not positions:
         return {"total_cost": 0, "total_market_value": 0, "total_pnl": 0, "total_pnl_pct": 0, "positions": []}
 
-    codes = ",".join(_tencent_code(p["ticker"]) for p in positions)
-    quotes = {}
-    if codes:
-        try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, trust_env=False) as http:
-                resp = await http.get(TENCENT_QUOTE.format(codes=codes))
-                quotes = _parse_tencent_map(resp.content.decode("gbk", "replace"))
-        except httpx.HTTPError:
-            pass
+    # Reuse the same multi-market service as the quote pages.  The former
+    # Tencent-only path silently priced HK/US holdings at cost and hid PnL.
+    from .market_data import MarketDataService, normalize_code
+
+    owns_market_service = market_service is None
+    market_service = market_service or MarketDataService()
+    try:
+        fetched_quotes = await market_service.quotes([p["ticker"] for p in positions])
+    finally:
+        if owns_market_service:
+            await market_service.aclose()
+    quotes = {quote["code"]: quote for quote in fetched_quotes}
 
     total_cost = 0.0
     total_market = 0.0
@@ -187,8 +190,11 @@ async def calc_pnl(portfolio_id: int) -> dict:
         current_price = 0.0
         change_pct = 0.0
 
-        tc = _tencent_code(p["ticker"])
-        q = quotes.get(tc)
+        try:
+            quote_code = normalize_code(p["ticker"])
+        except ValueError:
+            quote_code = p["ticker"]
+        q = quotes.get(quote_code)
         if q:
             current_price = q["price"]
             market_value = p["shares"] * current_price
