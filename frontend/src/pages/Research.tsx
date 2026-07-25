@@ -4,11 +4,11 @@
  * ============================================================ */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  Card, Input, Button, Typography, Row, Col, List, Spin, Tag, message, Empty,
+  Card, Input, Button, Typography, Row, Col, List, Spin, Tag, message, Empty, Collapse, Space,
 } from 'antd';
 import {
   PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
-  LoadingOutlined, CloseCircleOutlined, RobotOutlined,
+  LoadingOutlined, CloseCircleOutlined, RobotOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
 import apiClient from '../services/api';
@@ -36,6 +36,11 @@ type StoredReportDetail = StoredReport & {
   report_data: Record<string, unknown>;
   agent_results?: Record<string, { content?: string }>;
   events?: { event_type: string; created_at: string }[];
+};
+
+type HistoryGroup = {
+  ticker: string; company_name?: string; run_count: number; completed_count: number;
+  failed_count: number; latest_at: string; latest_report_id?: number | null; runs: StoredReport[];
 };
 
 function reportToMarkdown(report: Record<string, unknown>): string {
@@ -117,7 +122,7 @@ export default function Research() {
   const [reportContent, setReportContent] = useState('');
   const [reportTitle, setReportTitle] = useState('');
   const [done, setDone] = useState(false);
-  const [history, setHistory] = useState<StoredReport[]>([]);
+  const [history, setHistory] = useState<HistoryGroup[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -125,7 +130,7 @@ export default function Research() {
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const response = await apiClient.get('/research', { params: { page: 1, page_size: 20 } });
+      const response = await apiClient.get('/research/history');
       setHistory(response.data.items ?? []);
     } catch (error: any) {
       message.error(error.message || '加载研究历史失败');
@@ -164,6 +169,28 @@ export default function Research() {
       message.error(error.message || '加载研究报告失败');
     }
   }, []);
+
+  const downloadReport = useCallback(async (format: 'html' | 'md' | 'pdf' | 'docx') => {
+    if (!selectedReportId) return;
+    try {
+      const response = await apiClient.get(`/research/${selectedReportId}/export`, {
+        params: { format }, responseType: 'blob',
+      });
+      const disposition = response.headers['content-disposition'] as string | undefined;
+      const filename = disposition?.match(/filename="?([^";]+)"?/i)?.[1]
+        ?? `research-report.${format}`;
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      message.error(error.message || '导出失败，请稍后重试');
+    }
+  }, [selectedReportId]);
 
   // 开始研究
   const handleStart = useCallback(async () => {
@@ -362,7 +389,19 @@ export default function Research() {
               {running && <Spin size="small" />}
             </div>
           }
-          extra={done ? <Tag color="green">已完成</Tag> : running ? <Tag color="processing">生成中</Tag> : null}
+          extra={
+            <Space size={4} wrap>
+              {selectedReportId && done && (
+                <>
+                  <Button size="small" icon={<DownloadOutlined />} onClick={() => void downloadReport('html')}>HTML</Button>
+                  <Button size="small" onClick={() => void downloadReport('md')}>MD</Button>
+                  <Button size="small" onClick={() => void downloadReport('pdf')}>PDF</Button>
+                  <Button size="small" onClick={() => void downloadReport('docx')}>Word</Button>
+                </>
+              )}
+              {done ? <Tag color="green">已完成</Tag> : running ? <Tag color="processing">生成中</Tag> : null}
+            </Space>
+          }
           style={{
             minHeight: 300,
             borderTop: `3px solid ${done ? '#52c41a' : running ? '#1890ff' : '#d9d9d9'}`,
@@ -391,22 +430,29 @@ export default function Research() {
         extra={<Button size="small" icon={<ReloadOutlined />} loading={historyLoading} onClick={() => void loadHistory()}>刷新</Button>}
         style={{ marginTop: 16 }}
       >
-        <List
-          loading={historyLoading}
-          dataSource={history}
-          locale={{ emptyText: '暂无已保存的研究记录' }}
-          renderItem={(item) => (
-            <List.Item
-              actions={[<Button key="open" type="link" onClick={() => void openStoredReport(item.id)}>查看</Button>]}
-            >
-              <List.Item.Meta
-                title={<span>{item.company_name || item.ticker} <Text type="secondary">{item.ticker}</Text></span>}
-                description={`${item.created_at} · ${item.status === 'completed' ? '已完成' : item.status === 'running' ? '进行中' : '失败'}${item.model_id ? ` · 模型 #${item.model_id}` : ''}`}
+        <Collapse
+          items={history.map((group) => ({
+            key: group.ticker,
+            label: <span>{group.company_name || group.ticker} <Text type="secondary">{group.ticker}</Text> <Tag color="blue">{group.run_count} 个版本</Tag></span>,
+            extra: <Text type="secondary">最近：{group.latest_at}</Text>,
+            children: (
+              <List
+                size="small"
+                dataSource={group.runs}
+                renderItem={(item, index) => (
+                  <List.Item actions={[<Button key="open" type="link" onClick={() => void openStoredReport(item.id)}>查看此版本</Button>]}>
+                    <List.Item.Meta
+                      title={`版本 ${group.run_count - index}`}
+                      description={`${item.created_at} · ${item.status === 'completed' ? '已完成' : item.status === 'running' ? '进行中' : '失败'}${item.model_id ? ` · 模型 #${item.model_id}` : ''}`}
+                    />
+                    {selectedReportId === item.id && <Tag color="blue">当前查看</Tag>}
+                  </List.Item>
+                )}
               />
-              {selectedReportId === item.id && <Tag color="blue">当前查看</Tag>}
-            </List.Item>
-          )}
+            ),
+          }))}
         />
+        {!historyLoading && history.length === 0 && <Empty description="暂无已保存的研究记录" />}
       </Card>
 
       {/* 免责声明 */}

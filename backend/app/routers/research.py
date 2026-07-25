@@ -2,17 +2,20 @@
 
 端點：
 - POST /api/research {ticker} → SSE stream 推送研究进度
-- GET  /api/research         → 列出历史报告
+- GET  /api/research/history → 按股票聚合的历史版本
 - GET  /api/research/{id}    → 获取单份报告详情
+- GET  /api/research/{id}/export?format=md|html|pdf|docx → 导出该版本
 """
 import json
+import re
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from .. import database
 from ..services.research_orch import run_research
+from ..services.report_export import markdown_to_docx, markdown_to_html, markdown_to_pdf, report_to_markdown
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
@@ -122,6 +125,30 @@ async def list_reports(page: int = 1, page_size: int = 20):
     return {"items": items, "total": (total or {}).get("n", 0), "page": page, "page_size": page_size}
 
 
+@router.get("/history")
+async def grouped_history():
+    """Return one history group per canonical ticker, with individual versions."""
+    groups = await database.query_all(
+        "SELECT ticker, COALESCE(MAX(company_name), ticker) AS company_name, COUNT(*) AS run_count, "
+        "SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed_count, "
+        "SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed_count, "
+        "MAX(created_at) AS latest_at "
+        "FROM research_reports GROUP BY ticker ORDER BY latest_at DESC"
+    )
+    rows = await database.query_all(
+        "SELECT id, ticker, company_name, model_id, status, created_at, updated_at "
+        "FROM research_reports ORDER BY created_at DESC, id DESC"
+    )
+    by_ticker: dict[str, list[dict]] = {}
+    for row in rows:
+        by_ticker.setdefault(row["ticker"], []).append(row)
+    for group in groups:
+        runs = by_ticker.get(group["ticker"], [])
+        group["runs"] = runs
+        group["latest_report_id"] = runs[0]["id"] if runs else None
+    return {"items": groups, "total": len(groups)}
+
+
 # ------------------------------------------------------------------
 # GET /{id} — 详情
 # ------------------------------------------------------------------
@@ -149,4 +176,34 @@ async def get_report(report_id: int):
     for event in report["events"]:
         event["payload"] = json.loads(event["payload"])
 
+    return report
+
+
+@router.get("/{report_id:int}/export")
+async def export_report(report_id: int, format: str = "md"):
+    """Export one immutable stored report version without creating extra files."""
+    report = await _load_report(report_id)
+    markdown = report_to_markdown(report)
+    title = f"{report.get('company_name') or report.get('ticker')} 研究报告"
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{report.get('ticker')}_research_v{report_id}").strip("_") or f"research_v{report_id}"
+    fmt = format.lower()
+    if fmt == "md":
+        return Response(markdown, media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{stem}.md"'})
+    if fmt == "html":
+        return Response(markdown_to_html(markdown, title), media_type="text/html", headers={"Content-Disposition": f'attachment; filename="{stem}.html"'})
+    if fmt == "pdf":
+        return Response(markdown_to_pdf(markdown, title), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{stem}.pdf"'})
+    if fmt == "docx":
+        return Response(markdown_to_docx(markdown, title), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="{stem}.docx"'})
+    raise HTTPException(422, "format 仅支持：md、html、pdf、docx")
+
+
+async def _load_report(report_id: int) -> dict:
+    row = await database.query_one("SELECT * FROM research_reports WHERE id=?", (report_id,))
+    if not row:
+        raise HTTPException(404, f"报告不存在：id={report_id}")
+    report = dict(row)
+    for key in ("report_data", "agent_results"):
+        if isinstance(report.get(key), str):
+            report[key] = json.loads(report[key])
     return report

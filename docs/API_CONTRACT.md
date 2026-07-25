@@ -159,7 +159,8 @@ Vite dev proxy：`/api` → `http://127.0.0.1:8000`，必须配置 `compress: fa
 - `GET /api/analysis/{ticker}/chart-data?count=200&period=1d` → `{ticker, period, data}`，每个数据点含 `time/open/high/low/close/volume`。
 - `POST /api/analysis/stock` ← `{ticker, model_id?}` → SSE。事件为 `agent_started`、`tool_call`、`agent_completed`、`report_progress`、`done`、`error`。
 - `POST /api/research` ← `{ticker, model_id?}` → SSE。首个 `report_started` 事件返回持久化 `report_id`，随后记录 `agent_started`、`tool_call`、`agent_completed`、`report_progress`、`done` 或 `error`。报告在开始时即建档；中断/失败同样保留状态和事件记录。
-- `GET /api/research?page=1&page_size=20` 返回历史报告摘要；`GET /api/research/{id}` 返回报告正文、每个 Agent 的工具调用日志和事件时间线。新闻检索等外部来源的 URL 会随工具日志保存，供后续追溯。
+- `GET /api/research?page=1&page_size=20` 返回逐版本历史报告摘要；`GET /api/research/history` 以规范化股票代码分组，返回每只股票的一条聚合记录及其 `runs` 版本列表；`GET /api/research/{id}` 返回报告正文、每个 Agent 的工具调用日志和事件时间线。新闻检索等外部来源的 URL 会随工具日志保存，供后续追溯。
+- `GET /api/research/{id}/export?format=md|html|pdf|docx` 从指定的已保存版本按需输出文件，并以附件形式下载。HTML、Markdown、PDF、Word 都由同一份数据库报告正文和来源证据即时生成，不保存多份容易漂移的副本；不支持的格式返回 422。
 - 模型配置支持任意 OpenAI 兼容端点（如 OpenAI、DeepSeek、OpenRouter 或自建网关）。模型列表和创建/更新响应不会返回已存 API Key，只返回 `has_api_key`；推荐以 `api_key_env` 引用环境变量。
 - `GET /api/portfolio` → `{items: [Portfolio]}`；`POST /api/portfolio` ← `{name, description?, currency?}`；`GET /api/portfolio/{id}/pnl` → `{total_cost, total_market_value, total_pnl, total_pnl_pct, positions}`。持仓创建为 `POST /api/portfolio/{id}/positions` ← `{ticker, shares, avg_cost, name?, currency?}`，其中 `name` 可省略并在有行情时自动显示行情名称。
 - `POST /api/screening` ← `{tickers: ["600519", "00700", "AAPL"]}`（1–30 个）→ `{items, errors}`。只对用户提供的清单执行真实行情与近 60 根日线筛选，不宣称覆盖整个交易所。

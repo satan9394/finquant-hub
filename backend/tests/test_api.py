@@ -245,3 +245,31 @@ class TestResearchHistory:
         detail = (await client.get(f"/api/research/{report_id}")).json()
         assert detail["agent_results"]["business_analyst"]["tool_log"][0]["name"] == "search_news"
         assert [event["event_type"] for event in detail["events"]] == ["agent_started", "tool_call", "done"]
+
+        async with client.stream("POST", "/api/research", json={"ticker": "600519", "model_id": 1}) as second_response:
+            second_events = await _collect_sse(second_response)
+        second_report_id = next(data for event, data in second_events if event == "report_started")["report_id"]
+
+        grouped = (await client.get("/api/research/history")).json()
+        assert grouped["total"] == 1
+        assert grouped["items"][0]["ticker"] == "sh600519"
+        assert grouped["items"][0]["run_count"] == 2
+        assert {run["id"] for run in grouped["items"][0]["runs"]} == {report_id, second_report_id}
+
+        markdown = await client.get(f"/api/research/{report_id}/export?format=md")
+        assert markdown.status_code == 200
+        assert "text/markdown" in markdown.headers["content-type"]
+        assert "研究报告" in markdown.text and "商业模式" in markdown.text
+
+        html = await client.get(f"/api/research/{report_id}/export?format=html")
+        assert html.status_code == 200
+        assert "text/html" in html.headers["content-type"]
+        assert "<h2>商业模式</h2>" in html.text
+
+        pdf = await client.get(f"/api/research/{report_id}/export?format=pdf")
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+
+        docx = await client.get(f"/api/research/{report_id}/export?format=docx")
+        assert docx.status_code == 200 and docx.content.startswith(b"PK")
+
+        assert (await client.get(f"/api/research/{report_id}/export?format=xlsx")).status_code == 422
