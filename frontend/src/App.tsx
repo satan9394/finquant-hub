@@ -30,6 +30,7 @@ import Settings from './pages/Settings';
 import StockAnalysis from './pages/StockAnalysis';
 import Research from './pages/Research';
 import Portfolio from './pages/Portfolio';
+import Screening from './pages/Screening';
 
 const menuItems = [
   { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
@@ -100,7 +101,7 @@ function AppLayout() {
         <Route path="/analysis/:ticker" element={<StockAnalysis />} />
         <Route path="/research" element={<Research />} />
         <Route path="/portfolio" element={<Portfolio />} />
-        <Route path="/screening" element={<Knowledge />} />
+        <Route path="/screening" element={<Screening />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ProLayout>
