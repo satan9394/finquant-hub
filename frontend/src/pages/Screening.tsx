@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Table, Tag, Typography, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
+import { useSearchParams } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
@@ -11,13 +12,15 @@ type ScreenedStock = {
 };
 
 export default function Screening() {
-  const [input, setInput] = useState('600519, 00700, AAPL, SPY');
+  const [searchParams] = useSearchParams();
+  const starterTickers = searchParams.get('tickers')?.trim() || '';
+  const [input, setInput] = useState(starterTickers || '600519, 00700, AAPL, SPY');
   const [items, setItems] = useState<ScreenedStock[]>([]);
   const [errors, setErrors] = useState<{ ticker: string; error: string }[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const runScreen = async () => {
-    const tickers = input.split(/[，,\n\s]+/).filter(Boolean);
+  const runScreen = async (rawInput = input) => {
+    const tickers = rawInput.split(/[，,\n\s]+/).filter(Boolean);
     if (!tickers.length) { message.warning('请输入至少一个股票代码'); return; }
     setLoading(true);
     try {
@@ -29,13 +32,19 @@ export default function Screening() {
     } finally { setLoading(false); }
   };
 
+  useEffect(() => {
+    if (starterTickers) void runScreen(starterTickers);
+  // The URL preset is an explicit user action from the startup-test card.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starterTickers]);
+
   return <div style={{ padding: 24, maxWidth: 1120, margin: '0 auto' }}>
     <Title level={4}>自定义选股器</Title>
     <Text type="secondary">输入任意 A 股、港股、美股或 ETF 代码，系统以真实行情与近 60 根日线按动量排序。</Text>
     <Card size="small" style={{ marginTop: 16, marginBottom: 16 }}>
       <Input.TextArea value={input} onChange={(event) => setInput(event.target.value)} rows={3}
         placeholder="例如：600519, 00700, AAPL, BRK.B, SPY" />
-      <Button type="primary" icon={<SearchOutlined />} loading={loading} onClick={runScreen} style={{ marginTop: 12 }}>开始筛选</Button>
+      <Button type="primary" icon={<SearchOutlined />} loading={loading} onClick={() => void runScreen()} style={{ marginTop: 12 }}>开始筛选</Button>
     </Card>
     {errors.length > 0 && <Alert type="warning" showIcon style={{ marginBottom: 16 }}
       message={`以下代码未能查询：${errors.map((item) => item.ticker).join('、')}`} />}

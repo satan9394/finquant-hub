@@ -6,6 +6,7 @@ import { Card, Row, Col, Statistic, List, Typography, Input, Button, message, Ta
 import {
   RobotOutlined, MessageOutlined, TeamOutlined, CommentOutlined,
   PlusOutlined, ReloadOutlined, RiseOutlined, FallOutlined, SearchOutlined, FundOutlined,
+  GlobalOutlined, ExperimentOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
@@ -163,6 +164,39 @@ export default function Dashboard() {
     { icon: <CommentOutlined />, title: '消息数', value: stats?.message_count ?? 0, color: '#52c41a' },
   ];
 
+  const startupTests = [
+    {
+      key: 'multi-market', icon: <GlobalOutlined />, title: '多市场行情',
+      description: '600519 · 00700 · AAPL',
+      note: '验证 A 股、港股、美股真实行情与日线。',
+      run: () => navigate('/screening?tickers=600519%2C00700%2CAAPL'),
+    },
+    {
+      key: 'technical', icon: <FundOutlined />, title: '技术分析',
+      description: 'AAPL',
+      note: '验证 K 线、指标、信号与评分链路。',
+      run: () => navigate('/analysis/AAPL'),
+    },
+    {
+      key: 'dialogue', icon: <MessageOutlined />, title: '投研问答',
+      description: '苹果的护城河与主要风险？',
+      note: '预填问题；新建会话后由你确认发送，不自动消耗额度。',
+      run: () => navigate(`/chat?prompt=${encodeURIComponent('请从商业模式、竞争壁垒和主要风险三个角度分析 Apple。')}`),
+    },
+    {
+      key: 'debate', icon: <TeamOutlined />, title: '多视角讨论',
+      description: 'Apple 是否适合长期持有？',
+      note: '预填四角色议题；创建后再由你确认开始讨论。',
+      run: () => navigate(`/discussion?topic=${encodeURIComponent('Apple 是否适合长期持有？请从价值、技术、量化与风险视角分别论证。')}`),
+    },
+    {
+      key: 'alpha', icon: <ExperimentOutlined />, title: 'Alpha 因子检索',
+      description: 'operating_income',
+      note: '验证字段目录、数据集与描述是否可检索。',
+      run: () => navigate('/alpha?query=operating_income'),
+    },
+  ];
+
   return (
     <div style={{ padding: 24 }}>
       <Title level={4} style={{ marginBottom: 16 }}>系统总览</Title>
@@ -253,6 +287,25 @@ export default function Dashboard() {
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card title="五项能力启动测试" size="small" extra={<Text type="secondary" style={{ fontSize: 12 }}>先验证数据与配置，再开始真实投研</Text>}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+              覆盖多市场数据、技术分析、对话、投研讨论与 Alpha 字段检索。行情和字段测试可直接执行；模型相关操作只预填内容，始终由你确认发送。
+            </Text>
+            <Row gutter={[10, 10]}>
+              {startupTests.map((item) => (
+                <Col xs={24} sm={12} lg={8} xl={4} key={item.key}>
+                  <Card size="small" hoverable onClick={item.run} style={{ height: '100%', cursor: 'pointer' }}>
+                    <div style={{ color: '#1677ff', marginBottom: 5 }}>{item.icon} <Text strong>{item.title}</Text></div>
+                    <Text code style={{ display: 'block', marginBottom: 4 }}>{item.description}</Text>
+                    <Text type="secondary" style={{ fontSize: 11 }}>{item.note}</Text>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          </Card>
+        </Col>
+
         {/* 近期会话 */}
         <Col xs={24} md={12}>
           <Card title="近期会话" size="small" extra={

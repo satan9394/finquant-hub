@@ -13,12 +13,15 @@ import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
 import type { Session, Message, AgentPreset } from '../types';
+import { useSearchParams } from 'react-router-dom';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
 
 export default function Chat() {
+  const [searchParams] = useSearchParams();
+  const starterPrompt = searchParams.get('prompt')?.trim();
   const {
     sessions, currentSessionId, messages, streamingContent, isStreaming,
     setSessions, addSession, removeSession, setCurrentSessionId,
@@ -41,6 +44,10 @@ export default function Chat() {
       if (res.data.items.length > 0) setSelectedRole(res.data.items[0].role_key);
     }).catch(() => {});
   }, [setSessions]);
+
+  useEffect(() => {
+    if (starterPrompt) setInputValue(starterPrompt);
+  }, [starterPrompt]);
 
   // 加载当前会话消息
   useEffect(() => {

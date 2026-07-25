@@ -16,6 +16,7 @@ import {
   FundOutlined,
   BarChartOutlined,
   WalletOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
@@ -31,6 +32,7 @@ const StockAnalysis = lazy(() => import('./pages/StockAnalysis'));
 const Research = lazy(() => import('./pages/Research'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Screening = lazy(() => import('./pages/Screening'));
+const AlphaResearch = lazy(() => import('./pages/AlphaResearch'));
 
 const menuItems = [
   { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
@@ -39,6 +41,7 @@ const menuItems = [
   { path: '/research', name: '深度研究', icon: <FundOutlined /> },
   { path: '/portfolio', name: '投资组合', icon: <WalletOutlined /> },
   { path: '/screening', name: '选股器', icon: <BarChartOutlined /> },
+  { path: '/alpha', name: 'Alpha 因子', icon: <ExperimentOutlined /> },
   { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
   { path: '/models', name: '模型', icon: <RobotOutlined /> },
   { path: '/settings', name: '设置', icon: <SettingOutlined /> },
@@ -103,6 +106,7 @@ function AppLayout() {
         <Route path="/research" element={<Research />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/screening" element={<Screening />} />
+        <Route path="/alpha" element={<AlphaResearch />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>

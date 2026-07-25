@@ -13,6 +13,7 @@
 | 模型管理 | OpenAI 兼容协议抽象，模型配置 CRUD + 连通性测试，默认 DeepSeek |
 | 数据存储 | SQLite（WAL），对话/讨论/角色/模型配置全持久化 |
 | 策略知识库 | 8 个经典量化策略教学文档 |
+| 五项能力启动测试 | 首屏验证多市场、技术、问答、讨论与 Alpha 字段检索；模型调用必须由用户确认 |
 
 ## 快速开始（Windows 11）
 
@@ -36,7 +37,7 @@ bun run dev
 ## 测试
 
 ```bash
-cd backend && ./.venv/Scripts/python.exe -m pytest -q   # 38 项单元/集成测试
+cd backend && ./.venv/Scripts/python.exe -m pytest -q   # 后端单元/集成回归
 cd frontend && bun run build                             # 前端类型检查+构建
 ```
 

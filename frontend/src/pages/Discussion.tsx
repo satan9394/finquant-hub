@@ -11,12 +11,15 @@ import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import DiscussionTimeline from '../components/DiscussionTimeline';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
+import { useSearchParams } from 'react-router-dom';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
 
 export default function Discussion() {
+  const [searchParams] = useSearchParams();
+  const starterTopic = searchParams.get('topic')?.trim();
   const {
     rooms, currentRoomId, messages, streamingContent, isStreaming,
     setRooms, addRoom, setCurrentRoomId, setMessages, addMessage, setIsStreaming,
@@ -39,6 +42,13 @@ export default function Discussion() {
     apiClient.get('/discussion/rooms').then((res) => setRooms(res.data.items)).catch(() => {});
     apiClient.get('/agents').then((res) => setAgents(res.data.items)).catch(() => {});
   }, [setRooms]);
+
+  useEffect(() => {
+    if (!starterTopic || agents.length < 3) return;
+    setTopic(starterTopic);
+    setSelectedRoles(agents.slice(0, 4).map((agent) => agent.role_key));
+    setCreateOpen(true);
+  }, [agents, starterTopic]);
 
   // 加载房间详情
   useEffect(() => {
