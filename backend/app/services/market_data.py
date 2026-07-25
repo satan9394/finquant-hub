@@ -37,11 +37,22 @@ class MarketError(Exception):
 
 
 def detect_market(code: str) -> str:
-    digits = re.sub(r"\D", "", code)
-    if re.match(r"^(6|68)", digits):
+    """检测市场：A股6位(6xx/68x→sh, 0xx/3xx→sz), 港股4-5位→hk, 美股字母→us。"""
+    t = code.strip().lower()
+    if t.startswith(("sh", "sz", "hk", "us")):
+        return t[:2]
+    digits = re.sub(r"\D", "", t)
+    if len(digits) == 6:
+        if re.match(r"^(6|68)", digits):
+            return "sh"
+        if re.match(r"^(0|3)", digits):
+            return "sz"
         return "sh"
-    if re.match(r"^(0|3)", digits):
-        return "sz"
+    if 4 <= len(digits) <= 5:
+        return "hk"
+    # 无数字或全字母 → 美股
+    if re.match(r"^[a-zA-Z]{1,5}$", t):
+        return "us"
     return "sh"
 
 

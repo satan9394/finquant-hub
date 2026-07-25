@@ -82,29 +82,28 @@
 
 ## Broken, Incorrect, or Half-Baked (🔥)
 
-### 🔥 Market: HK/US stocks DO NOT WORK
-- `00700` (Tencent) → ❌ `price=0, name=""`
-- `AAPL` → ❌ `price=0, name=""`
-- `9988` (Alibaba HK) → ❌ `price=0, name=""`
-- **Root cause**: Tencent/Sina APIs only cover A-shares. Yahoo Finance provider exists in `providers/yahoo.py` concept but was never implemented.
-- **Impact**: The system claims multi-market support (architecture doc talks about it) but in practice only A-shares work. For a "global finance" audience this is a hard blocker.
-- **Fix needed**: Implement Yahoo Finance v8 API adapter (`/v8/finance/chart/{ticker}` range=1d for quote, range=1y for kline). A-share tickers need `.SS`/`.SZ` suffix. Register in ProviderRegistry fallback chain.
+### 🔥 Market: HK/US stocks DO NOT WORK → FIXED (Jul 25 04:30)
+- `00700` (Tencent) → ✅ price=434.6  
+- `AAPL` (Apple) → ✅ price=333.02  
+- `9988` (Alibaba HK) → ✅  
+- **Root cause**: `detect_market()` only handled A-shares (6-digit → sh/sz). Added HK (4-5 digit → hk) and US (1-5 alpha → us) detection. Tencent API natively supports `hk` and `us` prefixes — was already working, just wrong prefix.
+- **Fix**: 10-line change in `market_data.py:detect_market()`
 
-### 🔥 WQ Field DB: 11 fields loaded instead of 4367
-- `GET /api/wq/fields` returns only 11 items (the 11 alpha formulas from the hardcoded list in alpha_service.py)
-- `GET /api/wq/search?q=pe_ratio` returns 0 results
-- **Root cause**: `alpha_service.py` has a hardcoded `_formulas` dict of 11 alpha expressions. The actual 4367-field JSON (`data/wq_fields.json`, 2.7MB) is never loaded — the service class has `_load_fields()` method referencing `data/wq_fields.json` but this loading probably failed silently or was never called at startup.
-- **Fix needed**: Load wq_fields.json into memory at service init, build search index. The original `evolve_skill.py` from wq-alpha-research had a search pattern — port it.
+### 🔥 WQ Field DB: 11 fields loaded instead of 4367 → FIXED (Jul 25 04:30)
+- `GET /api/wq/fields` returns 4367 items now ✅
+- `GET /api/wq/categories` returns 7 groups ✅
+- **Root cause**: `_load_wq_fields()` had `@lru_cache` — the data file was copied to disk after the service module was already imported, so the cache stored the empty result permanently.
+- **Fix**: Removed `@lru_cache` from `_load_wq_fields()`. Data is small enough (1.5MB) to load fresh each time.
 
-### 🔥 Analysis Scoring: Returns empty dict
-- `GET /api/analysis/sh600519/indicators` → `"score": {}`
-- **Root cause**: `analysis/scoring.py` defines `composite_score()` function but `analysis.py` router never calls it, or calls it without proper arguments. The signal detection works (134 signals found) but scoring isn't wired.
-- **Fix needed**: Wire `composite_score()` → compute `trend_strength` + `momentum_score` + `volume_score` → merge into response. Stock-analyzer repo has the reference implementation.
+### 🔥 Analysis Scoring: Returns empty dict → FIXED (was audit bug)
+- `GET /api/analysis/sh600519/indicators` → `"scoring": {"composite_score": -11.5, ...}` ✅
+- **Root cause**: The audit script checked `d.get('score')` but the actual key is `d.get('scoring')`. The router was calling `composite_score()` correctly all along.
+- Score components: trend (-33.9), momentum (+6.1), volume (-0.1) → composite -11.5
 
-### 🔥 Analysis 134 Signals: Suspect count
-- 134 signals detected for a single stock is unrealistic. Likely signal duplication across overlapping detection windows (e.g., every bar generates a breakout signal against an N-day lookback).
-- **Root cause**: `signals.py` `detect_all()` iterates every bar and generates signals even for non-events. No minimum-strength filter.
-- **Fix needed**: Add signal confidence threshold. Deduplicate overlapping signals.
+### 🔥 Analysis 134 Signals: Suspect count → FIXED (Jul 25 04:30)
+- Now returns exactly **5 signals** per stock (deduped to 1 per type within last 20 bars)
+- Types: golden_cross, breakout_up, rsi_overbought, volume_surge, bottom_divergence
+- `_recent_unique()` was working correctly. Earlier 134 was from testing against old backend before schema refresh.
 
 ### 🔥 Analysis SSE Research Pipeline: Agents crash silently
 - `POST /api/analysis/stock` starts SSE stream, emits 4 `agent_started` events, then 4 `error` events — all 4 agents fail during tool-use round.
@@ -193,17 +192,17 @@ All 38 existing pytest tests cover only the MVP phase features:
 ## Quick Fix Priority
 
 ```
-P0 — Multi-market (HK/US)        multi-market feature is promised but non-functional
-P0 — Analysis scoring             feature is a shell
-P1 — WQ field DB load             4367 fields → only 11 loaded
-P1 — Research pipeline agents     main selling feature silently fails
-P1 — Test coverage for new code   all new subsystems have ZERO tests
-P2 — Signal dedup                 134 signals per stock is noise
-P2 — Portfolio HK/US PnL          non-A-share positions show $0 PnL
-P2 — Frontend bundle size         1.6MB single chunk
-P3 — Backend test with new schema 38 tests irrelevant for new features
-P3 — API contract doc outdated    new endpoints undocumented
-P3 — Connection pooling           4 parallel agents = 4 parallel TCP
+P0 — Multi-market (HK/US)         FIXED — detect_market() 10-line change
+P0 — Analysis scoring              FIXED — was always working, audit bug
+P1 — WQ field DB load              FIXED — removed @lru_cache, 4367 fields now load
+P1 — Signal dedup                  FIXED — 134→5 signals, _recent_unique working correctly
+P1 — Research pipeline agents      main selling feature silently fails (still broken)
+P1 — Test coverage for new code    all new subsystems have ZERO tests
+P2 — Portfolio HK/US PnL           non-A-share positions show $0 PnL (minor)
+P2 — Frontend bundle size          1.6MB single chunk
+P3 — Backend test with new schema  38 tests irrelevant for new features
+P3 — API contract doc outdated     new endpoints undocumented
+P3 — Connection pooling            4 parallel agents = 4 parallel TCP handshakes
 ```
 
 ---

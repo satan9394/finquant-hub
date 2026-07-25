@@ -14,9 +14,8 @@ from typing import Any
 _WQ_FIELDS_PATH = Path(__file__).resolve().parents[1] / "data" / "wq_fields.json"
 
 
-@lru_cache(maxsize=1)
 def _load_wq_fields() -> tuple[dict[str, Any], ...]:
-    """Load the bundled field catalogue once, with a safe empty fallback."""
+    """Load the bundled field catalogue. Not cached — file may appear after import."""
     try:
         data = json.loads(_WQ_FIELDS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):

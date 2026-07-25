@@ -46,12 +46,16 @@ FastAPI lifespan → aiosqlite WAL single connection → 6+4 new routers → Vit
 ## What's actually BROKEN that needs fixing
 
 Priority order:
-1. HK/US stocks don't work (need Yahoo Finance adapter)
-2. WQ field DB: 4367 fields → 11 loaded (alpha_service.py never loads wq_fields.json)
-3. Analysis composite scoring returns `{}` (scoring.py never called)
-4. Research pipeline 4-agent SSE agents crash silently (tool-use loop fails)
-5. Zero tests on all new features
-6. API contract doc only covers MVP endpoints
+1. Research pipeline 4-agent SSE agents crash silently (tool-use loop fails — still BROKEN)
+2. Zero tests on all new features
+3. Portfolio HK/US PnL: non-A-share positions show $0 PnL
+4. API contract doc only covers MVP endpoints
+
+**Recently FIXED** (Jul 25):
+- HK/US stocks now work (00700/AAPL → correct price) ✅
+- WQ field DB: 4367 fields loaded (was 11) ✅
+- Analysis scoring: composite_score returns real values ✅  
+- Signals: deduped from 134→5 per stock ✅
 
 Full details: `docs/HANDOVER.md`
 
