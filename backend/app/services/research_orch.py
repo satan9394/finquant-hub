@@ -63,6 +63,7 @@ async def _call_agent(
             messages.append({
                 "role": "assistant",
                 "content": None,
+                **({"reasoning_content": tc["reasoning_content"]} if tc.get("reasoning_content") else {}),
                 "tool_calls": [{"id": tc["id"], "type": "function",
                                 "function": {"name": func["name"], "arguments": func["arguments"]}}],
             })

@@ -96,6 +96,7 @@ class LLMClient:
             tool_calls.append({
                 "id": tc["id"],
                 "type": tc["type"],
+                "reasoning_content": choice.get("reasoning_content"),
                 "function": {
                     "name": tc["function"]["name"],
                     "arguments": tc["function"]["arguments"],
@@ -109,9 +110,11 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
     ) -> tuple[str, list[dict], int | None]:
-        """与 chat_with_tools 相同，但自动清理 DeepSeek 非标字段。
+        """Tool calling with DeepSeek-compatible assistant message recovery.
 
-        DeepSeek 可能返回 reasoning_content 字段，再次发送时需清理。
+        Thinking-mode models require their ``reasoning_content`` to be returned
+        together with a tool-call message.  Dropping it produces a 400 on the
+        next tool round, so it is retained only on the assistant tool call.
         """
         payload = {
             "model": self.model,
@@ -139,6 +142,7 @@ class LLMClient:
             tool_calls.append({
                 "id": tc["id"],
                 "type": tc["type"],
+                "reasoning_content": choice.get("reasoning_content"),
                 "function": {
                     "name": tc["function"]["name"],
                     "arguments": tc["function"]["arguments"],
@@ -148,10 +152,10 @@ class LLMClient:
         return content, tool_calls, usage.get("total_tokens")
 
     def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
-        """清理消息中的 DeepSeek 非标字段。"""
+        """Normalize tool-call messages without deleting required reasoning."""
         cleaned = []
         for msg in messages:
-            copy = {k: v for k, v in msg.items() if k not in ("reasoning_content",)}
+            copy = dict(msg)
             # 当 role=assistant 且包含 tool_calls 时，content 必须为 None
             if copy.get("role") == "assistant" and copy.get("tool_calls"):
                 copy["content"] = None
