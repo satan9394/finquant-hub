@@ -472,7 +472,7 @@ export default function StockAnalysis() {
           {/* AI 分析报告 */}
           <Card
             size="small"
-            title="AI 智能分析报告"
+            title="技术分析报告"
             extra={
               <Button
                 size="small"
@@ -480,7 +480,7 @@ export default function StockAnalysis() {
                 onClick={handleAnalyze}
                 loading={loadingAnalysis}
               >
-                {loadingAnalysis ? '分析中...' : '重新分析'}
+                {loadingAnalysis ? '分析中...' : '刷新分析'}
               </Button>
             }
           >
@@ -489,7 +489,7 @@ export default function StockAnalysis() {
             )}
             {loadingAnalysis ? (
               <div style={{ textAlign: 'center', padding: 40 }}>
-                <Spin tip="正在生成分析报告，请耐心等待..." />
+                <Spin tip="正在计算技术指标..." />
               </div>
             ) : analysisSections.length > 0 ? (
               <Collapse
@@ -499,7 +499,7 @@ export default function StockAnalysis() {
                 size="small"
               />
             ) : (
-              <Empty description={'点击「重新分析」获取 AI 分析报告'} />
+              <Empty description={'点击「刷新分析」获取技术指标报告'} />
             )}
           </Card>
         </>

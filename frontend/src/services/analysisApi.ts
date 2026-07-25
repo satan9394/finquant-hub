@@ -16,10 +16,28 @@ import type {
 
 // ==================== 股票分析 ====================
 
-/** 请求 AI 股票分析（POST /api/analysis/stock） */
+/** 请求可即时完成的技术分析；深度 LLM 研究由 /research 页面承载。 */
 export async function requestAnalysis(data: AnalysisRequest): Promise<AnalysisResponse> {
-  const res = await apiClient.post('/analysis/stock', data);
-  return res.data;
+  const res = await apiClient.get(`/analysis/${encodeURIComponent(data.ticker)}/indicators`);
+  const raw = res.data;
+  const scoring = raw.scoring ?? {};
+  const components = scoring.components ?? {};
+  const content = [
+    `综合技术评分：${scoring.composite_score ?? '--'}（范围 -100 至 +100）`,
+    `趋势：${components.trend?.score ?? '--'}；动量：${components.momentum?.score ?? '--'}；成交量：${components.volume?.score ?? '--'}。`,
+    '评分基于当前可用行情与技术指标，仅供研究参考，不构成投资建议。',
+  ].join('\n');
+  return {
+    ticker: raw.ticker ?? data.ticker,
+    name: raw.ticker ?? data.ticker,
+    sections: [{ title: '技术指标评分', content, order: 1 }],
+    signals: (raw.signals ?? []).slice(-8).map((signal: { direction?: string; type?: string; description?: string }) => ({
+      type: signal.direction === 'bullish' ? 'bullish' : signal.direction === 'bearish' ? 'bearish' : 'neutral',
+      label: signal.type ?? '技术信号',
+      description: signal.description,
+    })),
+    generated_at: new Date().toISOString(),
+  };
 }
 
 // ==================== 投资组合 ====================
