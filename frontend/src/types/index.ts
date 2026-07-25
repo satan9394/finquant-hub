@@ -29,11 +29,11 @@ export interface RealTimeQuote {
   amount: number;
   change: number;
   change_percent: number;
-  turnover_rate: number;
-  pe: number;
-  pb: number;
-  market_cap: number;
-  amplitude: number;
+  turnover_rate: number | null;
+  pe: number | null;
+  pb: number | null;
+  market_cap: number | null;
+  amplitude: number | null;
   timestamp: number;
 }
 

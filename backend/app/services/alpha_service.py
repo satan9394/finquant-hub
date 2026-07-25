@@ -5,7 +5,28 @@
 """
 import math
 import re
+import json
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+
+_WQ_FIELDS_PATH = Path(__file__).resolve().parents[1] / "data" / "wq_fields.json"
+
+
+@lru_cache(maxsize=1)
+def _load_wq_fields() -> tuple[dict[str, Any], ...]:
+    """Load the bundled field catalogue once, with a safe empty fallback."""
+    try:
+        data = json.loads(_WQ_FIELDS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ()
+    return tuple(item for item in data if isinstance(item, dict) and item.get("id"))
+
+
+def list_fields() -> list[dict[str, Any]]:
+    """Return the real bundled WorldQuant field catalogue, not a fake summary."""
+    return list(_load_wq_fields())
 
 # 典型 Alpha 因子库（名称/表达式/描述）
 _ALPHA_LIBRARY: list[dict[str, str]] = [
@@ -97,6 +118,24 @@ def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
     返回匹配的 Alpha 列表，按相关度排序。
     """
     q = keyword.lower().strip()
+    field_results = []
+    for item in _load_wq_fields():
+        haystack = " ".join(str(item.get(key, "")) for key in ("id", "description", "type", "region"))
+        if not q or q in haystack.lower():
+            field_results.append({
+                "name": item["id"],
+                "field": item["id"],
+                "desc": item.get("description", ""),
+                "type": "wq_field",
+                "dataset": (item.get("dataset") or {}).get("name", ""),
+                "category": (item.get("category") or {}).get("name", ""),
+                "region": item.get("region", ""),
+            })
+            if len(field_results) >= max_results:
+                break
+    if field_results:
+        return field_results
+
     if not q:
         return _ALPHA_LIBRARY[:max_results]
 
@@ -143,6 +182,16 @@ def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
 
 def list_categories() -> list[dict]:
     """按类别返回 Alpha 因子概览。"""
+    field_categories: dict[str, dict[str, Any]] = {}
+    for item in _load_wq_fields():
+        category = item.get("category") or {}
+        name = category.get("name") or "Other"
+        bucket = field_categories.setdefault(name, {"name": name, "examples": [], "count": 0})
+        bucket["count"] += 1
+        if len(bucket["examples"]) < 3:
+            bucket["examples"].append(item["id"])
+    if field_categories:
+        return sorted(field_categories.values(), key=lambda item: (-item["count"], item["name"]))
     return [
         {"name": "动量因子", "examples": ["Alpha001", "Alpha011", "Alpha019"], "count": 40},
         {"name": "反转因子", "examples": ["Alpha002", "Alpha009", "Alpha024"], "count": 35},

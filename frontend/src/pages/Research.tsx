@@ -10,20 +10,32 @@ import {
   PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
   LoadingOutlined, CloseCircleOutlined, RobotOutlined,
 } from '@ant-design/icons';
-import type { AgentStatus, ResearchAgent, ResearchReport, ResearchSSEEvent } from '../types';
+import type { AgentStatus, ResearchAgent } from '../types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 // ==================== Agent 定义 ====================
-const AGENT_KEYS = ['collector', 'analyst', 'technician', 'writer'];
+const AGENT_KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor'];
 
 const AGENT_LABELS: Record<string, { name: string; role: string; icon: string }> = {
-  collector: { name: '数据采集', role: '收集市场与基本面数据', icon: '📡' },
-  analyst: { name: '基本面分析', role: '财务数据与估值分析', icon: '📊' },
-  technician: { name: '技术面分析', role: 'K线形态与指标分析', icon: '📈' },
-  writer: { name: '报告撰写', role: '整合各模块输出最终报告', icon: '✍️' },
+  business_analyst: { name: '商业模式', role: '业务、护城河与竞争力', icon: '🏢' },
+  financial_analyst: { name: '财务分析', role: '估值与财务健康度', icon: '📊' },
+  industry_researcher: { name: '行业研究', role: '产业链与行业周期', icon: '🔬' },
+  risk_assessor: { name: '风险评估', role: '独立识别投资风险', icon: '🛡️' },
 };
+
+function reportToMarkdown(report: Record<string, unknown>): string {
+  const sections: [string, string][] = [
+    ['执行摘要', 'executive_summary'], ['商业模式', 'business_model_analysis'],
+    ['财务分析', 'financial_analysis'], ['行业分析', 'industry_analysis'],
+    ['风险提示', 'risk_analysis'], ['技术分析说明', 'technical_analysis'], ['综合结论', 'verdict'],
+  ];
+  return sections
+    .map(([title, key]) => report[key] ? `## ${title}\n${String(report[key])}` : '')
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 // ==================== 简单 Markdown 渲染 ====================
 function MarkdownContent({ content }: { content: string }) {
@@ -110,7 +122,7 @@ export default function Research() {
     abortRef.current = new AbortController();
 
     try {
-      const response = await fetch('/api/research/start', {
+      const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticker: code }),
@@ -129,13 +141,13 @@ export default function Research() {
       let buffer = '';
       let accContent = '';
 
-      const processSSELine = (line: string) => {
-        if (!line.startsWith('data: ')) return;
+      const processSSEEvent = (event: string, payload: string) => {
         try {
-          const data: ResearchSSEEvent = JSON.parse(line.slice(6));
-          switch (data.type) {
+          const data = JSON.parse(payload) as Record<string, any>;
+          const agentKey = data.role_key as string | undefined;
+          switch (event) {
             case 'agent_started': {
-              const idx = AGENT_KEYS.indexOf(data.agent);
+              const idx = AGENT_KEYS.indexOf(agentKey ?? '');
               if (idx >= 0) {
                 setAgents((prev) => prev.map((a, i) =>
                   i === idx ? { ...a, status: 'running' as AgentStatus } : a
@@ -144,7 +156,7 @@ export default function Research() {
               break;
             }
             case 'agent_completed': {
-              const idx2 = AGENT_KEYS.indexOf(data.agent);
+              const idx2 = AGENT_KEYS.indexOf(agentKey ?? '');
               if (idx2 >= 0) {
                 setAgents((prev) => prev.map((a, i) =>
                   i === idx2 ? { ...a, status: 'completed' as AgentStatus } : a
@@ -152,28 +164,27 @@ export default function Research() {
               }
               break;
             }
-            case 'status': {
-              const idx3 = AGENT_KEYS.indexOf(data.agent);
-              if (idx3 >= 0) {
-                setAgents((prev) => prev.map((a, i) =>
-                  i === idx3 ? { ...a, progress: data.message } : a
-                ));
-              }
-              break;
-            }
             case 'report_progress': {
-              accContent += data.content;
-              setReportContent(accContent);
+              setReportContent(`正在整合报告：${data.name ?? '处理中'}`);
               break;
             }
             case 'done': {
-              setReportTitle(data.report?.title ?? '');
+              const report = data.report ?? {};
+              setReportTitle(`${report.company_name ?? code} 研究报告`);
+              accContent = reportToMarkdown(report);
+              setReportContent(accContent || '报告生成完成，但没有可展示的正文。');
               setDone(true);
               setRunning(false);
               break;
             }
+            case 'error': {
+              const idx = AGENT_KEYS.indexOf(agentKey ?? '');
+              if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: data.message } : agent));
+              else message.error(data.message || '研究请求失败');
+              break;
+            }
           }
-        } catch { /* 忽略 parse 错误 */ }
+        } catch { /* SSE 心跳或不完整分片不应中断研究 */ }
       };
 
       while (true) {
@@ -181,16 +192,21 @@ export default function Research() {
         if (streamDone) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('event:') || trimmed.startsWith(':')) continue;
-          processSSELine(trimmed);
+        const messages = buffer.split('\n\n');
+        buffer = messages.pop() || '';
+        for (const messageBlock of messages) {
+          let event = 'message';
+          const payload = messageBlock.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
+          const eventLine = messageBlock.split('\n').find((line) => line.startsWith('event: '));
+          if (eventLine) event = eventLine.slice(7).trim();
+          if (payload) processSSEEvent(event, payload);
         }
       }
-      if (buffer.trim()) processSSELine(buffer.trim());
+      if (buffer.trim()) {
+        const payload = buffer.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
+        const eventLine = buffer.split('\n').find((line) => line.startsWith('event: '));
+        if (payload) processSSEEvent(eventLine?.slice(7).trim() ?? 'message', payload);
+      }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         message.error(err.message || '研究请求失败');

@@ -21,10 +21,10 @@ import type { UTCTimestamp } from 'lightweight-charts';
 const { Title, Text } = Typography;
 
 // ==================== 常用格式化 ====================
-const fmtPrice = (v?: number) => (v != null ? v.toFixed(2) : '--');
-const fmtVolume = (v?: number) => (v != null ? (v >= 1e8 ? `${(v / 1e8).toFixed(2)}亿` : v >= 1e4 ? `${(v / 1e4).toFixed(0)}万` : `${v}`) : '--');
-const fmtPercent = (v?: number) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '--');
-const fmtChange = (v?: number) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '--');
+const fmtPrice = (v?: number | null) => (v != null ? v.toFixed(2) : '--');
+const fmtVolume = (v?: number | null) => (v != null ? (v >= 1e8 ? `${(v / 1e8).toFixed(2)}亿` : v >= 1e4 ? `${(v / 1e4).toFixed(0)}万` : `${v}`) : '--');
+const fmtPercent = (v?: number | null) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}%` : '--');
+const fmtChange = (v?: number | null) => (v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '--');
 
 // ==================== 技术指标子图组件 ====================
 function IndicatorSubChart({

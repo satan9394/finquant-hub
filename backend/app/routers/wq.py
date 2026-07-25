@@ -27,11 +27,9 @@ async def list_categories():
 
 @router.get("/fields")
 async def list_custom_fields():
-    """返回自定义/中文名称字段映射。"""
-    from ..services.alpha_service import _CUSTOM_FIELDS
-    items = [{"name": cn, "field": info["field"], "desc": info["desc"]}
-             for cn, info in _CUSTOM_FIELDS.items()]
-    return {"items": items}
+    """返回项目实际打包的 WorldQuant 字段目录。"""
+    items = alpha_service.list_fields()
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/correlation")
