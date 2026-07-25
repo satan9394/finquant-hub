@@ -20,7 +20,10 @@ SINA_KLINE = (
     "CN_MarketData.getKLineData?symbol={code}&scale={scale}&ma=no&datalen={count}"
 )
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+YAHOO_CHARTS = (
+    "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+    "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}",
+)
 YAHOO_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search"
 YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; FinQuant-Hub/1.0)"}
 
@@ -236,16 +239,8 @@ class MarketDataService:
 
     async def _quote_yahoo(self, code: str) -> dict:
         symbol = _yahoo_symbol(code)
-        resp = await self.yahoo_http.get(
-            YAHOO_CHART.format(symbol=symbol),
-            params={"range": "5d", "interval": "1d"},
-            headers=YAHOO_HEADERS,
-        )
-        resp.raise_for_status()
-        result = (resp.json().get("chart") or {}).get("result") or []
-        if not result:
-            raise MarketError(f"未找到股票代码：{code}")
-        meta = result[0].get("meta") or {}
+        payload = await self._yahoo_chart(symbol, "5d", "1d")
+        meta = payload.get("meta") or {}
         price = meta.get("regularMarketPrice")
         previous = meta.get("previousClose") or meta.get("chartPreviousClose")
         if price in (None, 0) or previous in (None, 0):
@@ -301,7 +296,7 @@ class MarketDataService:
             raise MarketError(f"无法获取 {ticker} 的 K 线") from exc
 
     async def _kline_sina(self, code: str, scale: int, count: int) -> list[dict]:
-        resp = await self.yahoo_http.get(
+        resp = await self.http.get(
             SINA_KLINE.format(code=code, scale=scale, count=count), headers=SINA_HEADERS
         )
         resp.raise_for_status()
@@ -343,16 +338,7 @@ class MarketDataService:
     async def _kline_yahoo(self, code: str, period: str, count: int) -> list[dict]:
         interval = {"1d": "1d", "60m": "60m", "30m": "30m", "15m": "15m", "5m": "5m"}.get(period, "1d")
         range_value = "5y" if interval == "1d" else "60d"
-        resp = await self.http.get(
-            YAHOO_CHART.format(symbol=_yahoo_symbol(code)),
-            params={"range": range_value, "interval": interval},
-            headers=YAHOO_HEADERS,
-        )
-        resp.raise_for_status()
-        result = (resp.json().get("chart") or {}).get("result") or []
-        if not result:
-            raise MarketError(f"未找到股票代码：{code}")
-        payload = result[0]
+        payload = await self._yahoo_chart(_yahoo_symbol(code), range_value, interval)
         quote = ((payload.get("indicators") or {}).get("quote") or [{}])[0]
         rows = []
         for timestamp, open_, high, low, close, volume in zip(
@@ -369,6 +355,23 @@ class MarketDataService:
         if not rows:
             raise MarketError(f"无K线数据：{code}")
         return rows[-count:]
+
+    async def _yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
+        last_error: Exception | None = None
+        for endpoint in YAHOO_CHARTS:
+            try:
+                response = await self.yahoo_http.get(
+                    endpoint.format(symbol=symbol),
+                    params={"range": range_value, "interval": interval},
+                    headers=YAHOO_HEADERS,
+                )
+                response.raise_for_status()
+                result = (response.json().get("chart") or {}).get("result") or []
+                if result:
+                    return result[0]
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+        raise MarketError(f"未找到股票代码：{symbol}") from last_error
 
 
 def _number(value: object) -> float:
