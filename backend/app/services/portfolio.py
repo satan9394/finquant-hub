@@ -1,7 +1,4 @@
-"""投资组合管理：增删改查 + 实时盈亏计算。
-
-组合数据存储在 SQLite，盈亏通过腾讯实时行情计算。
-"""
+"""投资组合管理：增删改查 + 使用统一多市场行情计算实时盈亏。"""
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -212,7 +209,9 @@ async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
         details.append({
             "id": p["id"],
             "ticker": p["ticker"],
-            "name": p["name"],
+            # A position can be recorded with its ticker alone.  Reuse the
+            # verified quote name so the UI stays useful without manual input.
+            "name": p["name"] or (q or {}).get("name") or p["ticker"],
             "shares": p["shares"],
             "avg_cost": p["avg_cost"],
             "current_price": current_price,

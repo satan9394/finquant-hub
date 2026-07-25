@@ -4,14 +4,14 @@
  * ============================================================ */
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Card, Row, Col, Table, Tabs, Button, Modal, Form, Input, InputNumber, Statistic, Typography, message, Empty, Popconfirm, Spin, Progress,
+  Card, Row, Col, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Statistic, Typography, message, Empty, Popconfirm, Spin, Progress,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import {
   fetchPortfolioGroups, fetchPortfolioSummary, fetchPortfolioHoldings,
-  fetchPortfolioAllocation, addPortfolioHolding, updatePortfolioHolding, deletePortfolioHolding,
+  fetchPortfolioAllocation, createPortfolio, addPortfolioHolding, updatePortfolioHolding, deletePortfolioHolding,
 } from '../services/analysisApi';
 import type { PortfolioGroup, PortfolioSummary, PortfolioHolding, PortfolioAllocation } from '../types';
 
@@ -39,6 +39,9 @@ export default function Portfolio() {
   const [editingHolding, setEditingHolding] = useState<PortfolioHolding | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
   const [form] = Form.useForm();
+  const [portfolioModalOpen, setPortfolioModalOpen] = useState(false);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioForm] = Form.useForm();
 
   // ---------- 加载分组 ----------
   const loadGroups = useCallback(async () => {
@@ -107,6 +110,23 @@ export default function Portfolio() {
       cost_price: holding.cost_price,
     });
     setModalOpen(true);
+  };
+
+  const handleCreatePortfolio = async () => {
+    try {
+      const values = await portfolioForm.validateFields();
+      setPortfolioLoading(true);
+      const group = await createPortfolio(values);
+      setPortfolioModalOpen(false);
+      portfolioForm.resetFields();
+      await loadGroups();
+      setActiveGroupId(group.id);
+      message.success('投资组合已创建');
+    } catch (err: any) {
+      if (err.message) message.error(err.message);
+    } finally {
+      setPortfolioLoading(false);
+    }
   };
 
   const handleModalOk = async () => {
@@ -199,9 +219,12 @@ export default function Portfolio() {
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>投资组合</Title>
-        <Button icon={<ReloadOutlined />} onClick={() => { loadSummary(); loadHoldings(activeGroupId ?? undefined); loadAllocation(); }}>
-          刷新
-        </Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button icon={<PlusOutlined />} onClick={() => setPortfolioModalOpen(true)}>新建组合</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { loadSummary(); loadHoldings(activeGroupId ?? undefined); loadAllocation(); }}>
+            刷新
+          </Button>
+        </div>
       </div>
 
       {/* 汇总卡片 */}
@@ -298,20 +321,33 @@ export default function Portfolio() {
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="group_id" label="所属分组" rules={[{ required: true, message: '请选择分组' }]}>
-            <InputNumber style={{ width: '100%' }} disabled={!!editingHolding} />
+          <Form.Item name="group_id" label="所属组合" rules={[{ required: true, message: '请选择组合' }]}>
+            <Select options={groups.map((group) => ({ value: group.id, label: group.name }))} disabled={!!editingHolding} />
           </Form.Item>
           <Form.Item name="code" label="股票代码" rules={[{ required: true, message: '请输入股票代码' }]}>
             <Input placeholder="如 600519" disabled={!!editingHolding} />
           </Form.Item>
-          <Form.Item name="name" label="股票名称" rules={[{ required: true, message: '请输入股票名称' }]}>
-            <Input placeholder="如 贵州茅台" disabled={!!editingHolding} />
+          <Form.Item name="name" label="股票名称（可选）">
+            <Input placeholder="留空时自动使用行情名称" disabled={!!editingHolding} />
           </Form.Item>
           <Form.Item name="shares" label="持仓数量" rules={[{ required: true, message: '请输入持仓数量' }]}>
             <InputNumber style={{ width: '100%' }} min={0} precision={0} placeholder="股数" />
           </Form.Item>
           <Form.Item name="cost_price" label="持仓成本价" rules={[{ required: true, message: '请输入成本价' }]}>
             <InputNumber style={{ width: '100%' }} min={0} precision={2} addonBefore="¥" placeholder="每股成本" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal title="新建投资组合" open={portfolioModalOpen} onOk={handleCreatePortfolio}
+        onCancel={() => setPortfolioModalOpen(false)} confirmLoading={portfolioLoading} destroyOnClose>
+        <Form form={portfolioForm} layout="vertical" initialValues={{ currency: 'CNY' }}>
+          <Form.Item name="name" label="组合名称" rules={[{ required: true, message: '请输入组合名称' }]}>
+            <Input placeholder="如 长期配置" autoFocus />
+          </Form.Item>
+          <Form.Item name="description" label="说明"><Input.TextArea rows={2} placeholder="可选" /></Form.Item>
+          <Form.Item name="currency" label="计价货币">
+            <Select options={[{ value: 'CNY', label: 'CNY 人民币' }, { value: 'HKD', label: 'HKD 港元' }, { value: 'USD', label: 'USD 美元' }]} />
           </Form.Item>
         </Form>
       </Modal>

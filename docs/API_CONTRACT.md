@@ -1,4 +1,4 @@
-# FinQuant Hub — 前后端 API 契约 v1.0
+# FinQuant Hub — 前后端 API 契约 v1.1
 
 本文档是前后端集成的唯一事实来源。PRD 定义端点清单，本文档定义精确的请求/响应 JSON 结构与 SSE 事件格式。
 
@@ -111,7 +111,9 @@ data: {"message": "错误描述"}
 ```
 已 done 的房间再次 start → `{"detail": "讨论已完成"}` 409。
 
-## 5. 行情数据 `/api/market`（后端代理腾讯/新浪/东方财富）
+## 5. 行情数据 `/api/market`（多市场数据源代理）
+
+支持可由当前数据源解析的 A 股、港股、美股与 ETF。常见输入包括 `600519`、`00700`、`0700.HK`、`AAPL`、`BRK.B`、`SPY`；无效或数据源未覆盖的代码返回明确错误，不以零价格伪装成功。
 
 - `GET /api/market/search?q=茅台` → `{items: [{"code": "600519", "name": "贵州茅台", "market": "sh", "type": "股票"}]}`
 - `GET /api/market/quote?ticker=600519`（自动补全市场前缀）→
@@ -150,3 +152,13 @@ data: {"message": "错误描述"}
 
 Vite dev proxy：`/api` → `http://127.0.0.1:8000`，必须配置 `compress: false`、`timeout: 0`（SSE 防缓冲）。
 后端端口 8000，前端 5173。SSE 消费方式：fetch + ReadableStream 解析 `event:`/`data:` 行（EventSource 不支持 POST）。
+
+## 8. 已实现分析、研究、组合与筛选接口
+
+- `GET /api/analysis/{ticker}/indicators?count=120` → `{ticker, days, indicators, signals, scoring}`。`scoring.composite_score` 范围为 -100 至 +100。
+- `GET /api/analysis/{ticker}/chart-data?count=200&period=1d` → `{ticker, period, data}`，每个数据点含 `time/open/high/low/close/volume`。
+- `POST /api/analysis/stock` ← `{ticker, model_id?}` → SSE。事件为 `agent_started`、`tool_call`、`agent_completed`、`report_progress`、`done`、`error`。
+- `POST /api/research` ← `{ticker, model_id?}` → 与分析研究相同的 SSE 事件；`GET /api/research` 列出已保存报告。对于工具调用型模型，服务端会保留模型返回的 `reasoning_content` 以保持会话协议完整。
+- `GET /api/portfolio` → `{items: [Portfolio]}`；`POST /api/portfolio` ← `{name, description?, currency?}`；`GET /api/portfolio/{id}/pnl` → `{total_cost, total_market_value, total_pnl, total_pnl_pct, positions}`。持仓创建为 `POST /api/portfolio/{id}/positions` ← `{ticker, shares, avg_cost, name?, currency?}`，其中 `name` 可省略并在有行情时自动显示行情名称。
+- `POST /api/screening` ← `{tickers: ["600519", "00700", "AAPL"]}`（1–30 个）→ `{items, errors}`。只对用户提供的清单执行真实行情与近 60 根日线筛选，不宣称覆盖整个交易所。
+- `GET /api/wq/fields` → `{items, total}`，返回项目打包的完整 WorldQuant 字段目录；`GET /api/wq/search?q=pe_ratio` → `{items, total}`。

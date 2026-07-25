@@ -10,8 +10,6 @@ import type {
   PortfolioHolding,
   PortfolioAllocation,
   SignalSummary,
-  ScreenRequest,
-  ScreenResult,
 } from '../types';
 
 // ==================== 股票分析 ====================
@@ -46,6 +44,12 @@ export async function requestAnalysis(data: AnalysisRequest): Promise<AnalysisRe
 export async function fetchPortfolioGroups(): Promise<PortfolioGroup[]> {
   const res = await apiClient.get('/portfolio');
   return res.data.items ?? [];
+}
+
+/** 新建可承载持仓的投资组合。 */
+export async function createPortfolio(data: { name: string; description?: string; currency?: string }): Promise<PortfolioGroup> {
+  const res = await apiClient.post('/portfolio', data);
+  return res.data;
 }
 
 /** 获取投资组合摘要 */
@@ -87,7 +91,7 @@ export async function fetchPortfolioHoldings(groupId?: number): Promise<Portfoli
 export async function addPortfolioHolding(data: {
   group_id: number;
   code: string;
-  name: string;
+  name?: string;
   shares: number;
   cost_price: number;
 }): Promise<PortfolioHolding> {
@@ -130,12 +134,4 @@ export async function fetchPortfolioAllocation(): Promise<PortfolioAllocation[]>
 export async function fetchSignalSummary(): Promise<SignalSummary> {
   const res = await apiClient.get('/signals/summary');
   return res.data;
-}
-
-// ==================== 选股器 ====================
-
-/** 获取选股结果 */
-export async function fetchScreenResults(params: ScreenRequest): Promise<ScreenResult[]> {
-  const res = await apiClient.get('/screening/results', { params });
-  return res.data.items ?? [];
 }
