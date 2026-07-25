@@ -69,18 +69,16 @@ class GetStockData(BaseTool):
         if not ticker:
             return ToolResult(False, error="参数 ticker 不能为空")
 
-        code = _normalize_code(ticker)
+        from ..services.market_data import MarketDataService, MarketError
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, trust_env=False) as http:
-                resp = await http.get(TENCENT_QUOTE.format(codes=code))
-                text = resp.content.decode("gbk", "replace")
-        except httpx.HTTPError as e:
+            service = MarketDataService()
+            try:
+                quote = await service.quote(ticker)
+            finally:
+                await service.aclose()
+        except (MarketError, ValueError) as e:
             return ToolResult(False, error=f"行情获取失败：{e}")
-
-        quotes = _parse_tencent(text)
-        if not quotes:
-            return ToolResult(False, error=f"未找到 {ticker} 的行情数据")
-        return ToolResult(True, data=quotes[0])
+        return ToolResult(True, data=quote)
 
 
 def _parse_tencent(raw: str) -> list[dict]:
@@ -159,32 +157,15 @@ class CalculateIndicators(BaseTool):
 
         names = [s.strip() for s in ind_str.split(",")] if ind_str else None
 
-        code = _normalize_code(ticker)
+        from ..services.market_data import MarketDataService, MarketError
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, trust_env=False) as http:
-                resp = await http.get(
-                    "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-                    f"CN_MarketData.getKLineData?symbol={code}&scale=240&ma=no&datalen=120",
-                    headers=SINA_HEADERS,
-                )
-                kdata = json.loads(resp.text)
-        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as e:
+            service = MarketDataService()
+            try:
+                kline = await service.kline(ticker, count=120)
+            finally:
+                await service.aclose()
+        except (MarketError, ValueError) as e:
             return ToolResult(False, error=f"K线获取失败：{e}")
-
-        if not isinstance(kdata, list) or not kdata:
-            return ToolResult(False, error=f"未获取到 {ticker} 的K线数据")
-
-        kline = [
-            {
-                "day": it["day"],
-                "open": float(it["open"]),
-                "high": float(it["high"]),
-                "low": float(it["low"]),
-                "close": float(it["close"]),
-                "volume": int(float(it.get("volume") or 0)),
-            }
-            for it in kdata if it.get("day") and it.get("open")
-        ]
 
         try:
             result = indicators.compute(kline, names)
