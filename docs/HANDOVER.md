@@ -105,14 +105,13 @@
 - Types: golden_cross, breakout_up, rsi_overbought, volume_surge, bottom_divergence
 - `_recent_unique()` was working correctly. Earlier 134 was from testing against old backend before schema refresh.
 
-### 🔥 Analysis SSE Research Pipeline: Agents crash silently
-- `POST /api/analysis/stock` starts SSE stream, emits 4 `agent_started` events, then 4 `error` events — all 4 agents fail during tool-use round.
-- **Root cause**: After the `reasoning_content` fix, need to re-test. The agents might still fail because:
-  - Tool call results format doesn't match DeepSeek expectations
-  - `json.loads(func["arguments"])` might fail on malformed arguments
-  - verify_valuation and screen_stocks tools might not have valid data sources
-- **Impact**: The multi-agent research feature (main selling point) doesn't produce results.
-- **Fix needed**: Debug the exact error. Test each tool individually. Consider simplifying agent workflow to single-LLM-call-per-agent (no tool-use loop) for MVP reliability.
+### 🔥 Analysis SSE Research Pipeline: Agents crash silently → FIXED (Jul 25 04:40)
+- `POST /api/analysis/stock` → 4 agents all complete, structured report generated ✅
+- Events: agent_started(4), tool_call(32), agent_completed(4), report_progress(12), done(1)
+- Agent outputs: 1022-2337 chars each, differentiated viewpoints
+- **Root cause**: DeepSeek "thinking mode" returns `reasoning_content` on the assistant message. When this field is stripped from the subsequent call, DeepSeek returns 400 "must be passed back." When PRESENT in the tool_call dict (misplaced by `chat_with_tools_safe` line 145 adding it per-tool_call), the message reconstruction in `research_orch._call_agent` needs to properly preserve it at the message level.
+- **Fix**: `_sanitize_messages` no longer strips `reasoning_content`. The research agent loop preserves `reasoning_content` from the response message in the assistant message sent back to the API.
+- **To verify**: `POST /api/analysis/stock {"ticker":"600519"}` → SSE stream completes with `done` event containing full report.
 
 ### 🔥 Research Pipeline: Same engine as Analysis
 - `POST /api/research` uses the same `research_orch.run_research()` → same failure mode as analysis/stock.
@@ -192,17 +191,16 @@ All 38 existing pytest tests cover only the MVP phase features:
 ## Quick Fix Priority
 
 ```
-P0 — Multi-market (HK/US)         FIXED — detect_market() 10-line change
-P0 — Analysis scoring              FIXED — was always working, audit bug
-P1 — WQ field DB load              FIXED — removed @lru_cache, 4367 fields now load
-P1 — Signal dedup                  FIXED — 134→5 signals, _recent_unique working correctly
-P1 — Research pipeline agents      main selling feature silently fails (still broken)
-P1 — Test coverage for new code    all new subsystems have ZERO tests
-P2 — Portfolio HK/US PnL           non-A-share positions show $0 PnL (minor)
-P2 — Frontend bundle size          1.6MB single chunk
-P3 — Backend test with new schema  38 tests irrelevant for new features
-P3 — API contract doc outdated     new endpoints undocumented
-P3 — Connection pooling            4 parallel agents = 4 parallel TCP handshakes
+P0 — Research pipeline agents        FIXED — 4 agents complete, structured report output
+P0 — Multi-market (HK/US)            FIXED — detect_market() 10-line change
+P0 — Analysis scoring                 FIXED — was always working, audit bug
+P1 — WQ field DB load                 FIXED — removed @lru_cache, 4367 fields now load
+P1 — Signal dedup                     FIXED — 134→5 signals, _recent_unique working correctly
+P1 — Test coverage for new code       all new subsystems have ZERO tests
+P2 — Portfolio HK/US PnL              non-A-share positions show cost basis (minor)
+P2 — Frontend bundle size             1.6MB single chunk
+P3 — Backend test with new schema     38 tests irrelevant for new features
+P3 — API contract doc outdated        new endpoints undocumented
 ```
 
 ---
