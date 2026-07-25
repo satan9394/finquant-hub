@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略 08 · 高频交易策略</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#f5f4f1;color:#1a1a1a;padding:32px 20px;display:flex;flex-direction:column;align-items:center}
+.page{max-width:860px;width:100%}
+.back{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:#666;text-decoration:none;margin-bottom:24px}
+.back:hover{color:#e34948}
+header{margin-bottom:32px}
+header .tag{font-size:12px;font-weight:600;color:#e34948;background:#fde0e0;padding:3px 10px;border-radius:12px;display:inline-block;margin-bottom:8px}
+header h1{font-size:28px;font-weight:700;margin-bottom:8px}
+header .sub{font-size:15px;color:#666;line-height:1.7}
+.analogy{background:#fef0f0;border-left:3px solid #e34948;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:14px;line-height:1.7;color:#5a1a1a}
+.analogy strong{color:#e34948}
+.viz-box{background:#100f0e;border-radius:14px;padding:20px 20px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:24px;color:#eee}
+.viz-box svg{width:100%;height:auto;display:block}
+.controls{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.controls button{background:#333;border:1px solid #555;border-radius:8px;padding:6px 16px;font-size:13px;cursor:pointer;font-weight:500;color:#eee}
+.controls button:hover{background:#444}
+.controls button.playing{background:#e34948;color:#fff;border-color:#e34948}
+.controls label{font-size:13px;color:#aaa;display:flex;align-items:center;gap:6px}
+.controls input[type=range]{width:90px;background:#555}
+.stats-row{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap}
+.stat-box{background:#1a1a19;border:1px solid #333;border-radius:8px;padding:10px 14px;text-align:center;flex:1;min-width:80px}
+.stat-box .num{font-size:18px;font-weight:700;color:#fff}
+.stat-box .lbl{font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.stat-box .num.green{color:#1aaf7a}
+.stat-box .num.red{color:#e34948}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.info-card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.info-card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:#e34948}
+.info-card p{font-size:14px;color:#555;line-height:1.7}
+.steps{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:24px}
+.steps h3{font-size:15px;font-weight:600;margin-bottom:12px}
+.steps ol{padding-left:20px}
+.steps li{font-size:14px;color:#555;line-height:1.8;margin-bottom:4px}
+@media(max-width:600px){header h1{font-size:22px}.info-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<a class="back" href="index.html">← 返回全部策略</a>
+
+<header>
+<div class="tag">策略 08 · 超短线</div>
+<h1>高频交易策略</h1>
+<div class="sub">速度就是一切。利用计算机在微秒级别发现并执行交易，抓住别人看不到的微小价差，靠巨大的交易量积累利润。一秒钟交易上千次，一次只赚几分钱。</div>
+</header>
+
+<div class="analogy">
+<strong>⚡ 生活类比：</strong>
+就像在超市收银台发现有人掉了 1 毛钱——普通人懒得弯腰去捡。
+但高频交易员会设计一个机器人，以每秒几百次的速度在全城所有超市的地板上扫描，每次弯腰捡 1 毛钱。
+虽然单次收益微不足道，但如果一秒钟捡 1000 次，一分钟就是 6000 元。
+关键在于：你必须比所有竞争对手都快零点零几秒。
+</div>
+
+<div class="viz-box">
+<svg id="chart" viewBox="0 0 740 350" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="clip"><rect x="60" y="20" width="640" height="260"/></clipPath>
+  </defs>
+  <!-- 暗色网格 -->
+  <g stroke="#2a2a28" stroke-width="0.5">
+    <line x1="60" y1="40" x2="700" y2="40"/><line x1="60" y1="70" x2="700" y2="70"/>
+    <line x1="60" y1="100" x2="700" y2="100"/><line x1="60" y1="130" x2="700" y2="130"/>
+    <line x1="60" y1="160" x2="700" y2="160"/><line x1="60" y1="190" x2="700" y2="190"/>
+    <line x1="60" y1="220" x2="700" y2="220"/><line x1="60" y1="250" x2="700" y2="250"/>
+    <line x1="60" y1="280" x2="700" y2="280"/>
+  </g>
+  <line x1="60" y1="20" x2="60" y2="280" stroke="#444" stroke-width="1"/>
+  <line x1="60" y1="280" x2="700" y2="280" stroke="#444" stroke-width="1"/>
+  <text x="55" y="18" text-anchor="end" font-size="11" fill="#666">价格</text>
+  <text x="700" y="296" text-anchor="end" font-size="11" fill="#666">时间 (微秒)</text>
+
+  <rect x="530" y="28" width="10" height="3" fill="#555" rx="1.5"/>
+  <text x="544" y="33" font-size="11" fill="#888">最优卖价</text>
+  <rect x="610" y="28" width="10" height="3" fill="#555" rx="1.5"/>
+  <text x="624" y="33" font-size="11" fill="#888">最优买价</text>
+  <text x="700" y="33" text-anchor="end" font-size="10" fill="#e34948">🟢 撮合成交</text>
+
+  <g clip-path="url(#clip)">
+    <!-- 买/卖价线 -->
+    <polyline id="askLine" fill="none" stroke="#e34948" stroke-width="1.2" stroke-linejoin="round" opacity="0.7"/>
+    <polyline id="bidLine" fill="none" stroke="#1aaf7a" stroke-width="1.2" stroke-linejoin="round" opacity="0.7"/>
+    <!-- 中间填充 -->
+    <polygon id="spreadFill" fill="#e34948" opacity="0.04"/>
+    <!-- 成交闪烁 -->
+    <g id="trades"/>
+    <!-- 价差标注 -->
+    <text id="spreadLabel" x="10" y="145" font-size="10" fill="#888" opacity="0"/>
+  </g>
+  <text id="statusText" x="400" y="145" text-anchor="middle" font-size="14" font-weight="600" opacity="0" fill="#aaa"/>
+</svg>
+
+<div class="controls">
+<button id="playBtn" class="playing" style="background:#e34948;color:#fff;border-color:#e34948">⏸ 运行中</button>
+<button id="resetBtn">↺ 重置</button>
+<label>速度 <input type="range" id="speedRange" min="1" max="10" value="6"></label>
+<span id="hzDisplay" style="font-size:12px;color:#888;font-family:monospace">0 tx/s</span>
+</div>
+<div class="stats-row">
+<div class="stat-box"><div class="lbl">总交易次数</div><div class="num" id="tradeCount">0</div></div>
+<div class="stat-box"><div class="lbl">盈利交易</div><div class="num green" id="winCount">0</div></div>
+<div class="stat-box"><div class="lbl">亏损交易</div><div class="num red" id="lossCount">0</div></div>
+<div class="stat-box"><div class="lbl">累计收益</div><div class="num green" id="pnlCount">+0</div></div>
+<div class="stat-box"><div class="lbl">运行时长</div><div class="num" id="runTime" style="font-size:14px;color:#aaa">0.0s</div></div>
+</div>
+</div>
+
+<div class="info-grid">
+<div class="info-card">
+<h3>💡 策略思想</h3>
+<p>高频交易的核心是速度和量。利用超低延迟系统做三件事：① 做市商——同时挂买单和卖单，赚取买卖价差；② 套利——发现同一资产在不同交易所的微小价差；③ 订单流预测——通过分析订单簿预测价格短期走势。每一笔赚得极少，但每天几百万笔交易累积可观利润。</p>
+</div>
+<div class="info-card">
+<h3>⚙️ 实现方式</h3>
+<p>需要：FPGA/GPU 硬件加速、低延迟网络（微波/光纤）、交易所机房托管（co-location）、极简代码路径。通常用 C++ 或 FPGA 编写核心逻辑，Python 仅做策略研究和风控监控。竞争极其激烈，技术门槛和资金门槛都很高。</p>
+</div>
+</div>
+
+<div class="steps">
+<h3>📋 执行步骤</h3>
+<ol>
+<li>理解市场微观结构：订单簿、撮合规则、手续费结构</li>
+<li>设计策略：做市、套利、还是订单流预测？不同策略需要不同的硬件投入</li>
+<li>将服务器托管到离交易所最近的机房（每 1 毫秒延迟 = 每年可能损失数百万利润）</li>
+<li>在模拟环境中测试策略的逻辑正确性，避免"胖手指"错误</li>
+<li>实盘时持续监控延迟和盈亏，设置熔断机制防止程序失控</li>
+</ol>
+</div>
+
+</div>
+
+<script>
+const N=300;
+const ask=[],bid=[];
+let basePrice=160;
+for(let i=0;i<N;i++){
+  let t=i/N;
+  let drift=Math.sin(t*Math.PI*8)*4+Math.sin(t*Math.PI*20)*1.5;
+  ask.push(basePrice+drift+0.02+(Math.random()-0.5)*0.01);
+  bid.push(basePrice+drift-0.02+(Math.random()-0.5)*0.01);
+  if(i%50===0)basePrice+=(Math.random()-0.5)*1;
+}
+
+const W=640,H=260;
+const xS=i=>60+(i/(N-1))*W;
+const yS=v=>20+(1-(v-140)/80)*H;
+
+let idx=0,playing=true,speed=6,timer=null;
+const askEl=document.getElementById('askLine');
+const bidEl=document.getElementById('bidLine');
+const spreadFill=document.getElementById('spreadFill');
+const tradesEl=document.getElementById('trades');
+const stEl=document.getElementById('statusText');
+const slEl=document.getElementById('spreadLabel');
+const bi=document.getElementById('barIdx');
+const hzD=document.getElementById('hzDisplay');
+
+let tradeCount=0,winCount=0,lossCount=0,pnl=0;
+let startTime=Date.now();
+let lastTradeIdx=0;
+const tradeHistory=[];
+
+function draw(upTo){
+  let ap=[],bp=[],fillPts=[];
+  for(let i=Math.max(0,upTo-100);i<=upTo;i++){
+    let xs=xS(i);
+    ap.push(`${xs},${yS(ask[i])}`);
+    bp.push(`${xs},${yS(bid[i])}`);
+    if(i===Math.max(0,upTo-100)){
+      fillPts.push(`${xs},${yS(ask[i])}`);
+    }
+  }
+  askEl.setAttribute('points',ap.join(' '));
+  bidEl.setAttribute('points',bp.join(' '));
+
+  // Spread fill
+  if(ap.length>1){
+    let pts=ap.slice();
+    let bpts=bp.slice();bpts.reverse();
+    fillPts=ap.concat(bpts);
+    spreadFill.setAttribute('points',fillPts.join(' '));
+  }
+
+  // Simulate rapid trades
+  let tNow=Date.now();
+  let rate=speed*40;
+  let expectedTrades=Math.floor((upTo/N)*rate*3);
+  while(tradeCount<expectedTrades&&tradeCount<300){
+    let tIdx=Math.floor(Math.random()*upTo);
+    let isWin=Math.random()>0.42;
+    let p=Math.random()*0.04+0.005;
+    if(isWin){winCount++;pnl+=p;}else{lossCount++;pnl-=p*1.1;}
+    tradeHistory.push({idx:tIdx,win:isWin,val:p});
+    tradeCount++;
+  }
+
+  // Draw recent trades (last 40)
+  let tHtml='';
+  let recent=tradeHistory.slice(-40);
+  for(let t of recent){
+    let px=xS(t.idx),py=yS(ask[t.idx]);
+    let col=t.win?'#1aaf7a':'#e34948';
+    tHtml+=`<circle cx="${px}" cy="${py}" r="${t.win?2:1.5}" fill="${col}" opacity="${t.win?0.8:0.5}"/>`;
+  }
+  tradesEl.innerHTML=tHtml;
+
+  // Update stats
+  document.getElementById('tradeCount').textContent=tradeCount;
+  document.getElementById('winCount').textContent=winCount;
+  document.getElementById('lossCount').textContent=lossCount;
+  document.getElementById('pnlCount').textContent=(pnl*1000).toFixed(0);
+  document.getElementById('pnlCount').style.color=pnl>=0?'#1aaf7a':'#e34948';
+  document.getElementById('runTime').textContent=((Date.now()-startTime)/1000).toFixed(1)+'s';
+  hzD.textContent=`${Math.round(rate*3)} tx/s`;
+
+  // Spread indicator
+  let curSpread=(ask[upTo]-bid[upTo])*1000;
+  bi.textContent=upTo;
+  let spreadPx=xS(upTo);
+  slEl.setAttribute('x',spreadPx+5);
+  slEl.setAttribute('y',(yS(ask[upTo])+yS(bid[upTo]))/2+3);
+  slEl.textContent=`价差 ${curSpread.toFixed(1)} 点`;
+
+  if(tradeCount>10){
+    stEl.setAttribute('opacity','1');
+    stEl.textContent=pnl>0?'⚡ 盈利中 · 持续扫描订单簿':'📡 运行中 · 等待套利机会';
+    stEl.setAttribute('fill',pnl>0?'#1aaf7a':'#888');
+  }
+}
+
+function step(){
+  if(idx<N-1){idx++;draw(idx);}
+  else{
+    playing=false;
+    let btn=document.getElementById('playBtn');
+    btn.textContent='▶ 运行';btn.classList.remove('playing');btn.style.background='#333';
+  }
+}
+
+function schedule(){if(timer)clearTimeout(timer);if(playing)timer=setTimeout(()=>{step();schedule();},Math.max(10,60/speed));}
+
+document.getElementById('playBtn').addEventListener('click',()=>{
+  playing=!playing;
+  let btn=document.getElementById('playBtn');
+  btn.textContent=playing?'⏸ 运行中':'▶ 运行';
+  btn.classList.toggle('playing',playing);
+  btn.style.background=playing?'#e34948':'#333';
+  if(playing){if(idx>=N-1){idx=0;draw(0);}schedule();}else if(timer)clearTimeout(timer);
+});
+document.getElementById('resetBtn').addEventListener('click',()=>{
+  if(timer)clearTimeout(timer);
+  idx=0;tradeCount=0;winCount=0;lossCount=0;pnl=0;tradeHistory.length=0;startTime=Date.now();
+  draw(0);
+  if(!playing){playing=true;let btn=document.getElementById('playBtn');btn.textContent='⏸ 运行中';btn.classList.add('playing');btn.style.background='#e34948';}
+  schedule();
+});
+document.getElementById('speedRange').addEventListener('input',e=>{speed=parseInt(e.target.value);});
+draw(0);schedule();
+</script>
+</body>
+</html>

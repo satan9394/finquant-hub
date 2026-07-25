@@ -17,6 +17,8 @@ dist/
 
 # 数据与日志
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
 logs/
 *.log
