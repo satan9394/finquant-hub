@@ -153,13 +153,14 @@ def volume_surge(volume: list[float], multiplier: float = 2.0, window: int = 20)
 
 
 def rsi_oversold(rsi: list[float], threshold: float = 30.0) -> list[dict]:
-    """RSI 超卖：RSI 低于 threshold。"""
+    """RSI 进入超卖区：只在穿越阈值时记录一次。"""
     r = _to_arr(rsi)
     signals = []
     for i in range(len(r)):
         if np.isnan(r[i]):
             continue
-        if r[i] < threshold:
+        previous = r[i - 1] if i else np.nan
+        if r[i] < threshold and (i == 0 or np.isnan(previous) or previous >= threshold):
             signals.append({
                 "type": "rsi_oversold",
                 "index": i,
@@ -171,13 +172,14 @@ def rsi_oversold(rsi: list[float], threshold: float = 30.0) -> list[dict]:
 
 
 def rsi_overbought(rsi: list[float], threshold: float = 70.0) -> list[dict]:
-    """RSI 超买：RSI 高于 threshold。"""
+    """RSI 进入超买区：只在穿越阈值时记录一次。"""
     r = _to_arr(rsi)
     signals = []
     for i in range(len(r)):
         if np.isnan(r[i]):
             continue
-        if r[i] > threshold:
+        previous = r[i - 1] if i else np.nan
+        if r[i] > threshold and (i == 0 or np.isnan(previous) or previous <= threshold):
             signals.append({
                 "type": "rsi_overbought",
                 "index": i,
@@ -188,9 +190,22 @@ def rsi_overbought(rsi: list[float], threshold: float = 70.0) -> list[dict]:
     return signals
 
 
+def _recent_unique(sigs: list[dict], latest_index: int, lookback: int = 20) -> list[dict]:
+    """保留最近窗口内每类最新事件，避免历史状态淹没当前决策。"""
+    minimum_index = max(0, latest_index - lookback + 1)
+    newest_by_type: dict[str, dict] = {}
+    for signal in sigs:
+        if signal["index"] < minimum_index:
+            continue
+        previous = newest_by_type.get(signal["type"])
+        if previous is None or signal["index"] >= previous["index"]:
+            newest_by_type[signal["type"]] = signal
+    return sorted(newest_by_type.values(), key=lambda signal: signal["index"])
+
+
 def detect_all(indicators: dict, close: list[float], high: list[float],
                low: list[float], volume: list[float]) -> list[dict]:
-    """运行全部信号检测，合并返回。"""
+    """运行全部信号检测，返回近期且每类唯一的事件。"""
     sigs = []
 
     macd = indicators.get("macd", {})
@@ -210,4 +225,4 @@ def detect_all(indicators: dict, close: list[float], high: list[float],
             sigs.extend(rsi_oversold(vals))
             sigs.extend(rsi_overbought(vals))
 
-    return sigs
+    return _recent_unique(sigs, len(close) - 1)
