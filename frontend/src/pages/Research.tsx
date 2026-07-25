@@ -37,6 +37,14 @@ function reportToMarkdown(report: Record<string, unknown>): string {
     .join('\n\n');
 }
 
+function renderInlineMarkdown(text: string) {
+  return text.split(/(\*\*.*?\*\*)/).map((part, index) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={index}>{part.slice(2, -2)}</strong>
+      : part
+  );
+}
+
 // ==================== 简单 Markdown 渲染 ====================
 function MarkdownContent({ content }: { content: string }) {
   const lines = content.split('\n');
@@ -52,10 +60,8 @@ function MarkdownContent({ content }: { content: string }) {
     if (line.startsWith('---')) return <div key={i} style={{ borderTop: '1px solid #eee', margin: '12px 0' }} />;
     // 空行
     if (!line.trim()) return <div key={i} style={{ height: 8 }} />;
-    // 加粗
-    const rendered = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // 普通段落
-    return <Paragraph key={i} style={{ marginBottom: 4, whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: rendered }} />;
+    return <Paragraph key={i} style={{ marginBottom: 4, whiteSpace: 'pre-wrap' }}>{renderInlineMarkdown(line)}</Paragraph>;
   });
   return <div>{elements}</div>;
 }
@@ -140,11 +146,14 @@ export default function Research() {
       const decoder = new TextDecoder();
       let buffer = '';
       let accContent = '';
+      let streamCompleted = false;
 
       const processSSEEvent = (event: string, payload: string) => {
         try {
           const data = JSON.parse(payload) as Record<string, any>;
-          const agentKey = data.role_key as string | undefined;
+          // Research orchestration emits `agent`; older discussion endpoints
+          // used `role_key`.  Accept both so progress is never stranded.
+          const agentKey = (data.agent ?? data.role_key) as string | undefined;
           switch (event) {
             case 'agent_started': {
               const idx = AGENT_KEYS.indexOf(agentKey ?? '');
@@ -174,6 +183,7 @@ export default function Research() {
               accContent = reportToMarkdown(report);
               setReportContent(accContent || '报告生成完成，但没有可展示的正文。');
               setDone(true);
+              streamCompleted = true;
               setRunning(false);
               break;
             }
@@ -192,20 +202,34 @@ export default function Research() {
         if (streamDone) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const messages = buffer.split('\n\n');
+        // sse-starlette emits CRLF frames. Splitting only on "\n\n" leaves
+        // every event in one buffer and causes the final `done` event to vanish.
+        const messages = buffer.split(/\r?\n\r?\n/);
         buffer = messages.pop() || '';
         for (const messageBlock of messages) {
           let event = 'message';
-          const payload = messageBlock.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
-          const eventLine = messageBlock.split('\n').find((line) => line.startsWith('event: '));
+          const lines = messageBlock.split(/\r?\n/);
+          const payload = lines.find((line) => line.startsWith('data: '))?.slice(6);
+          const eventLine = lines.find((line) => line.startsWith('event: '));
           if (eventLine) event = eventLine.slice(7).trim();
           if (payload) processSSEEvent(event, payload);
         }
       }
+      buffer += decoder.decode();
       if (buffer.trim()) {
-        const payload = buffer.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
-        const eventLine = buffer.split('\n').find((line) => line.startsWith('event: '));
-        if (payload) processSSEEvent(eventLine?.slice(7).trim() ?? 'message', payload);
+        for (const messageBlock of buffer.split(/\r?\n\r?\n/)) {
+          const lines = messageBlock.split(/\r?\n/);
+          const payload = lines.find((line) => line.startsWith('data: '))?.slice(6);
+          const eventLine = lines.find((line) => line.startsWith('event: '));
+          if (payload) processSSEEvent(eventLine?.slice(7).trim() ?? 'message', payload);
+        }
+      }
+      if (!streamCompleted && !abortRef.current.signal.aborted) {
+        setAgents((prev) => prev.map((agent) => agent.status === 'running'
+          ? { ...agent, status: 'failed' as AgentStatus, progress: '研究流意外中断' }
+          : agent));
+        setReportContent((current) => current || '研究服务在生成报告前中断，请重试。');
+        message.error('研究服务在生成报告前中断');
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
