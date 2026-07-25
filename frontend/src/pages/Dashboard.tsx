@@ -5,14 +5,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Statistic, List, Typography, Input, Button, message, Tag } from 'antd';
 import {
   RobotOutlined, MessageOutlined, TeamOutlined, CommentOutlined,
-  PlusOutlined, ReloadOutlined,
+  PlusOutlined, ReloadOutlined, RiseOutlined, FallOutlined, SearchOutlined, FundOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
 import { fetchQuote, searchStocks } from '../services/stockApi';
 import { useModelStore } from '../store/modelStore';
 import StockChart from '../components/StockChart';
-import type { DashboardStats, RealTimeQuote, SearchResult } from '../types';
+import { fetchPortfolioSummary, fetchSignalSummary } from '../services/analysisApi';
+import type { DashboardStats, RealTimeQuote, SearchResult, PortfolioSummary, SignalSummary } from '../types';
 
 const { Text, Title } = Typography;
 
@@ -49,6 +50,14 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
+  // 投资组合摘要（仪表盘概览）
+  const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
+  const [signalSummary, setSignalSummary] = useState<SignalSummary | null>(null);
+
+  // 快速分析入口
+  const [analysisQuery, setAnalysisQuery] = useState('');
+  const [analysisResults, setAnalysisResults] = useState<SearchResult[]>([]);
+
   // 加载统计
   const loadStats = useCallback(async () => {
     try {
@@ -58,7 +67,25 @@ export default function Dashboard() {
     finally { setLoading(false); }
   }, []);
 
+  // 加载投资组合摘要
+  const loadPortfolioSummary = useCallback(async () => {
+    try {
+      const s = await fetchPortfolioSummary();
+      setPortfolioSummary(s);
+    } catch { /* 后端尚未实现时为静默失败 */ }
+  }, []);
+
+  // 加载信号摘要
+  const loadSignalSummary = useCallback(async () => {
+    try {
+      const s = await fetchSignalSummary();
+      setSignalSummary(s);
+    } catch { /* 后端尚未实现时为静默失败 */ }
+  }, []);
+
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadPortfolioSummary(); }, [loadPortfolioSummary]);
+  useEffect(() => { loadSignalSummary(); }, [loadSignalSummary]);
 
   // 加载自选股行情
   const refreshQuotes = useCallback(async () => {
@@ -81,7 +108,7 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [refreshQuotes]);
 
-  // 搜索股票
+  // 搜索股票（自选股添加用）
   const handleSearch = useCallback(async (q: string) => {
     setSearchQuery(q);
     if (!q.trim()) { setSearchResults([]); return; }
@@ -90,6 +117,23 @@ export default function Dashboard() {
       setSearchResults(res);
     } catch { setSearchResults([]); }
   }, []);
+
+  // 搜索股票（快速分析用）
+  const handleAnalysisSearch = useCallback(async (q: string) => {
+    setAnalysisQuery(q);
+    if (!q.trim()) { setAnalysisResults([]); return; }
+    try {
+      const res = await searchStocks(q);
+      setAnalysisResults(res);
+    } catch { setAnalysisResults([]); }
+  }, []);
+
+  // 跳转到分析页
+  const goToAnalysis = (code: string) => {
+    setAnalysisQuery('');
+    setAnalysisResults([]);
+    navigate(`/analysis/${code}`);
+  };
 
   // 添加到自选股
   const addToWatchlist = (code: string, name: string) => {
@@ -136,6 +180,76 @@ export default function Dashboard() {
             </Card>
           </Col>
         ))}
+      </Row>
+
+      {/* 投资组合与信号概览 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        {/* 投资组合盈亏 */}
+        <Col xs={24} md={12}>
+          <Card title="投资组合概览" size="small" hoverable
+            extra={<Button type="link" size="small" onClick={() => navigate('/portfolio')}>查看详情</Button>}
+          >
+            {portfolioSummary ? (
+              <div>
+                <Statistic
+                  title="总盈亏"
+                  value={portfolioSummary.total_profit}
+                  precision={2}
+                  prefix={portfolioSummary.total_profit >= 0 ? <RiseOutlined /> : <FallOutlined />}
+                  valueStyle={{ color: portfolioSummary.total_profit >= 0 ? '#f23645' : '#089981', fontFamily: 'monospace' }}
+                  suffix={<span style={{ fontSize: 14, fontWeight: 400 }}>({portfolioSummary.total_profit_percent.toFixed(2)}%)</span>}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>投入: ¥{portfolioSummary.total_invested.toFixed(2)}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>市值: ¥{portfolioSummary.total_current.toFixed(2)}</Text>
+                </div>
+                {portfolioSummary.group_summaries?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    {portfolioSummary.group_summaries.map((g) => (
+                      <div key={g.group_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
+                        <span>{g.group_name}</span>
+                        <span style={{ color: g.profit >= 0 ? '#f23645' : '#089981', fontFamily: 'monospace' }}>
+                          {g.profit >= 0 ? '+' : ''}{g.profit.toFixed(2)} ({g.profit_percent.toFixed(2)}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 12 }}>暂无投资组合数据</Text>
+            )}
+          </Card>
+        </Col>
+
+        {/* 信号概览 */}
+        <Col xs={24} md={12}>
+          <Card title="信号概览" size="small">
+            {signalSummary ? (
+              <div>
+                <Row gutter={16}>
+                  <Col span={8}>
+                    <Statistic title="看多" value={signalSummary.bullish} valueStyle={{ color: '#f23645' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic title="看空" value={signalSummary.bearish} valueStyle={{ color: '#089981' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic title="中性" value={signalSummary.neutral} valueStyle={{ color: '#faad14' }} />
+                  </Col>
+                </Row>
+                {signalSummary.signals?.slice(0, 5).map((s, i) => (
+                  <Tag key={i} color={s.type === 'bullish' ? 'red' : s.type === 'bearish' ? 'green' : 'default'}
+                    style={{ marginTop: 6 }}>
+                    {s.label}
+                  </Tag>
+                ))}
+              </div>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 12 }}>暂无信号数据</Text>
+            )}
+          </Card>
+        </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
@@ -194,8 +308,49 @@ export default function Dashboard() {
               <Col><Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/chat')}>发起对话</Button></Col>
               <Col><Button icon={<TeamOutlined />} onClick={() => navigate('/discussion')}>创建讨论</Button></Col>
               <Col><Button icon={<RobotOutlined />} onClick={() => navigate('/models')}>管理模型</Button></Col>
+              <Col><Button icon={<FundOutlined />} onClick={() => navigate('/research')}>深度研究</Button></Col>
               <Col><Button icon={<ReloadOutlined />} onClick={loadStats}>刷新</Button></Col>
             </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 快速分析入口 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <Card title="快速个股分析" size="small" extra={
+            <Text type="secondary" style={{ fontSize: 11 }}>输入股票代码或名称，一键进入分析页</Text>
+          }>
+            <div style={{ position: 'relative' }}>
+              <Input.Search
+                placeholder="例如 600519 或 贵州茅台"
+                value={analysisQuery}
+                onChange={(e) => handleAnalysisSearch(e.target.value)}
+                onSearch={(val) => val && goToAnalysis(val)}
+                enterButton={<><SearchOutlined /> 分析</>}
+                style={{ maxWidth: 400 }}
+              />
+              {analysisResults.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: 40, left: 0, width: 400, zIndex: 100,
+                  background: '#fff', border: '1px solid #f0f0f0', borderRadius: 4,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                }}>
+                  {analysisResults.slice(0, 6).map((item) => (
+                    <div
+                      key={item.code}
+                      onClick={() => goToAnalysis(item.code)}
+                      style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f5f5f5' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#fafafa')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <Text strong>{item.name}</Text>
+                      <Text style={{ marginLeft: 8, color: '#888', fontSize: 12 }}>{item.code}</Text>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Card>
         </Col>
       </Row>

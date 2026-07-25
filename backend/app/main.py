@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, database
-from .routers import agents, chat, dashboard, discussion, market, models_crud
+from .routers import agents, analysis as analysis_router, backtest, chat, dashboard, discussion, market, models_crud, portfolio as portfolio_router, research, wq
 from .services.market_data import MarketDataService
 
 
@@ -28,7 +28,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router):
+for r in (models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
+          analysis_router.router, portfolio_router.router, wq.router, research.router, backtest.router):
     app.include_router(r)
 
 

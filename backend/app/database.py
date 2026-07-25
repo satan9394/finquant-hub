@@ -68,6 +68,104 @@ CREATE TABLE IF NOT EXISTS discussion_rooms (
     created_at      TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 );
+
+CREATE TABLE IF NOT EXISTS research_reports (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker        TEXT NOT NULL,
+    company_name  TEXT,
+    report_data   TEXT NOT NULL,
+    agent_results TEXT,
+    status        TEXT DEFAULT 'completed',
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS backtest_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker        TEXT NOT NULL,
+    strategy_type TEXT NOT NULL,
+    periods       INTEGER DEFAULT 252,
+    params        TEXT,
+    result        TEXT NOT NULL,
+    status        TEXT DEFAULT 'completed',
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS analysis_reports (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker        TEXT NOT NULL,
+    market        TEXT,
+    summary       TEXT,
+    score         REAL,
+    signals       TEXT,
+    indicators_snapshot TEXT,
+    chapters      TEXT,
+    model_id      INTEGER,
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS analysis_signals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker        TEXT NOT NULL,
+    signal_type   TEXT NOT NULL,
+    direction     TEXT,
+    strength      REAL,
+    detected_at   TEXT DEFAULT (datetime('now')),
+    expiry        TEXT,
+    description   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    agent_role_key  TEXT NOT NULL,
+    tool_calls      TEXT,
+    token_usage     INTEGER,
+    started_at      TEXT,
+    completed_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS alpha_fields (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    field_id      INTEGER,
+    category      TEXT,
+    name          TEXT,
+    description   TEXT,
+    dataset       TEXT,
+    coverage      REAL,
+    alpha_count   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_groups (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    description   TEXT,
+    created_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_items (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id      INTEGER,
+    ticker        TEXT NOT NULL,
+    name          TEXT,
+    shares        REAL,
+    avg_cost      REAL,
+    currency      TEXT DEFAULT 'CNY',
+    added_at      TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (group_id) REFERENCES portfolio_groups(id)
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_trades (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id       INTEGER,
+    action        TEXT NOT NULL,
+    shares        REAL,
+    price         REAL,
+    total         REAL,
+    traded_at     TEXT,
+    note          TEXT,
+    created_at    TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (item_id) REFERENCES portfolio_items(id)
+);
 """
 
 _db: aiosqlite.Connection | None = None

@@ -233,3 +233,180 @@ export interface ChartConfig {
   height?: number;
   autoSize?: boolean;
 }
+
+// ==================== 信号系统 ====================
+
+export interface SignalBadge {
+  type: 'bullish' | 'bearish' | 'neutral';
+  label: string;
+  description?: string;
+  strength?: number;
+}
+
+export interface SignalSummary {
+  total: number;
+  bullish: number;
+  bearish: number;
+  neutral: number;
+  signals: SignalBadge[];
+}
+
+// ==================== 股票分析 ====================
+
+export interface AnalysisRequest {
+  ticker: string;
+  force_refresh?: boolean;
+}
+
+export interface AnalysisSection {
+  title: string;
+  content: string;
+  order: number;
+}
+
+export interface AnalysisResponse {
+  ticker: string;
+  name: string;
+  sections: AnalysisSection[];
+  signals: SignalBadge[];
+  generated_at: string;
+}
+
+// ==================== 投资组合 ====================
+
+export interface PortfolioGroup {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+}
+
+export interface PortfolioHolding {
+  id: number;
+  group_id: number;
+  code: string;
+  name: string;
+  shares: number;
+  cost_price: number;
+  current_price?: number;
+  market_value?: number;
+  cost_value?: number;
+  profit?: number;
+  profit_percent?: number;
+  weight?: number;
+  added_at: string;
+}
+
+export interface PortfolioSummary {
+  total_invested: number;
+  total_current: number;
+  total_profit: number;
+  total_profit_percent: number;
+  group_summaries: {
+    group_id: number;
+    group_name: string;
+    invested: number;
+    current: number;
+    profit: number;
+    profit_percent: number;
+  }[];
+}
+
+export interface PortfolioAllocation {
+  group_id: number;
+  group_name: string;
+  weight: number;
+  items: { name: string; weight: number; code?: string }[];
+}
+
+// ==================== 深度研究 ====================
+
+export type AgentStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface ResearchAgent {
+  name: string;
+  role: string;
+  status: AgentStatus;
+  progress?: string;
+}
+
+export interface ResearchReport {
+  ticker: string;
+  name: string;
+  title: string;
+  content: string;
+  sections: { title: string; content: string }[];
+  generated_at: string;
+  agents: ResearchAgent[];
+}
+
+export interface ResearchSSEAgentStarted {
+  type: 'agent_started';
+  agent: string;
+  name: string;
+  role: string;
+}
+
+export interface ResearchSSEAgentCompleted {
+  type: 'agent_completed';
+  agent: string;
+  name: string;
+}
+
+export interface ResearchSSEStatus {
+  type: 'status';
+  agent: string;
+  message: string;
+}
+
+export interface ResearchSSEReportProgress {
+  type: 'report_progress';
+  content: string;
+}
+
+export interface ResearchSSEDone {
+  type: 'done';
+  report: ResearchReport;
+}
+
+export type ResearchSSEEvent =
+  | ResearchSSEAgentStarted
+  | ResearchSSEAgentCompleted
+  | ResearchSSEStatus
+  | ResearchSSEReportProgress
+  | ResearchSSEDone;
+
+// ==================== 选股器 ====================
+
+export interface ScreenRequest {
+  condition: string;
+  page?: number;
+  page_size?: number;
+}
+
+export interface ScreenResult {
+  code: string;
+  name: string;
+  price: number;
+  change_percent: number;
+  reason: string;
+}
+
+// ==================== 实时报价（精简行情条） ====================
+
+export interface PriceStats {
+  price: number;
+  open: number;
+  high: number;
+  low: number;
+  last_close: number;
+  change: number;
+  change_percent: number;
+  volume: number;
+  amount: number;
+  turnover_rate: number;
+  amplitude: number;
+  pe: number;
+  pb: number;
+  market_cap: number;
+}

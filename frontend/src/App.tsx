@@ -13,6 +13,9 @@ import {
   BookOutlined,
   RobotOutlined,
   SettingOutlined,
+  FundOutlined,
+  BarChartOutlined,
+  WalletOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
@@ -24,11 +27,17 @@ import Discussion from './pages/Discussion';
 import Knowledge from './pages/Knowledge';
 import Models from './pages/Models';
 import Settings from './pages/Settings';
+import StockAnalysis from './pages/StockAnalysis';
+import Research from './pages/Research';
+import Portfolio from './pages/Portfolio';
 
 const menuItems = [
   { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
   { path: '/chat', name: '对话', icon: <MessageOutlined /> },
   { path: '/discussion', name: '讨论', icon: <TeamOutlined /> },
+  { path: '/research', name: '深度研究', icon: <FundOutlined /> },
+  { path: '/portfolio', name: '投资组合', icon: <WalletOutlined /> },
+  { path: '/screening', name: '选股器', icon: <BarChartOutlined /> },
   { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
   { path: '/models', name: '模型', icon: <RobotOutlined /> },
   { path: '/settings', name: '设置', icon: <SettingOutlined /> },
@@ -88,6 +97,10 @@ function AppLayout() {
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/models" element={<Models />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/analysis/:ticker" element={<StockAnalysis />} />
+        <Route path="/research" element={<Research />} />
+        <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/screening" element={<Knowledge />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ProLayout>
