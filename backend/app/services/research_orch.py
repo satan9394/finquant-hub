@@ -171,7 +171,12 @@ async def run_research(
     yield "done", {
         "ticker": ticker,
         "report": report_data,
-        "agent_results": {k: {"name": v["name"], "content": v["content"]} for k, v in agent_results.items()},
+        # Tool logs retain the data-source trail (including news URLs) for
+        # later report review instead of discarding research provenance.
+        "agent_results": {
+            k: {"name": v["name"], "content": v["content"], "tool_log": v["tool_log"]}
+            for k, v in agent_results.items()
+        },
     }
 
 

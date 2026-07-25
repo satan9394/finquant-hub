@@ -69,7 +69,7 @@ export interface ModelConfig {
   base_url: string;
   model_name: string;
   api_key_env: string | null;
-  api_key: string | null;
+  has_api_key: boolean;
   temperature: number;
   max_tokens: number;
   is_default: number;

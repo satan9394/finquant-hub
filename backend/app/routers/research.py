@@ -46,56 +46,63 @@ async def start_research(body: ResearchRequest, request: Request):
     except MarketError:
         pass
 
+    # Create the durable record before streaming.  This preserves aborted and
+    # failed runs instead of only storing the happy-path final report.
+    report_id = await _create_report(ticker, company_name, body.model_id)
+
     async def event_stream():
-        report_id = None
-        final_report_data = None
-        final_agent_results = None
+        completed = False
 
         try:
+            yield {"event": "report_started", "data": json.dumps({"report_id": report_id}, ensure_ascii=False)}
             async for event, data in run_research(ticker, company_name, body.model_id):
+                await _append_event(report_id, event, data)
                 if event == "done":
-                    final_report_data = data.get("report", {})
-                    final_agent_results = data.get("agent_results", {})
-                    # 保存到数据库
-                    try:
-                        report_id = await _save_report(
-                            ticker, company_name,
-                            final_report_data, final_agent_results,
-                        )
-                        data["report_id"] = report_id
-                    except Exception as e:
-                        data["_save_error"] = str(e)
+                    completed = True
+                    await _complete_report(report_id, data.get("report", {}), data.get("agent_results", {}))
+                    data["report_id"] = report_id
 
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as e:
+            await _fail_report(report_id, f"研究管线异常：{e}")
             yield {"event": "error", "data": json.dumps({"message": f"研究管线异常：{e}"}, ensure_ascii=False)}
+        finally:
+            if not completed:
+                report = await database.query_one("SELECT status FROM research_reports WHERE id=?", (report_id,))
+                if report and report["status"] == "running":
+                    await _fail_report(report_id, "研究流在完成前中断")
 
     return EventSourceResponse(event_stream())
 
 
-async def _save_report(ticker: str, company_name: str,
-                       report_data: dict, agent_results: dict) -> int:
-    """将报告持久化到数据库，返回新记录 ID。"""
-    await database.get_db().execute(
-        """CREATE TABLE IF NOT EXISTS research_reports (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker        TEXT NOT NULL,
-            company_name  TEXT,
-            report_data   TEXT NOT NULL,
-            agent_results TEXT,
-            status        TEXT DEFAULT 'completed',
-            created_at    TEXT DEFAULT (datetime('now'))
-        )"""
+async def _create_report(ticker: str, company_name: str, model_id: int | None) -> int:
+    return await database.execute(
+        "INSERT INTO research_reports (ticker, company_name, report_data, agent_results, model_id, status, updated_at) "
+        "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'))",
+        (ticker, company_name, model_id),
     )
-    await database.get_db().commit()
 
-    new_id = await database.execute(
-        "INSERT INTO research_reports (ticker, company_name, report_data, agent_results) VALUES (?, ?, ?, ?)",
-        (ticker, company_name,
-         json.dumps(report_data, ensure_ascii=False),
-         json.dumps(agent_results, ensure_ascii=False)),
+
+async def _append_event(report_id: int, event: str, data: dict) -> None:
+    await database.execute(
+        "INSERT INTO research_events (research_id, event_type, agent_role_key, payload) VALUES (?, ?, ?, ?)",
+        (report_id, event, data.get("role_key") or data.get("agent"), json.dumps(data, ensure_ascii=False)),
     )
-    return new_id
+
+
+async def _complete_report(report_id: int, report_data: dict, agent_results: dict) -> None:
+    await database.execute(
+        "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', updated_at=datetime('now') WHERE id=?",
+        (json.dumps(report_data, ensure_ascii=False), json.dumps(agent_results, ensure_ascii=False), report_id),
+    )
+
+
+async def _fail_report(report_id: int, message: str) -> None:
+    await _append_event(report_id, "error", {"message": message})
+    await database.execute(
+        "UPDATE research_reports SET status='failed', updated_at=datetime('now') WHERE id=? AND status='running'",
+        (report_id,),
+    )
 
 
 # ------------------------------------------------------------------
@@ -105,23 +112,9 @@ async def _save_report(ticker: str, company_name: str,
 @router.get("")
 async def list_reports(page: int = 1, page_size: int = 20):
     """列出历史研究报告，按时间倒序。"""
-    # 确保表存在
-    await database.get_db().execute(
-        "CREATE TABLE IF NOT EXISTS research_reports ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  ticker TEXT NOT NULL,"
-        "  company_name TEXT,"
-        "  report_data TEXT NOT NULL,"
-        "  agent_results TEXT,"
-        "  status TEXT DEFAULT 'completed',"
-        "  created_at TEXT DEFAULT (datetime('now'))"
-        ")"
-    )
-    await database.get_db().commit()
-
     offset = (page - 1) * page_size
     items = await database.query_all(
-        "SELECT id, ticker, company_name, status, created_at "
+        "SELECT id, ticker, company_name, model_id, status, created_at, updated_at "
         "FROM research_reports ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (page_size, offset),
     )
@@ -148,5 +141,12 @@ async def get_report(report_id: int):
         report["report_data"] = json.loads(report["report_data"])
     if isinstance(report.get("agent_results"), str):
         report["agent_results"] = json.loads(report["agent_results"])
+    report["events"] = await database.query_all(
+        "SELECT id, event_type, agent_role_key, payload, created_at FROM research_events "
+        "WHERE research_id=? ORDER BY id",
+        (report_id,),
+    )
+    for event in report["events"]:
+        event["payload"] = json.loads(event["payload"])
 
     return report

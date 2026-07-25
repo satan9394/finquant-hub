@@ -75,9 +75,25 @@ CREATE TABLE IF NOT EXISTS research_reports (
     company_name  TEXT,
     report_data   TEXT NOT NULL,
     agent_results TEXT,
+    model_id      INTEGER,
     status        TEXT DEFAULT 'completed',
-    created_at    TEXT DEFAULT (datetime('now'))
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_research_reports_ticker_created
+    ON research_reports(ticker, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    research_id     INTEGER NOT NULL,
+    event_type      TEXT NOT NULL,
+    agent_role_key  TEXT,
+    payload         TEXT NOT NULL,
+    created_at      TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (research_id) REFERENCES research_reports(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_research_events_report
+    ON research_events(research_id, id);
 
 CREATE TABLE IF NOT EXISTS backtest_runs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,9 +196,22 @@ async def init_db() -> None:
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA foreign_keys=ON")
     await _db.executescript(SCHEMA)
+    await _migrate_schema()
     await _seed_models()
     await _seed_agents()
     await _db.commit()
+
+
+async def _migrate_schema() -> None:
+    """Keep existing local databases compatible without destructive resets."""
+    await _ensure_column("research_reports", "model_id", "model_id INTEGER")
+    await _ensure_column("research_reports", "updated_at", "updated_at TEXT")
+
+
+async def _ensure_column(table: str, column: str, definition: str) -> None:
+    rows = await (await _db.execute(f"PRAGMA table_info({table})")).fetchall()
+    if column not in {row["name"] for row in rows}:
+        await _db.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
 
 
 async def close_db() -> None:

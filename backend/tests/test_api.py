@@ -9,6 +9,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app import config, database
+from app.routers import research as research_router
 from app.main import app
 from app.services import model_router
 
@@ -91,6 +92,16 @@ class TestModelCRUD:
     @pytest.mark.asyncio
     async def test_update_missing_404(self, client):
         assert (await client.put("/api/models/999", json={"name": "x"})).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_model_list_never_returns_stored_api_key(self, client):
+        created = await client.post("/api/models", json={
+            "name": "Secret", "base_url": "https://api.example.com", "model_name": "x", "api_key": "secret-value"})
+        assert created.status_code == 201
+        assert "api_key" not in created.json()
+        assert created.json()["has_api_key"] is True
+        listed = (await client.get("/api/models")).json()["items"]
+        assert all("api_key" not in item for item in listed)
 
 
 class TestAgentCRUD:
@@ -206,3 +217,31 @@ class TestDashboard:
                     "message_count", "default_model", "recent_conversations", "recent_rooms"):
             assert key in d
         assert d["default_model"]["model_name"] == "deepseek-v4-flash"
+
+
+class TestResearchHistory:
+    @pytest.mark.asyncio
+    async def test_research_persists_events_and_provenance(self, client, monkeypatch):
+        async def fake_research(ticker, company_name, model_id):
+            yield "agent_started", {"role_key": "business_analyst", "name": "商业模式"}
+            yield "tool_call", {"role_key": "business_analyst", "tool_name": "search_news", "arguments": '{"keyword":"AAPL"}'}
+            yield "done", {
+                "report": {"ticker": ticker, "company_name": company_name, "business_model_analysis": "完成"},
+                "agent_results": {"business_analyst": {"name": "商业模式", "content": "完成", "tool_log": [{"name": "search_news", "result": "[]"}]}},
+            }
+
+        monkeypatch.setattr(research_router, "run_research", fake_research)
+        async with client.stream("POST", "/api/research", json={"ticker": "600519", "model_id": 1}) as response:
+            assert response.status_code == 200
+            events = await _collect_sse(response)
+
+        started = next(data for event, data in events if event == "report_started")
+        report_id = started["report_id"]
+        listed = (await client.get("/api/research")).json()["items"]
+        assert listed[0]["id"] == report_id
+        assert listed[0]["status"] == "completed"
+        assert listed[0]["model_id"] == 1
+
+        detail = (await client.get(f"/api/research/{report_id}")).json()
+        assert detail["agent_results"]["business_analyst"]["tool_log"][0]["name"] == "search_news"
+        assert [event["event_type"] for event in detail["events"]] == ["agent_started", "tool_call", "done"]

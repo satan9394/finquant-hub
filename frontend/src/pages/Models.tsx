@@ -112,6 +112,11 @@ export default function Models() {
     { title: '供应商', dataIndex: 'provider', key: 'provider', width: 100 },
     { title: 'Endpoint', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
     { title: '模型名', dataIndex: 'model_name', key: 'model_name' },
+    { title: '凭据', key: 'credentials', width: 150, render: (_: unknown, record: ModelConfig) => (
+      <Text type={record.has_api_key ? undefined : 'danger'}>
+        {record.api_key_env ? `环境变量：${record.api_key_env}` : record.has_api_key ? '已安全保存' : '未配置'}
+      </Text>
+    ) },
     { title: 'Temperature', dataIndex: 'temperature', key: 'temperature', width: 110, render: (v: number) => v?.toFixed(1) },
     { title: '操作', key: 'actions', width: 280, render: (_: any, record: ModelConfig) => (
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -183,7 +188,12 @@ export default function Models() {
             <Input placeholder="如 DeepSeek Flash" />
           </Form.Item>
           <Form.Item name="provider" label="供应商">
-            <Select options={[{ label: 'OpenAI 兼容', value: 'openai' }]} />
+            <Select options={[
+              { label: 'OpenAI 兼容', value: 'openai' },
+              { label: 'DeepSeek（OpenAI 兼容）', value: 'deepseek' },
+              { label: 'OpenRouter（OpenAI 兼容）', value: 'openrouter' },
+              { label: '其他 OpenAI 兼容接口', value: 'custom' },
+            ]} />
           </Form.Item>
           <Form.Item name="base_url" label="Endpoint" rules={[{ required: true }]}>
             <Input placeholder="https://api.deepseek.com" />
@@ -191,8 +201,11 @@ export default function Models() {
           <Form.Item name="model_name" label="模型名" rules={[{ required: true }]}>
             <Input placeholder="deepseek-v4-flash" />
           </Form.Item>
-          <Form.Item name="api_key" label="API Key">
-            <Input.Password placeholder="sk-xxx" />
+          <Form.Item name="api_key" label="API Key（仅写入，不会再次展示）">
+            <Input.Password placeholder="sk-xxx；留空则保留既有值" />
+          </Form.Item>
+          <Form.Item name="api_key_env" label="API Key 环境变量（推荐）">
+            <Input placeholder="如 OPENAI_API_KEY；未保存密钥时从环境变量读取" />
           </Form.Item>
           <Form.Item name="temperature" label="Temperature">
             <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />

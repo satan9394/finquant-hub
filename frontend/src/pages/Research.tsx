@@ -2,15 +2,17 @@
  * Research — 深度研究页（/research）
  * 功能：ticker 输入 + 4-agent 进度动画 + 富文本 Markdown 报告输出（SSE）
  * ============================================================ */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  Card, Input, Button, Typography, Row, Col, Steps, Spin, Tag, message, Alert, Empty,
+  Card, Input, Button, Typography, Row, Col, List, Spin, Tag, message, Empty,
 } from 'antd';
 import {
   PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
   LoadingOutlined, CloseCircleOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
+import apiClient from '../services/api';
+import { useModelStore } from '../store/modelStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -23,6 +25,17 @@ const AGENT_LABELS: Record<string, { name: string; role: string; icon: string }>
   financial_analyst: { name: '财务分析', role: '估值与财务健康度', icon: '📊' },
   industry_researcher: { name: '行业研究', role: '产业链与行业周期', icon: '🔬' },
   risk_assessor: { name: '风险评估', role: '独立识别投资风险', icon: '🛡️' },
+};
+
+type StoredReport = {
+  id: number; ticker: string; company_name?: string; model_id?: number | null;
+  status: 'running' | 'completed' | 'failed'; created_at: string; updated_at?: string | null;
+};
+
+type StoredReportDetail = StoredReport & {
+  report_data: Record<string, unknown>;
+  agent_results?: Record<string, { content?: string }>;
+  events?: { event_type: string; created_at: string }[];
 };
 
 function reportToMarkdown(report: Record<string, unknown>): string {
@@ -97,13 +110,31 @@ function AgentCard({ agent, status, progress }: { agent: string; status: AgentSt
 
 // ==================== 页面组件 ====================
 export default function Research() {
+  const currentModelId = useModelStore((state) => state.currentModelId);
   const [ticker, setTicker] = useState('');
   const [running, setRunning] = useState(false);
   const [agents, setAgents] = useState<ResearchAgent[]>([]);
   const [reportContent, setReportContent] = useState('');
   const [reportTitle, setReportTitle] = useState('');
   const [done, setDone] = useState(false);
+  const [history, setHistory] = useState<StoredReport[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const response = await apiClient.get('/research', { params: { page: 1, page_size: 20 } });
+      setHistory(response.data.items ?? []);
+    } catch (error: any) {
+      message.error(error.message || '加载研究历史失败');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
 
   // 初始化 agent 状态
   const resetAgents = useCallback(() => {
@@ -112,6 +143,26 @@ export default function Research() {
       role: AGENT_LABELS[key]?.role ?? '',
       status: 'pending' as AgentStatus,
     })));
+  }, []);
+
+  const openStoredReport = useCallback(async (id: number) => {
+    try {
+      const response = await apiClient.get(`/research/${id}`);
+      const report = response.data as StoredReportDetail;
+      const resultMap = report.agent_results ?? {};
+      setSelectedReportId(id);
+      setTicker(report.ticker);
+      setReportTitle(`${(report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker} 研究报告`);
+      setReportContent(reportToMarkdown(report.report_data));
+      setDone(report.status === 'completed');
+      setAgents(AGENT_KEYS.map((key) => ({
+        name: AGENT_LABELS[key]?.name ?? key,
+        role: AGENT_LABELS[key]?.role ?? '',
+        status: resultMap[key]?.content?.startsWith('【分析失败】') ? 'failed' as AgentStatus : 'completed' as AgentStatus,
+      })));
+    } catch (error: any) {
+      message.error(error.message || '加载研究报告失败');
+    }
   }, []);
 
   // 开始研究
@@ -123,6 +174,7 @@ export default function Research() {
     setDone(false);
     setReportContent('');
     setReportTitle('');
+    setSelectedReportId(null);
     resetAgents();
 
     abortRef.current = new AbortController();
@@ -131,7 +183,7 @@ export default function Research() {
       const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker: code }),
+        body: JSON.stringify({ ticker: code, model_id: currentModelId ?? undefined }),
         signal: abortRef.current.signal,
       });
 
@@ -155,6 +207,11 @@ export default function Research() {
           // used `role_key`.  Accept both so progress is never stranded.
           const agentKey = (data.agent ?? data.role_key) as string | undefined;
           switch (event) {
+            case 'report_started': {
+              setSelectedReportId(data.report_id ?? null);
+              void loadHistory();
+              break;
+            }
             case 'agent_started': {
               const idx = AGENT_KEYS.indexOf(agentKey ?? '');
               if (idx >= 0) {
@@ -185,6 +242,7 @@ export default function Research() {
               setDone(true);
               streamCompleted = true;
               setRunning(false);
+              void loadHistory();
               break;
             }
             case 'error': {
@@ -239,7 +297,7 @@ export default function Research() {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [ticker, resetAgents]);
+  }, [ticker, currentModelId, loadHistory, resetAgents]);
 
   // 停止
   const handleStop = () => {
@@ -326,6 +384,30 @@ export default function Research() {
           <Empty description={'输入股票代码并点击「开始研究」以生成深度分析报告'} />
         </Card>
       )}
+
+      <Card
+        size="small"
+        title="研究历史与数据记录"
+        extra={<Button size="small" icon={<ReloadOutlined />} loading={historyLoading} onClick={() => void loadHistory()}>刷新</Button>}
+        style={{ marginTop: 16 }}
+      >
+        <List
+          loading={historyLoading}
+          dataSource={history}
+          locale={{ emptyText: '暂无已保存的研究记录' }}
+          renderItem={(item) => (
+            <List.Item
+              actions={[<Button key="open" type="link" onClick={() => void openStoredReport(item.id)}>查看</Button>]}
+            >
+              <List.Item.Meta
+                title={<span>{item.company_name || item.ticker} <Text type="secondary">{item.ticker}</Text></span>}
+                description={`${item.created_at} · ${item.status === 'completed' ? '已完成' : item.status === 'running' ? '进行中' : '失败'}${item.model_id ? ` · 模型 #${item.model_id}` : ''}`}
+              />
+              {selectedReportId === item.id && <Tag color="blue">当前查看</Tag>}
+            </List.Item>
+          )}
+        />
+      </Card>
 
       {/* 免责声明 */}
       <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 24 }}>

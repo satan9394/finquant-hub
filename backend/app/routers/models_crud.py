@@ -11,9 +11,17 @@ from ..services.llm_client import LLMError
 router = APIRouter(prefix="/api/models", tags=["models"])
 
 
+def _public_model(row: dict) -> dict:
+    """Never send stored API secrets back to the browser."""
+    data = dict(row)
+    data["has_api_key"] = bool(data.get("api_key") or data.get("api_key_env"))
+    data.pop("api_key", None)
+    return data
+
+
 @router.get("")
 async def list_models():
-    return {"items": await database.query_all("SELECT * FROM model_configs ORDER BY id")}
+    return {"items": [_public_model(row) for row in await database.query_all("SELECT * FROM model_configs ORDER BY id")]}
 
 
 @router.post("", status_code=201)
@@ -26,7 +34,7 @@ async def create_model(body: ModelConfigIn):
             body.api_key, body.api_key_env, body.temperature, body.max_tokens,
         ),
     )
-    return await database.query_one("SELECT * FROM model_configs WHERE id=?", (new_id,))
+    return _public_model(await database.query_one("SELECT * FROM model_configs WHERE id=?", (new_id,)))
 
 
 @router.put("/{model_id}")
@@ -41,7 +49,7 @@ async def update_model(model_id: int, body: ModelConfigUpdate):
             f"UPDATE model_configs SET {sets}, updated_at=datetime('now') WHERE id=?",
             (*updates.values(), model_id),
         )
-    return await database.query_one("SELECT * FROM model_configs WHERE id=?", (model_id,))
+    return _public_model(await database.query_one("SELECT * FROM model_configs WHERE id=?", (model_id,)))
 
 
 @router.delete("/{model_id}")
