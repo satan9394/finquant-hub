@@ -10,7 +10,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "db:generate": "drizzle-kit generate",
-    "test": "bun run build && node --test tests/rendered-html.test.mjs && bun test tests/market.test.ts"
+    "test": "bun run build && node --test tests/rendered-html.test.mjs && bun test tests/market.test.ts tests/pdf.test.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
