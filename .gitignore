@@ -22,6 +22,8 @@ dist/
 *.sqlite3
 logs/
 *.log
+.wrangler/
+output/
 
 # 系统
 .DS_Store
