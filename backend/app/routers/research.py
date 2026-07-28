@@ -25,6 +25,31 @@ class ResearchRequest(BaseModel):
     model_id: int | None = Field(default=None, description="LLM 模型 ID")
 
 
+async def resolve_research_target(raw: str, svc) -> tuple[str, str]:
+    """Resolve a code or company name before any durable/LLM side effect."""
+    from ..services.market_data import MarketError, normalize_code
+
+    company_name = raw.strip()
+    try:
+        ticker = normalize_code(raw)
+    except ValueError:
+        try:
+            matches = await svc.search(raw)
+        except MarketError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if not matches:
+            raise HTTPException(400, f"无法解析股票代码或公司名称：{raw}")
+        ticker = matches[0]["code"]
+        company_name = matches[0].get("name") or company_name
+    try:
+        quote = await svc.quote(ticker)
+        if company_name == raw.strip():
+            company_name = quote.get("name") or company_name
+    except MarketError as exc:
+        raise HTTPException(502, f"行情数据获取失败：{exc}") from exc
+    return ticker, company_name
+
+
 # ------------------------------------------------------------------
 # POST — 流式研究（SSE）
 # ------------------------------------------------------------------
@@ -32,22 +57,10 @@ class ResearchRequest(BaseModel):
 @router.post("")
 async def start_research(body: ResearchRequest, request: Request):
     """启动多 Agent 并行研究，通过 SSE 推送进度与最终报告。"""
-    from ..services.analysis.ticker import resolve_ticker
-    from ..services.market_data import MarketDataService, MarketError
+    from ..services.market_data import MarketDataService
 
-    try:
-        ticker = resolve_ticker(body.ticker)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-
-    # 获取公司名称
-    company_name = body.ticker
     svc: MarketDataService = request.app.state.market
-    try:
-        q = await svc.quote(ticker)
-        company_name = q.get("name", body.ticker)
-    except MarketError:
-        pass
+    ticker, company_name = await resolve_research_target(body.ticker, svc)
 
     # Create the durable record before streaming.  This preserves aborted and
     # failed runs instead of only storing the happy-path final report.

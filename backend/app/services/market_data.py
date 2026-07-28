@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
-EASTMONEY_SEARCH = "https://searchadapter.eastmoney.com/api/suggest/get"
+EASTMONEY_SEARCH = "https://searchapi.eastmoney.com/api/suggest/get"
+EASTMONEY_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 TENCENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
 TENCENT_KLINE = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},day,,,{count},qfq"
 SINA_QUOTE = "https://hq.sinajs.cn/list={codes}"
@@ -25,7 +26,18 @@ YAHOO_CHARTS = (
     "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}",
 )
 YAHOO_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search"
+YAHOO_FUNDAMENTALS = (
+    "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/"
+    "timeseries/{symbol}"
+)
 YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; FinQuant-Hub/1.0)"}
+
+SEARCH_ALIASES = {
+    # The issuer kept this common legacy name in public discussion after its
+    # formal listing as 长鑫科技. Resolve the company name before hitting
+    # providers that reject Chinese free-text queries.
+    "长鑫存储": "长鑫科技",
+}
 
 PERIOD_TO_SCALE = {"1d": 240, "60m": 60, "30m": 30, "15m": 15, "5m": 5}
 
@@ -152,40 +164,61 @@ class MarketDataService:
         A failed source should not make the search box unusable when the other
         source can answer the query.
         """
+        query = SEARCH_ALIASES.get(keyword.strip(), keyword.strip())
+        if not query:
+            return []
         results: list[dict] = []
+        succeeded_sources: list[str] = []
+        failed_sources: list[str] = []
         try:
             resp = await self.http.get(
                 EASTMONEY_SEARCH,
-                params={"input": keyword, "count": 10, "type": 14},
+                params={"input": query, "count": 10, "type": 14, "token": EASTMONEY_TOKEN},
             )
             resp.raise_for_status()
+            succeeded_sources.append("eastmoney")
             data = resp.json()
             for it in (data.get("QuotationCodeTable") or {}).get("Data") or []:
                 quote_id = str(it.get("QuoteID", ""))
                 classify = it.get("Classify", "")
-                if classify not in ("AStock", "ETF") or "." not in quote_id:
-                    continue
                 raw_code = str(it.get("UnifiedCode") or it.get("Code", ""))
+                # Eastmoney's current endpoint uses numeric Classify values
+                # for newly listed shares (e.g. 科创板 "23"), while older
+                # responses used "AStock". The six-digit code + mainland
+                # QuoteID is the stable boundary.
+                if not re.fullmatch(r"\d{6}", raw_code) or not quote_id.startswith(("0.", "1.")):
+                    continue
                 results.append({
                     "code": normalize_code(raw_code),
-                    "name": it.get("Name", ""),
+                    "name": query if query != keyword.strip() else it.get("Name", ""),
                     "market": "sh" if quote_id.startswith("1.") else "sz",
                     "type": it.get("SecurityTypeName") or ("ETF" if classify == "ETF" else "股票"),
+                    "source": "eastmoney",
                 })
         except (httpx.HTTPError, ValueError):
-            pass
+            failed_sources.append("eastmoney")
 
         try:
             yahoo = await self.yahoo_http.get(
                 YAHOO_SEARCH,
-                params={"q": keyword, "quotesCount": 10, "newsCount": 0},
+                params={"q": query, "quotesCount": 10, "newsCount": 0},
                 headers=YAHOO_HEADERS,
             )
             yahoo.raise_for_status()
+            succeeded_sources.append("yahoo")
             for item in yahoo.json().get("quotes", []):
                 symbol = str(item.get("symbol") or "")
                 quote_type = item.get("quoteType")
                 if not symbol or quote_type not in {"EQUITY", "ETF", "MUTUALFUND", "INDEX"}:
+                    continue
+                suffix = symbol.upper().rsplit(".", 1)[-1] if "." in symbol else ""
+                exchange = str(item.get("exchange") or "").upper()
+                region = str(item.get("region") or "").upper()
+                supported_suffix = suffix in {"HK", "SS", "SZ"}
+                supported_us = region == "US" or exchange in {
+                    "NMS", "NGM", "NCM", "NYQ", "ASE", "PCX", "PNK", "OQB", "OQX",
+                }
+                if not supported_suffix and not supported_us:
                     continue
                 try:
                     normalized = normalize_code(symbol)
@@ -198,9 +231,37 @@ class MarketDataService:
                     "name": item.get("shortname") or item.get("longname") or symbol,
                     "market": _market(normalized),
                     "type": quote_type,
+                    "source": "yahoo",
+                    "exchange": item.get("exchange") or item.get("fullExchangeName"),
                 })
         except (httpx.HTTPError, ValueError):
-            pass
+            failed_sources.append("yahoo")
+
+        # A valid code should still be discoverable when provider search
+        # indexes do not return it (notably 00700.HK). Quote resolution is the
+        # authoritative fallback and also supplies the company name.
+        try:
+            direct = normalize_code(query)
+        except ValueError:
+            direct = None
+        if direct and not any(row["code"] == direct for row in results):
+            try:
+                quote = await self.quote(direct)
+                results.insert(0, {
+                    "code": direct,
+                    "name": quote.get("name") or direct,
+                    "market": _market(direct),
+                    "type": "EQUITY",
+                    "source": quote.get("source") or "quote_fallback",
+                    "exchange": quote.get("exchange"),
+                })
+                if quote.get("source") and quote["source"] not in succeeded_sources:
+                    succeeded_sources.append(quote["source"])
+            except (MarketError, httpx.HTTPError, ValueError):
+                pass
+
+        if not succeeded_sources and failed_sources:
+            raise MarketError(f"标的搜索服务不可用：{','.join(failed_sources)}")
         return results
 
     # ------------------------------------------------------------------
@@ -277,6 +338,8 @@ class MarketDataService:
             "timestamp": int(meta.get("regularMarketTime") or 0),
             "currency": meta.get("currency"),
             "source": "yahoo",
+            "exchange": meta.get("fullExchangeName") or meta.get("exchangeName"),
+            "timezone": meta.get("exchangeTimezoneName"),
         }
 
     # ------------------------------------------------------------------
@@ -322,6 +385,8 @@ class MarketDataService:
                 "low": float(it["low"]),
                 "close": float(it["close"]),
                 "volume": int(float(it.get("volume") or 0)),
+                "source": "sina",
+                "adjustment": "none",
             }
             for it in data
             if it.get("day") and it.get("open")
@@ -341,6 +406,8 @@ class MarketDataService:
                 "high": float(r[3]),
                 "low": float(r[4]),
                 "volume": int(float(r[5])),
+                "source": "tencent",
+                "adjustment": "qfq" if node.get("qfqday") else "none",
             }
             for r in rows
             if len(r) >= 6
@@ -351,17 +418,23 @@ class MarketDataService:
         range_value = "5y" if interval == "1d" else "60d"
         payload = await self._yahoo_chart(_yahoo_symbol(code), range_value, interval)
         quote = ((payload.get("indicators") or {}).get("quote") or [{}])[0]
+        adjusted = ((payload.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or []
         rows = []
-        for timestamp, open_, high, low, close, volume in zip(
+        for index, (timestamp, open_, high, low, close, volume) in enumerate(zip(
             payload.get("timestamp") or [], quote.get("open") or [], quote.get("high") or [],
             quote.get("low") or [], quote.get("close") or [], quote.get("volume") or [],
-        ):
+        )):
             if None in (open_, high, low, close):
                 continue
+            adjusted_close = adjusted[index] if index < len(adjusted) else None
+            ratio = float(adjusted_close) / float(close) if adjusted_close not in (None, 0) and close else 1.0
             rows.append({
                 "day": datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"),
-                "open": float(open_), "high": float(high), "low": float(low),
-                "close": float(close), "volume": int(volume or 0),
+                "open": float(open_) * ratio, "high": float(high) * ratio, "low": float(low) * ratio,
+                "close": float(adjusted_close) if adjusted_close not in (None, 0) else float(close),
+                "volume": int(volume or 0),
+                "source": "yahoo",
+                "adjustment": "split_dividend_adjusted" if adjusted_close not in (None, 0) else "none",
             })
         if not rows:
             raise MarketError(f"无K线数据：{code}")
@@ -383,6 +456,64 @@ class MarketDataService:
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
         raise MarketError(f"未找到股票代码：{symbol}") from last_error
+
+    async def fundamentals(self, ticker: str) -> list[dict]:
+        """Return provider-sourced point-in-time fundamentals.
+
+        Yahoo's public fundamentals timeseries endpoint is used because it has
+        consistent A/HK/US coverage and embeds each metric's as-of date and
+        currency. Missing metrics stay missing rather than being coerced to 0.
+        """
+        code = normalize_code(ticker)
+        symbol = _yahoo_symbol(code)
+        metric_types = [
+            "trailingMarketCap",
+            "trailingPeRatio",
+            "trailingPbRatio",
+            "trailingEps",
+            "trailingTotalRevenue",
+            "trailingNetIncome",
+            "trailingOperatingCashFlow",
+            "trailingFreeCashFlow",
+        ]
+        now = int(datetime.now(tz=UTC).timestamp())
+        response = await self.yahoo_http.get(
+            YAHOO_FUNDAMENTALS.format(symbol=symbol),
+            params={
+                "symbol": symbol,
+                "type": ",".join(metric_types),
+                "merge": "false",
+                "period1": str(now - 366 * 24 * 60 * 60 * 5),
+                "period2": str(now),
+            },
+            headers=YAHOO_HEADERS,
+        )
+        try:
+            response.raise_for_status()
+            payload = response.json().get("timeseries") or {}
+        except (httpx.HTTPError, ValueError) as exc:
+            raise MarketError(f"无法获取 {ticker} 的基本面数据") from exc
+        if payload.get("error"):
+            raise MarketError(f"无法获取 {ticker} 的基本面数据")
+
+        items: list[dict] = []
+        for series in payload.get("result") or []:
+            metric = ((series.get("meta") or {}).get("type") or [None])[0]
+            values = series.get(metric) if metric else None
+            if not metric or not values:
+                continue
+            latest = values[-1]
+            raw = (latest.get("reportedValue") or {}).get("raw")
+            if raw is None:
+                continue
+            items.append({
+                "metric": metric,
+                "value": float(raw),
+                "as_of": latest.get("asOfDate"),
+                "currency": latest.get("currencyCode"),
+                "period_type": latest.get("periodType"),
+            })
+        return items
 
 
 def _number(value: object) -> float:
@@ -426,15 +557,18 @@ def parse_tencent_quotes(raw: str) -> list[dict]:
                 "high": num(33),
                 "low": num(34),
                 "volume": num(6),
-                "amount": num(37),
+                # Tencent quote fields: amount is reported in 10k currency
+                # units and market cap in 100m currency units.
+                "amount": num(37) * 10_000,
                 "change": change,
                 "change_percent": num(32),
                 "turnover_rate": num(38),
                 "pe": num(39),
                 "pb": num(46),
-                "market_cap": num(45),
+                "market_cap": num(45) * 100_000_000,
                 "amplitude": num(43),
                 "timestamp": int(num(30) or 0),
+                "source": "tencent",
             }
         )
     return results
@@ -478,6 +612,7 @@ def parse_sina_quotes(raw: str) -> list[dict]:
                 "market_cap": 0.0,
                 "amplitude": 0.0,
                 "timestamp": 0,
+                "source": "sina",
             }
         )
     return results

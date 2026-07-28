@@ -273,3 +273,93 @@ class TestResearchHistory:
         assert docx.status_code == 200 and docx.content.startswith(b"PK")
 
         assert (await client.get(f"/api/research/{report_id}/export?format=xlsx")).status_code == 422
+
+
+class TestQuantResearchV2:
+    @pytest.mark.asyncio
+    async def test_instrument_contract_and_workspace_upsert(self, client, monkeypatch):
+        async def fake_quote(ticker):
+            return {
+                "code": "usAAPL", "name": "Apple Inc.", "price": 200.0,
+                "last_close": 198.0, "open": 199.0, "high": 201.0, "low": 197.0,
+                "volume": 1000, "amount": None, "change": 2.0, "change_percent": 1.01,
+                "turnover_rate": None, "pe": None, "pb": None, "market_cap": None,
+                "amplitude": 2.02, "timestamp": 1_767_225_600, "currency": "USD",
+                "source": "test_provider", "exchange": "NASDAQ", "timezone": "America/New_York",
+            }
+
+        async def fake_kline(ticker, period, count):
+            return [
+                {
+                    "day": f"2026-01-{index + 1:02d}", "open": 100 + index,
+                    "high": 101 + index, "low": 99 + index, "close": 100.5 + index,
+                    "volume": 1000, "source": "test_provider", "adjustment": "split_adjusted",
+                }
+                for index in range(30)
+            ]
+
+        async def fake_fundamentals(ticker):
+            return [{"metric": "trailingNetIncome", "value": 123.0, "as_of": "2026-03-31", "currency": "USD", "period_type": "TTM"}]
+
+        monkeypatch.setattr(app.state.market, "quote", fake_quote)
+        monkeypatch.setattr(app.state.market, "kline", fake_kline)
+        monkeypatch.setattr(app.state.market, "fundamentals", fake_fundamentals)
+
+        snapshot = (await client.get("/api/instruments/AAPL/snapshot")).json()
+        assert snapshot["instrument"]["symbol"] == "AAPL"
+        for key in ("provider", "as_of", "timezone", "currency", "adjustment", "frequency", "quality_flags"):
+            assert key in snapshot
+
+        bars = (await client.get("/api/instruments/AAPL/bars?count=30")).json()
+        assert len(bars["items"]) == 30 and "macd" in bars["indicators"]
+        fundamentals = (await client.get("/api/instruments/AAPL/fundamentals")).json()
+        assert fundamentals["items"][0]["as_of"] == "2026-03-31"
+
+        payload = {
+            "name": "Apple Inc.", "instrument": snapshot["instrument"], "notes": "first",
+            "evidence": [{"label": "FACT", "title": "quote", "detail": "200", "provider": "test_provider"}],
+            "snapshot": snapshot,
+        }
+        assert (await client.put("/api/instruments/AAPL/workspace", json=payload)).status_code == 200
+        payload["notes"] = "updated"
+        await client.put("/api/instruments/AAPL/workspace", json=payload)
+        workspaces = (await client.get("/api/instruments/workspaces")).json()
+        assert workspaces["total"] == 1
+        assert workspaces["items"][0]["notes"] == "updated"
+
+    @pytest.mark.asyncio
+    async def test_backtest_job_contract_and_validation(self, client, monkeypatch):
+        from datetime import date, timedelta
+
+        start = date(2026, 1, 1)
+        closes = [100 + ((index % 30) if (index // 30) % 2 == 0 else 30 - (index % 30)) for index in range(120)]
+
+        async def fake_kline(ticker, period, count):
+            return [
+                {
+                    "day": (start + timedelta(days=index)).isoformat(),
+                    "open": close, "high": close + 1, "low": close - 1, "close": close,
+                    "volume": 1000, "source": "test_provider", "adjustment": "split_adjusted",
+                }
+                for index, close in enumerate(closes)
+            ]
+
+        monkeypatch.setattr(app.state.market, "kline", fake_kline)
+        body = {
+            "symbol": "AAPL", "start_date": "2026-01-01", "end_date": "2026-05-30",
+            "short_window": 5, "long_window": 15, "initial_capital": 100000,
+            "commission_bps": 3, "slippage_bps": 2, "benchmark": "buy_and_hold",
+        }
+        created = await client.post("/api/backtests", json=body)
+        assert created.status_code == 202
+        detail = (await client.get(f"/api/backtests/{created.json()['id']}")).json()
+        assert detail["status"] == "completed"
+        assert detail["metrics"]["trade_count"] > 0
+        assert len(detail["equity_curve"]) == 120
+        assert detail["provenance"]["provider"] == "test_provider"
+        trades = (await client.get(f"/api/backtests/{detail['id']}/trades")).json()["items"]
+        assert trades and trades[0]["entry_fee"] > 0 and trades[0]["entry_slippage_cost"] > 0
+        assert (await client.post(f"/api/backtests/{detail['id']}/save")).json()["is_saved"] is True
+
+        invalid = await client.post("/api/backtests", json={**body, "short_window": 20, "long_window": 20})
+        assert invalid.status_code == 422

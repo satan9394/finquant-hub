@@ -58,6 +58,8 @@ class TestParsers:
         assert q["price"] == 1297.41
         assert q["change_percent"] == 0.42
         assert q["pe"] == 19.6
+        assert q["amount"] == 1_599_000_000
+        assert q["market_cap"] == 1_630_000_000_000
 
     def test_tencent_skips_short_lines(self):
         assert parse_tencent_quotes('v_sh600519="too~short";') == []

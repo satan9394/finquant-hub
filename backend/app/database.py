@@ -106,6 +106,44 @@ CREATE TABLE IF NOT EXISTS backtest_runs (
     created_at    TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS research_workspaces (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol          TEXT NOT NULL UNIQUE,
+    name            TEXT NOT NULL,
+    instrument_json TEXT NOT NULL,
+    notes           TEXT NOT NULL DEFAULT '',
+    evidence_json   TEXT NOT NULL DEFAULT '[]',
+    snapshot_json   TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_research_workspaces_updated
+    ON research_workspaces(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS quant_backtests (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol          TEXT NOT NULL,
+    strategy_type   TEXT NOT NULL DEFAULT 'ma_crossover',
+    status          TEXT NOT NULL DEFAULT 'queued',
+    params_json     TEXT NOT NULL,
+    result_json     TEXT,
+    error_message   TEXT,
+    provider        TEXT,
+    data_as_of      TEXT,
+    timezone        TEXT,
+    currency        TEXT,
+    adjustment      TEXT,
+    frequency       TEXT,
+    quality_flags   TEXT NOT NULL DEFAULT '[]',
+    is_saved        INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now')),
+    started_at      TEXT,
+    completed_at    TEXT,
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_quant_backtests_symbol_created
+    ON quant_backtests(symbol, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS analysis_reports (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker        TEXT NOT NULL,

@@ -72,7 +72,7 @@ Full details: `docs/HANDOVER.md`
 ## Test creds
 
 ```env
-DEEPSEEK_API_KEY=REMOVED
+DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEFAULT_MODEL=deepseek-v4-flash
 ```

@@ -2,6 +2,75 @@
 
 本文档是前后端集成的唯一事实来源。PRD 定义端点清单，本文档定义精确的请求/响应 JSON 结构与 SSE 事件格式。
 
+> 2026-07-27 增补：v2 标的研究与双均线回测接口。旧 `/api/market/*` 和 `/api/backtest/runs` 保留兼容，新页面只使用下述 v2 合同。
+
+## v2-A. 统一标的研究 `/api/instruments`
+
+统一标的对象：
+
+```json
+{
+  "symbol": "AAPL",
+  "name": "Apple Inc.",
+  "market": "US",
+  "exchange": "NasdaqGS",
+  "currency": "USD",
+  "asset_type": "equity"
+}
+```
+
+每个搜索、行情、K线和基本面响应都在根层携带：
+
+```json
+{
+  "provider": "yahoo",
+  "as_of": "2026-07-27T20:59:53+00:00",
+  "timezone": "America/New_York",
+  "currency": "USD",
+  "adjustment": "none",
+  "frequency": "1d",
+  "quality_flags": []
+}
+```
+
+- `GET /api/instruments/search?q=` → `{items: Instrument[], ...provenance}`
+- `GET /api/instruments/{symbol}/snapshot` → `{instrument, data: {price,last_close,open,high,low,volume,amount,change,change_percent,turnover_rate,pe,pb,market_cap,amplitude}, ...provenance}`
+- `GET /api/instruments/{symbol}/bars?period=1d&count=260` → `{instrument, items: [{day,open,high,low,close,volume}], indicators: {ma,macd,rsi}, ...provenance}`
+- `GET /api/instruments/{symbol}/fundamentals` → `{instrument, items: [{metric,value,as_of,currency,period_type}], ...provenance}`
+- `GET /api/instruments/workspaces` → 每个 symbol 一条已保存研究工作区
+- `GET /api/instruments/{symbol}/workspace` → 工作区或 `{symbol,notes:"",evidence:[],saved:false}`
+- `PUT /api/instruments/{symbol}/workspace` ← `{name,instrument,notes,evidence,snapshot}` → 合并保存
+
+缺失提供方字段用 `null` 并加入 `quality_flags`，不以 `0` 冒充；所有上游不可用时返回 502。
+
+## v2-B. 双均线回测 `/api/backtests`
+
+`POST /api/backtests`（202）：
+
+```json
+{
+  "symbol": "AAPL",
+  "start_date": "2024-07-27",
+  "end_date": "2026-07-27",
+  "short_window": 20,
+  "long_window": 50,
+  "initial_capital": 100000,
+  "commission_bps": 3,
+  "slippage_bps": 2,
+  "benchmark": "buy_and_hold"
+}
+```
+
+返回 `{id,symbol,status:"queued",params}`。状态依次为：`queued`、`loading_data`、`running`、`calculating_metrics`、`completed`；终止状态还包括 `failed`、`cancelled`。
+
+- `GET /api/backtests/{id}` → 运行状态；完成后根层增加 `metrics`、`equity_curve`、`benchmark_curve`、`drawdown_curve`、`trades`、`order_marks`、`warnings`、`provenance`
+- `GET /api/backtests/{id}/trades` → `{id,status,items: Trade[]}`
+- `POST /api/backtests/{id}/save` → `{id,is_saved:true}`
+- `POST /api/backtests/{id}/cancel` → `{id,status:"cancelled"}`
+- `GET /api/backtests?symbol=AAPL&saved_only=true` → 已保存/历史运行
+
+收益率字段使用十进制（`0.1234` 表示 12.34%），曲线权益字段使用账户金额；回撤曲线使用十进制负值。信号在 T 日收盘确认、T+1 日开盘执行，买卖双方均扣除 `commission_bps` 与 `slippage_bps`。期末未平仓头寸会在最后收盘价扣费后强制平仓并加入警告。
+
 通用约定：
 - 所有响应 `Content-Type: application/json; charset=utf-8`（SSE 除外）
 - 错误响应：`{"detail": "错误描述"}` + 合适 HTTP 状态码

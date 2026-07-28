@@ -1,11 +1,11 @@
 /* ============================================================
  * App — 主应用（AntD ProLayout + 路由）
  * ============================================================ */
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { ConfigProvider, theme as antTheme } from 'antd';
+import { Button, ConfigProvider, Space, theme as antTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import ProLayout, { getMenuData } from '@ant-design/pro-layout';
+import ProLayout from '@ant-design/pro-layout';
 import {
   DashboardOutlined,
   MessageOutlined,
@@ -17,6 +17,8 @@ import {
   BarChartOutlined,
   WalletOutlined,
   ExperimentOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
@@ -30,6 +32,8 @@ const Models = lazy(() => import('./pages/Models'));
 const Settings = lazy(() => import('./pages/Settings'));
 const StockAnalysis = lazy(() => import('./pages/StockAnalysis'));
 const Research = lazy(() => import('./pages/Research'));
+const ResearchWorkspace = lazy(() => import('./pages/ResearchWorkspace'));
+const StrategyLab = lazy(() => import('./pages/StrategyLab'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Screening = lazy(() => import('./pages/Screening'));
 const AlphaResearch = lazy(() => import('./pages/AlphaResearch'));
@@ -39,6 +43,7 @@ const menuItems = [
   { path: '/chat', name: '对话', icon: <MessageOutlined /> },
   { path: '/discussion', name: '讨论', icon: <TeamOutlined /> },
   { path: '/research', name: '深度研究', icon: <FundOutlined /> },
+  { path: '/strategy-lab/ma-crossover', name: '策略实验室', icon: <ExperimentOutlined /> },
   { path: '/portfolio', name: '投资组合', icon: <WalletOutlined /> },
   { path: '/screening', name: '选股器', icon: <BarChartOutlined /> },
   { path: '/alpha', name: 'Alpha 因子', icon: <ExperimentOutlined /> },
@@ -51,6 +56,7 @@ function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const setModels = useModelStore((s) => s.setModels);
+  const [collapsed, setCollapsed] = useState(false);
 
   // 加载模型列表
   useEffect(() => {
@@ -67,24 +73,37 @@ function AppLayout() {
     []
   );
 
-  const menuKey = location.pathname === '/' ? '/' : location.pathname;
+  const menuKey = location.pathname.startsWith('/research')
+    ? '/research'
+    : location.pathname.startsWith('/strategy-lab')
+      ? '/strategy-lab/ma-crossover'
+      : location.pathname === '/' ? '/' : location.pathname;
 
   return (
     <ProLayout
       title="FinQuant Hub"
-      logo="📈"
+      logo="/favicon.svg"
       layout="side"
       navTheme={isDark ? 'realDark' : 'light'}
-      contentStyle={{ background: '#fff' }}
+      contentStyle={{ background: '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
       headerRender={(props) => (
         <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           height: 48, padding: '0 24px', gap: 12,
           background: isDark ? '#141414' : '#fff',
           borderBottom: `1px solid ${isDark ? '#303030' : '#f0f0f0'}`,
         }}>
-          <span style={{ fontSize: 12, color: '#888' }}>当前模型:</span>
-          <ModelSelector />
+          <Button
+            className="mobile-nav-toggle"
+            type="text"
+            aria-label="切换导航"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((value) => !value)}
+          />
+          <Space.Compact>
+            <span style={{ fontSize: 12, color: '#888', alignSelf: 'center', marginRight: 8 }}>当前模型:</span>
+            <ModelSelector />
+          </Space.Compact>
         </div>
       )}
       menuDataRender={() => menuData}
@@ -92,7 +111,10 @@ function AppLayout() {
         <a onClick={() => navigate(item.path || '/')}>{dom}</a>
       )}
       location={{ pathname: menuKey }}
-      siderWidth={160}
+      siderWidth={196}
+      breakpoint="lg"
+      collapsed={collapsed}
+      onCollapse={setCollapsed}
     >
       <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}>页面加载中…</div>}>
       <Routes>
@@ -103,7 +125,10 @@ function AppLayout() {
         <Route path="/models" element={<Models />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/analysis/:ticker" element={<StockAnalysis />} />
-        <Route path="/research" element={<Research />} />
+        <Route path="/research" element={<ResearchWorkspace />} />
+        <Route path="/research/reports" element={<Research />} />
+        <Route path="/research/:symbol" element={<ResearchWorkspace />} />
+        <Route path="/strategy-lab/ma-crossover" element={<StrategyLab />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/screening" element={<Screening />} />
         <Route path="/alpha" element={<AlphaResearch />} />

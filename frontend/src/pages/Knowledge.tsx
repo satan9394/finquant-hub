@@ -1,12 +1,9 @@
-/* ============================================================
- * Knowledge — 策略知识库页
- * ============================================================ */
-import { useState } from 'react';
-import { Layout, Menu, Typography } from 'antd';
-import { BookOutlined } from '@ant-design/icons';
+import { useCallback, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button, Menu, Typography } from 'antd';
+import { BookOutlined, ExperimentOutlined } from '@ant-design/icons';
 
-const { Sider, Content } = Layout;
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 const strategies = [
   { key: 'm1', label: '双均线策略', file: 'm1-移动平均策略.html' },
@@ -21,40 +18,54 @@ const strategies = [
 
 export default function Knowledge() {
   const [selectedKey, setSelectedKey] = useState(strategies[0].key);
-  const current = strategies.find((s) => s.key === selectedKey);
+  const [frameHeight, setFrameHeight] = useState(1100);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const navigate = useNavigate();
+  const current = strategies.find((strategy) => strategy.key === selectedKey)!;
+
+  const resizeFrame = useCallback(() => {
+    const documentHeight = iframeRef.current?.contentDocument?.documentElement.scrollHeight;
+    if (documentHeight) setFrameHeight(Math.max(680, documentHeight + 24));
+  }, []);
 
   return (
-    <Layout style={{ height: 'calc(100vh - 56px)', background: '#fff' }}>
-      {/* 左栏：策略列表 */}
-      <Sider width={220} style={{ background: '#fafafa', borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
-          <Title level={5} style={{ margin: 0 }}>
-            <BookOutlined /> 策略知识库
-          </Title>
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          onClick={({ key }) => setSelectedKey(key)}
-          style={{ borderRight: 0, background: 'transparent' }}
-          items={strategies.map((s) => ({
-            key: s.key,
-            icon: <BookOutlined />,
-            label: s.label,
-          }))}
-        />
-      </Sider>
-
-      {/* 内容：iframe 渲染 HTML */}
-      <Content style={{ padding: 16, overflow: 'auto' }}>
-        {current && (
-          <iframe
-            src={`/knowledge/${current.file}`}
-            style={{ width: '100%', height: '100%', border: 'none' }}
-            title={current.label}
+    <main className="product-page">
+      <div className="knowledge-shell surface-card">
+        <aside className="knowledge-nav">
+          <div style={{ padding: '16px', borderBottom: '1px solid #eef1f5' }}>
+            <Title level={5} style={{ margin: 0 }}><BookOutlined /> 策略知识库</Title>
+          </div>
+          <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            onClick={({ key }) => setSelectedKey(key)}
+            style={{ borderRight: 0, background: 'transparent' }}
+            items={strategies.map((strategy) => ({ key: strategy.key, icon: <BookOutlined />, label: strategy.label }))}
           />
-        )}
-      </Content>
-    </Layout>
+        </aside>
+        <section className="knowledge-content">
+          <div className="knowledge-toolbar">
+            <div>
+              <Text className="eyebrow">KNOWLEDGE · TEACHING DEMO</Text>
+              <Title level={4} style={{ margin: '4px 0' }}>{current.label}</Title>
+              <Text type="secondary">文章内随机曲线仅用于教学示意，不作为研究或回测数据。</Text>
+            </div>
+            {selectedKey === 'm1' && (
+              <Button type="primary" icon={<ExperimentOutlined />} onClick={() => navigate('/strategy-lab/ma-crossover')}>
+                在策略实验室打开
+              </Button>
+            )}
+          </div>
+          <iframe
+            ref={iframeRef}
+            src={`/knowledge/${current.file}`}
+            style={{ width: '100%', height: frameHeight, border: 0, display: 'block' }}
+            title={current.label}
+            scrolling="no"
+            onLoad={resizeFrame}
+          />
+        </section>
+      </div>
+    </main>
   );
 }

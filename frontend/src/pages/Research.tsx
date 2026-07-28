@@ -3,6 +3,7 @@
  * 功能：ticker 输入 + 4-agent 进度动画 + 富文本 Markdown 报告输出（SSE）
  * ============================================================ */
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Card, Input, Button, Typography, Row, Col, List, Spin, Tag, message, Empty, Collapse, Space,
 } from 'antd';
@@ -115,8 +116,9 @@ function AgentCard({ agent, status, progress }: { agent: string; status: AgentSt
 
 // ==================== 页面组件 ====================
 export default function Research() {
+  const [searchParams] = useSearchParams();
   const currentModelId = useModelStore((state) => state.currentModelId);
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(searchParams.get('symbol') ?? '');
   const [running, setRunning] = useState(false);
   const [agents, setAgents] = useState<ResearchAgent[]>([]);
   const [reportContent, setReportContent] = useState('');
@@ -386,6 +388,7 @@ export default function Research() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <RobotOutlined />
               <span>{reportTitle || '研究报告中...'}</span>
+              <Tag color="purple">MODEL_OUTPUT</Tag>
               {running && <Spin size="small" />}
             </div>
           }
@@ -407,7 +410,7 @@ export default function Research() {
             borderTop: `3px solid ${done ? '#52c41a' : running ? '#1890ff' : '#d9d9d9'}`,
           }}
         >
-          <div style={{ maxHeight: 600, overflow: 'auto', padding: '0 4px' }}>
+          <div style={{ padding: '0 4px' }}>
             {reportContent ? (
               <MarkdownContent content={reportContent} />
             ) : (
