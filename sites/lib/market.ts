@@ -2,6 +2,12 @@ import type { Evidence, MarketSnapshot } from "./types";
 
 const YAHOO_SEARCH = "https://query2.finance.yahoo.com/v1/finance/search";
 const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart";
+const EASTMONEY_SEARCH = "https://searchapi.eastmoney.com/api/suggest/get";
+const EASTMONEY_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8";
+
+const COMPANY_NAME_ALIASES: Record<string, string> = {
+  "长鑫存储": "长鑫科技",
+};
 
 type YahooQuote = {
   symbol?: string;
@@ -10,6 +16,13 @@ type YahooQuote = {
   exchange?: string;
   exchDisp?: string;
   quoteType?: string;
+};
+
+type EastmoneyQuote = {
+  Code?: string;
+  Name?: string;
+  JYS?: string;
+  SecurityTypeName?: string;
 };
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -44,13 +57,52 @@ export function normalizeInputSymbol(input: string): string | null {
   return null;
 }
 
-export async function searchSymbols(query: string): Promise<Array<{ symbol: string; name: string; exchange: string }>> {
+async function searchYahooSymbols(query: string): Promise<Array<{ symbol: string; name: string; exchange: string }>> {
   const payload = await fetchJson<{ quotes?: YahooQuote[] }>(
     `${YAHOO_SEARCH}?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&enableFuzzyQuery=true`,
   );
   return (payload.quotes ?? [])
     .filter((item) => item.symbol && ["EQUITY", "ETF", "MUTUALFUND", "INDEX", "CRYPTOCURRENCY"].includes(item.quoteType ?? ""))
     .map((item) => ({ symbol: item.symbol!, name: item.longname ?? item.shortname ?? item.symbol!, exchange: item.exchDisp ?? item.exchange ?? "" }));
+}
+
+function eastmoneyYahooSymbol(item: EastmoneyQuote): string | null {
+  const code = item.Code?.trim().toUpperCase() ?? "";
+  if (!code) return null;
+  if (item.JYS === "HK" && /^\d{4,5}$/.test(code)) return `${code.replace(/^0+/, "").padStart(4, "0")}.HK`;
+  if (/^\d{6}$/.test(code)) return `${code}.${/^[569]/.test(code) ? "SS" : "SZ"}`;
+  if (["NASDAQ", "NYSE", "AMEX"].includes(item.JYS ?? "") && /^[A-Z][A-Z0-9.-]{0,14}$/.test(code)) {
+    return /^[A-Z]{1,5}\.[A-Z]$/.test(code) ? code.replace(".", "-") : code;
+  }
+  return null;
+}
+
+async function searchEastmoneySymbols(query: string, preferredName: string): Promise<Array<{ symbol: string; name: string; exchange: string }>> {
+  const payload = await fetchJson<{ QuotationCodeTable?: { Data?: EastmoneyQuote[] | null } }>(
+    `${EASTMONEY_SEARCH}?input=${encodeURIComponent(query)}&type=14&count=10&token=${EASTMONEY_TOKEN}`,
+  );
+  const seen = new Set<string>();
+  return (payload.QuotationCodeTable?.Data ?? []).flatMap((item) => {
+    const symbol = eastmoneyYahooSymbol(item);
+    if (!symbol || seen.has(symbol)) return [];
+    seen.add(symbol);
+    return [{
+      symbol,
+      name: preferredName || item.Name || symbol,
+      exchange: item.SecurityTypeName ?? item.JYS ?? "",
+    }];
+  });
+}
+
+export async function searchSymbols(query: string): Promise<Array<{ symbol: string; name: string; exchange: string }>> {
+  const trimmed = query.trim();
+  const canonical = COMPANY_NAME_ALIASES[trimmed] ?? trimmed;
+  if (/[^\x00-\x7f]/.test(canonical)) {
+    const eastmoney = await searchEastmoneySymbols(canonical, canonical === trimmed ? "" : canonical).catch(() => []);
+    if (eastmoney.length) return eastmoney;
+    return [];
+  }
+  return searchYahooSymbols(canonical);
 }
 
 export async function resolveSymbol(input: string): Promise<{ symbol: string; name: string; exchange: string }> {
@@ -127,7 +179,7 @@ export async function getSnapshot(input: string): Promise<MarketSnapshot> {
   const price = Number(meta.regularMarketPrice ?? closes.at(-1));
   const previousClose = Number(meta.chartPreviousClose ?? closes.at(-2) ?? price);
   const currency = String(meta.currency ?? "");
-  const name = String(meta.longName ?? meta.shortName ?? resolved.name ?? resolved.symbol);
+  const name = String(resolved.name !== resolved.symbol ? resolved.name : (meta.longName ?? meta.shortName ?? resolved.symbol));
   return {
     symbol: resolved.symbol,
     name,
@@ -155,8 +207,10 @@ export async function getSnapshot(input: string): Promise<MarketSnapshot> {
 }
 
 export async function searchNews(symbol: string, name: string): Promise<Evidence[]> {
+  const asciiName = name.replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim();
+  const query = [symbol, asciiName].filter(Boolean).join(" ");
   const payload = await fetchJson<{ news?: Array<{ title?: string; link?: string; publisher?: string; providerPublishTime?: number }> }>(
-    `${YAHOO_SEARCH}?q=${encodeURIComponent(`${symbol} ${name}`)}&quotesCount=0&newsCount=10`,
+    `${YAHOO_SEARCH}?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=10`,
   );
   return (payload.news ?? []).flatMap((item) => {
     if (!item.title || !item.link) return [];
