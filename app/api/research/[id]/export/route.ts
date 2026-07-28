@@ -17,10 +17,10 @@ function markdownToHtml(markdown: string): string {
   }).join("\n");
 }
 
-function documentHtml(title: string, markdown: string, print = false): string {
+function documentHtml(title: string, markdown: string): string {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
   body{font-family:Arial,"Microsoft YaHei",sans-serif;max-width:860px;margin:40px auto;padding:0 28px;color:#172033;line-height:1.7}h1{font-size:30px}h2{margin-top:32px;border-bottom:1px solid #d9e1ec;padding-bottom:8px}blockquote{background:#f2f6fa;border-left:4px solid #0f766e;padding:12px 16px}pre{white-space:pre-wrap}.bullet{margin:4px 0}@media print{body{margin:0;max-width:none}}
-  </style></head><body>${markdownToHtml(markdown)}${print ? "<script>window.addEventListener('load',()=>window.print())</script>" : ""}</body></html>`;
+  </style></head><body>${markdownToHtml(markdown)}</body></html>`;
 }
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -45,5 +45,5 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (format === "doc") {
     return new Response(html, { headers: { "Content-Type": "application/msword; charset=utf-8", "Content-Disposition": `attachment; filename="${safeName}-research.doc"` } });
   }
-  return new Response(html, { headers: print ? { "Content-Type": "text/html; charset=utf-8" } : { "Content-Type": "text/html; charset=utf-8", "Content-Disposition": `attachment; filename="${safeName}-research.html"` } });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Content-Disposition": `attachment; filename="${safeName}-research.html"` } });
 }
