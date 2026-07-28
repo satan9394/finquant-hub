@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { getSnapshot, searchNews } from "./market";
 import type { Evidence, MarketSnapshot, ResearchReport } from "./types";
 
@@ -30,16 +29,29 @@ function risk(snapshot: MarketSnapshot): string {
   return "近期波动与一年回撤相对温和，但仍需关注事件冲击";
 }
 
-function buildBaseReport(snapshot: MarketSnapshot, evidence: Evidence[], query: string): string {
+function directAnswer(snapshot: MarketSnapshot, query: string): string {
+  const supported = /(趋势|走势|技术|均线|动量|涨跌|波动|回撤|风险|rsi|trend|technical|momentum|volatility|drawdown|risk)/i.test(query);
+  if (!supported) {
+    return `**UNKNOWN**：当前已验证数据只覆盖行情、技术指标和标题级资讯，无法可靠回答“${query || "综合研究"}”。不能用价格指标替代现金流、产品周期、估值或其他基本面事实；需要接入并核验财报、公告或监管文件后再回答。`;
+  }
+  return `**FACT**：${trend(snapshot)}；20 日收益 ${percent(snapshot.metrics.return20d)}，60 日收益 ${percent(snapshot.metrics.return60d)}。` +
+    `\n\n**INFERENCE**：${risk(snapshot)}。这是基于行情数据的风险判断，不等同于基本面结论。`;
+}
+
+export function buildBaseReport(snapshot: MarketSnapshot, evidence: Evidence[], query: string): string {
   const m = snapshot.metrics;
   const sources = evidence.length
-    ? evidence.map((item, index) => `${index + 1}. [${item.title}](${item.url}) — ${item.publisher}${item.publishedAt ? `，${item.publishedAt.slice(0, 10)}` : ""}`).join("\n")
-    : "未检索到近期关联新闻；本报告仍保留行情来源并明确缺失。";
+    ? evidence.map((item, index) => `${index + 1}. [${item.title}](${item.url}) — ${item.publisher}${item.publishedAt ? `，${item.publishedAt.slice(0, 10)}` : ""}；相关性 ${(item.relevanceScore * 100).toFixed(0)}%`).join("\n")
+    : "**UNKNOWN**：未检索到通过股票代码或公司实体相关性门控的近期资讯；不以通用新闻填充证据。";
   return `# ${snapshot.name}（${snapshot.symbol}）研究快照
 
 > 生成时间：${new Date(snapshot.asOf).toLocaleString("zh-CN")}
 > 用户问题：${query || "综合研究"}
 > 行情来源：${snapshot.source}
+
+## 对用户问题的直接回答
+
+${directAnswer(snapshot, query)}
 
 ## 结论摘要
 
@@ -53,7 +65,10 @@ function buildBaseReport(snapshot: MarketSnapshot, evidence: Evidence[], query: 
 | 指标 | 数值 |
 |---|---:|
 | 最新价 | ${snapshot.currency} ${number(snapshot.price)} |
-| 日涨跌 | ${percent(snapshot.changePercent)} |
+| 昨日收盘 | ${snapshot.currency} ${number(snapshot.previousClose)} |
+| 日涨跌额 | ${snapshot.currency} ${number(snapshot.dailyChange)} |
+| 日涨跌幅 | ${percent(snapshot.dailyChangePercent)} |
+| 一年区间收益 | ${percent(snapshot.periodReturnPercent)} |
 | 20 日均线 | ${number(m.ma20)} |
 | 60 日均线 | ${number(m.ma60)} |
 | 52 周高点 | ${number(snapshot.fiftyTwoWeekHigh)} |
@@ -74,6 +89,7 @@ ${sources}
 }
 
 async function aiEnhancement(base: string, snapshot: MarketSnapshot): Promise<string | null> {
+  const { env } = await import("cloudflare:workers");
   const runtime = env as unknown as RuntimeEnv;
   const config = runtime.OPENAI_COMPAT_API_KEY
     ? { key: runtime.OPENAI_COMPAT_API_KEY, base: runtime.OPENAI_COMPAT_BASE_URL ?? "https://api.openai.com/v1", model: runtime.OPENAI_COMPAT_MODEL ?? "gpt-4.1-mini" }
@@ -132,5 +148,6 @@ export async function runResearch(input: string, query: string): Promise<Researc
     snapshot,
     createdAt,
     aiEnhanced,
+    persistence: "ephemeral",
   };
 }

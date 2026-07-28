@@ -4,9 +4,11 @@ export type MarketSnapshot = {
   exchange: string;
   currency: string;
   price: number;
-  change: number;
-  changePercent: number;
   previousClose: number;
+  dailyChange: number;
+  dailyChangePercent: number;
+  periodReturn: number | null;
+  periodReturnPercent: number | null;
   fiftyTwoWeekHigh: number | null;
   fiftyTwoWeekLow: number | null;
   metrics: {
@@ -23,7 +25,14 @@ export type MarketSnapshot = {
   asOf: string;
 };
 
-export type Evidence = { title: string; url: string; publisher: string; publishedAt: string | null };
+export type Evidence = {
+  title: string;
+  url: string;
+  publisher: string;
+  publishedAt: string | null;
+  relevanceScore: number;
+  matchedTerms: string[];
+};
 
 export type ResearchReport = {
   id: string;
@@ -37,6 +46,7 @@ export type ResearchReport = {
   snapshot: MarketSnapshot;
   createdAt: string;
   aiEnhanced: boolean;
+  persistence: "account" | "ephemeral";
 };
 
 export type ResearchGroup = {
@@ -113,6 +123,7 @@ export type BacktestRun = {
   adjustment: string;
   frequency: string;
   saved: boolean;
+  persistence: "account" | "ephemeral";
   createdAt: string;
   updatedAt: string;
 };

@@ -1,16 +1,20 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const researchGroups = sqliteTable("research_groups", {
   id: text("id").primaryKey(),
-  symbol: text("symbol").notNull().unique(),
+  ownerId: text("owner_id").notNull(),
+  symbol: text("symbol").notNull(),
   displayName: text("display_name").notNull(),
   market: text("market").notNull().default(""),
   reportCount: integer("report_count").notNull().default(0),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [
+  uniqueIndex("research_groups_owner_symbol_unique").on(table.ownerId, table.symbol),
+]);
 
 export const researchReports = sqliteTable("research_reports", {
   id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
   groupId: text("group_id").notNull().references(() => researchGroups.id, { onDelete: "cascade" }),
   symbol: text("symbol").notNull(),
   name: text("name").notNull(),
@@ -22,12 +26,13 @@ export const researchReports = sqliteTable("research_reports", {
   aiEnhanced: integer("ai_enhanced").notNull().default(0),
   createdAt: text("created_at").notNull(),
 }, (table) => [
-  index("research_reports_group_idx").on(table.groupId, table.createdAt),
-  index("research_reports_symbol_idx").on(table.symbol, table.createdAt),
+  index("research_reports_group_idx").on(table.ownerId, table.groupId, table.createdAt),
+  index("research_reports_symbol_idx").on(table.ownerId, table.symbol, table.createdAt),
 ]);
 
 export const quantBacktests = sqliteTable("quant_backtests", {
   id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
   symbol: text("symbol").notNull(),
   name: text("name").notNull(),
   status: text("status").notNull(),
@@ -43,5 +48,5 @@ export const quantBacktests = sqliteTable("quant_backtests", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
-  index("quant_backtests_saved_idx").on(table.saved, table.updatedAt),
+  index("quant_backtests_saved_idx").on(table.ownerId, table.saved, table.updatedAt),
 ]);

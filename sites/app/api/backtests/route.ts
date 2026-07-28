@@ -1,3 +1,4 @@
+import { ownerIdFromRequest } from "@/lib/auth";
 import { runMaCrossover, validateBacktestParams } from "@/lib/backtest";
 import { listBacktests, saveBacktest } from "@/lib/database";
 import { getSnapshot } from "@/lib/market";
@@ -25,8 +26,10 @@ function parseBody(body: Record<string, unknown>): BacktestParams {
 
 export async function GET(request: Request) {
   try {
+    const ownerId = await ownerIdFromRequest(request);
+    if (!ownerId) return Response.json({ items: [], authenticated: false, persistence: "ephemeral" });
     const savedOnly = new URL(request.url).searchParams.get("saved_only") === "true";
-    return Response.json({ items: await listBacktests(savedOnly) });
+    return Response.json({ items: await listBacktests(ownerId, savedOnly), authenticated: true, persistence: "account" });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "回测历史加载失败" }, { status: 500 });
   }
@@ -34,6 +37,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const ownerId = await ownerIdFromRequest(request);
     const params = parseBody(await request.json() as Record<string, unknown>);
     const snapshot = await getSnapshot(params.symbol);
     params.symbol = snapshot.symbol;
@@ -42,10 +46,11 @@ export async function POST(request: Request) {
     const run: BacktestRun = {
       id: crypto.randomUUID(), symbol: snapshot.symbol, name: snapshot.name, status: "completed", params, result,
       provider: snapshot.source, dataAsOf: snapshot.asOf, timezone: snapshot.exchange.includes("Hong Kong") ? "Asia/Hong_Kong" : snapshot.symbol.endsWith(".SS") || snapshot.symbol.endsWith(".SZ") ? "Asia/Shanghai" : "America/New_York",
-      currency: snapshot.currency, adjustment: "split_dividend_adjusted", frequency: "1d", saved: false, createdAt: now, updatedAt: now,
+      currency: snapshot.currency, adjustment: "split_dividend_adjusted", frequency: "1d", saved: false,
+      persistence: ownerId ? "account" : "ephemeral", createdAt: now, updatedAt: now,
     };
-    await saveBacktest(run);
-    return Response.json({ run }, { status: 201 });
+    const stored = ownerId ? await saveBacktest(run, ownerId) : run;
+    return Response.json({ run: stored }, { status: 201 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "回测失败" }, { status: 422 });
   }

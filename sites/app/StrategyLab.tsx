@@ -26,6 +26,9 @@ function Curve({ run, kind }: { run: BacktestRun; kind: "equity" | "drawdown" })
     const points = (items: typeof main) => items.map((point, index) => `${(index / Math.max(items.length - 1, 1)) * 920},${320 - ((point.value - min) / span) * 280}`).join(" ");
     return { main: points(main), benchmark: benchmark.length ? points(benchmark) : "", start: main[0]?.time, end: main.at(-1)?.time };
   }, [kind, run]);
+  const tableRows = kind === "equity"
+    ? run.result.equityCurve.map((point, index) => ({ time: point.time, value: point.value, benchmark: run.result.benchmarkCurve[index]?.value }))
+    : run.result.drawdownCurve.map((point) => ({ time: point.time, value: point.value, benchmark: undefined }));
   return (
     <div className="backtest-chart">
       <svg viewBox="0 0 920 350" role="img" aria-label={kind === "equity" ? "策略净值与基准净值" : "最大回撤曲线"}>
@@ -34,6 +37,12 @@ function Curve({ run, kind }: { run: BacktestRun; kind: "equity" | "drawdown" })
         <polyline points={paths.main} fill="none" stroke={kind === "equity" ? "#0f766e" : "#dc5261"} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span>{paths.start}</span><span>{paths.end}</span>
+      <details className="chart-data">
+        <summary>查看图表数据</summary>
+        <div className="table-scroll"><table><thead><tr><th>日期</th><th>{kind === "equity" ? "策略净值" : "回撤"}</th>{kind === "equity" && <th>基准净值</th>}</tr></thead>
+          <tbody>{tableRows.map((row) => <tr key={row.time}><td>{row.time}</td><td>{row.value.toFixed(4)}</td>{kind === "equity" && <td>{row.benchmark?.toFixed(4) ?? "—"}</td>}</tr>)}</tbody>
+        </table></div>
+      </details>
     </div>
   );
 }
@@ -53,11 +62,13 @@ export default function StrategyLab({ initialSymbol }: { initialSymbol: string }
   const [savedRuns, setSavedRuns] = useState<BacktestRun[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => { if (initialSymbol) setSymbol(initialSymbol); }, [initialSymbol]);
   const loadSaved = async () => {
-    const payload = await request<{ items: BacktestRun[] }>("/api/backtests?saved_only=true");
+    const payload = await request<{ items: BacktestRun[]; authenticated: boolean }>("/api/backtests?saved_only=true");
     setSavedRuns(payload.items);
+    setAuthenticated(payload.authenticated);
   };
   useEffect(() => { void loadSaved().catch(() => undefined); }, []);
 
@@ -65,6 +76,7 @@ export default function StrategyLab({ initialSymbol }: { initialSymbol: string }
     event.preventDefault();
     setBusy(true);
     setError(null);
+    setRun(null);
     try {
       const payload = await request<{ run: BacktestRun }>("/api/backtests", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -80,7 +92,7 @@ export default function StrategyLab({ initialSymbol }: { initialSymbol: string }
   };
 
   const save = async () => {
-    if (!run) return;
+    if (!run || run.persistence !== "account") return;
     const payload = await request<{ run: BacktestRun }>(`/api/backtests/${run.id}/save`, { method: "POST" });
     setRun(payload.run);
     await loadSaved();
@@ -94,26 +106,26 @@ export default function StrategyLab({ initialSymbol }: { initialSymbol: string }
       </div>
       <div className="strategy-grid">
         <form className="strategy-form" onSubmit={(event) => void execute(event)}>
-          <label>股票代码或公司名称<input value={symbol} onChange={(event) => setSymbol(event.target.value)} /></label>
-          <div className="field-pair"><label>开始日期<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>结束日期<input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
-          <div className="field-pair"><label>短均线<input type="number" min="2" max="200" value={shortWindow} onChange={(event) => setShortWindow(Number(event.target.value))} /></label><label>长均线<input type="number" min="3" max="250" value={longWindow} onChange={(event) => setLongWindow(Number(event.target.value))} /></label></div>
-          <label>初始资金<input type="number" min="1" value={initialCapital} onChange={(event) => setInitialCapital(Number(event.target.value))} /></label>
-          <div className="field-pair"><label>佣金（bps）<input type="number" min="0" value={commissionBps} onChange={(event) => setCommissionBps(Number(event.target.value))} /></label><label>滑点（bps）<input type="number" min="0" value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))} /></label></div>
+          <label htmlFor="strategy-symbol">股票代码或公司名称</label><input id="strategy-symbol" name="strategy-symbol" required aria-describedby={error ? "backtest-error" : undefined} value={symbol} onChange={(event) => setSymbol(event.target.value)} />
+          <div className="field-pair"><div><label htmlFor="strategy-start">开始日期</label><input id="strategy-start" name="strategy-start" required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div><div><label htmlFor="strategy-end">结束日期</label><input id="strategy-end" name="strategy-end" required type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div></div>
+          <div className="field-pair"><div><label htmlFor="strategy-short">短均线</label><input id="strategy-short" name="strategy-short" required type="number" min="2" max="200" value={shortWindow} onChange={(event) => setShortWindow(Number(event.target.value))} /></div><div><label htmlFor="strategy-long">长均线</label><input id="strategy-long" name="strategy-long" required type="number" min="3" max="250" value={longWindow} onChange={(event) => setLongWindow(Number(event.target.value))} /></div></div>
+          <label htmlFor="strategy-capital">初始资金</label><input id="strategy-capital" name="strategy-capital" required type="number" min="1" value={initialCapital} onChange={(event) => setInitialCapital(Number(event.target.value))} />
+          <div className="field-pair"><div><label htmlFor="strategy-commission">佣金（bps）</label><input id="strategy-commission" name="strategy-commission" required type="number" min="0" value={commissionBps} onChange={(event) => setCommissionBps(Number(event.target.value))} /></div><div><label htmlFor="strategy-slippage">滑点（bps）</label><input id="strategy-slippage" name="strategy-slippage" required type="number" min="0" value={slippageBps} onChange={(event) => setSlippageBps(Number(event.target.value))} /></div></div>
           <button className="primary" disabled={busy}>{busy ? "正在加载真实行情并计算…" : "运行 MA 回测"}</button>
-          {error && <div className="error" role="alert">{error}</div>}
-          <div className="saved-backtests"><small>SAVED BACKTESTS</small>{savedRuns.length === 0 && <p>还没有已保存回测。</p>}{savedRuns.map((item) => <button type="button" key={item.id} onClick={() => setRun(item)}><strong>{item.name}</strong><span>MA{item.params.shortWindow}/MA{item.params.longWindow} · {new Date(item.createdAt).toLocaleDateString("zh-CN")}</span></button>)}</div>
+          {error && <div className="error" id="backtest-error" role="alert">{error}</div>}
+          <div className="saved-backtests"><small>SAVED BACKTESTS</small>{savedRuns.length === 0 && <p>{authenticated ? "还没有已保存回测。" : "公共演示不显示任何账户的已保存回测。"}</p>}{savedRuns.map((item) => <button type="button" key={item.id} onClick={() => setRun(item)}><strong>{item.name}</strong><span>MA{item.params.shortWindow}/MA{item.params.longWindow} · {new Date(item.createdAt).toLocaleDateString("zh-CN")}</span></button>)}</div>
         </form>
 
         <div className="strategy-results">
           {!run && <div className="strategy-empty"><strong>等待第一轮回测</strong><p>默认参数为 AAPL、MA20/MA50、10 万初始资金、3 bps 佣金与 2 bps 滑点。</p></div>}
           {run && <>
-            <div className="result-toolbar"><div><small>COMPLETED</small><h3>{run.name} · MA{run.params.shortWindow}/MA{run.params.longWindow}</h3></div><button onClick={() => void save()} disabled={run.saved}>{run.saved ? "已保存" : "保存结果"}</button></div>
+            <div className="result-toolbar"><div><small>COMPLETED</small><h3>{run.name} · MA{run.params.shortWindow}/MA{run.params.longWindow}</h3></div><button onClick={() => void save()} disabled={run.saved || run.persistence !== "account"}>{run.persistence !== "account" ? "登录后可保存" : run.saved ? "已保存" : "保存结果"}</button></div>
             <div className="backtest-metrics">
               <div><span>总收益</span><strong>{percentage(run.result.metrics.totalReturn)}</strong></div><div><span>年化收益</span><strong>{percentage(run.result.metrics.annualizedReturn)}</strong></div>
               <div><span>基准收益</span><strong>{percentage(run.result.metrics.benchmarkReturn)}</strong></div><div><span>超额收益</span><strong>{percentage(run.result.metrics.excessReturn)}</strong></div>
               <div><span>最大回撤</span><strong>{percentage(run.result.metrics.maxDrawdown)}</strong></div><div><span>Sharpe</span><strong>{number(run.result.metrics.sharpeRatio)}</strong></div>
               <div><span>Sortino</span><strong>{number(run.result.metrics.sortinoRatio)}</strong></div><div><span>胜率</span><strong>{percentage(run.result.metrics.winRate)}</strong></div>
-              <div><span>盈亏比</span><strong>{number(run.result.metrics.profitFactor)}</strong></div><div><span>换手</span><strong>{number(run.result.metrics.turnover)}</strong></div>
+              <div><span>盈亏比</span><strong>{number(run.result.metrics.profitFactor)}</strong></div><div><span>换手（初始资金倍数）</span><strong>{number(run.result.metrics.turnover)}</strong></div>
               <div><span>交易数</span><strong>{run.result.metrics.tradeCount}</strong></div>
             </div>
             <h4>策略净值与买入持有基准</h4><Curve run={run} kind="equity" />

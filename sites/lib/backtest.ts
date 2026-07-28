@@ -121,6 +121,9 @@ export function runMaCrossover(snapshot: MarketSnapshot, params: BacktestParams)
   const wins = trades.filter((trade) => trade.pnl > 0);
   const losses = trades.filter((trade) => trade.pnl < 0);
   if (!trades.length) warnings.push("回测区间没有产生交易");
+  if (trades.length > 0 && trades.length < 30) warnings.push(`仅 ${trades.length} 笔交易，胜率与盈亏比不具备稳定统计意义`);
+  if (bars.length < 252) warnings.push(`仅 ${bars.length} 个交易日，样本不足一个完整交易年`);
+  if (params.longWindow >= Math.floor(bars.length * 0.4)) warnings.push("长均线参数接近样本长度，结果对起止日期高度敏感");
   if (wins.length && !losses.length) warnings.push("没有亏损交易，盈亏比不可定义");
   const curve = (values: number[]) => values.map((value, index) => ({ time: bars[index].date, value: round(value, 6) }));
 

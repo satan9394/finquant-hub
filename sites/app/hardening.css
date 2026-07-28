@@ -1,0 +1,115 @@
+.price small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.report-body a {
+  color: var(--teal);
+  text-underline-offset: 3px;
+}
+
+.report-table {
+  margin: 14px 0;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table-scroll th,
+.table-scroll td {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.table-scroll th {
+  background: #eef4f2;
+}
+
+.strategy-form > label {
+  display: block;
+}
+
+.field-pair > div {
+  display: grid;
+  gap: 6px;
+}
+
+.backtest-chart {
+  height: auto;
+  min-height: 390px;
+}
+
+.chart-data {
+  width: 100%;
+  margin-top: 10px;
+  color: var(--ink);
+}
+
+.chart-data summary {
+  padding: 8px 0;
+  color: var(--teal);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chart-data .table-scroll {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.ephemeral-note {
+  max-width: 360px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1100px) {
+  .topnav {
+    display: flex;
+  }
+
+  .topnav a {
+    padding: 7px 8px;
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar {
+    padding-inline: 14px;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .topnav {
+    gap: 3px;
+  }
+
+  .topnav a {
+    padding: 6px;
+    font-size: 9px;
+  }
+
+  .hero h1 {
+    overflow-wrap: anywhere;
+    font-size: 34px;
+  }
+
+  .hero h1 br {
+    display: none;
+  }
+}

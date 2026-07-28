@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeInputSymbol, resolveSymbol } from "../lib/market";
+import { getSnapshot, normalizeInputSymbol, resolveSymbol, scoreNewsRelevance } from "../lib/market";
 
 describe("normalizeInputSymbol", () => {
   test.each([
@@ -49,5 +49,53 @@ describe("resolveSymbol", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("daily price semantics", () => {
+  test("uses regularMarketPreviousClose instead of range-relative chartPreviousClose", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("/v1/finance/search")) {
+        return Response.json({ quotes: [{ symbol: "AAPL", longname: "Apple Inc.", quoteType: "EQUITY", exchDisp: "NASDAQ" }] });
+      }
+      return Response.json({
+        chart: {
+          result: [{
+            meta: {
+              regularMarketPrice: 200,
+              regularMarketPreviousClose: 190,
+              chartPreviousClose: 100,
+              regularMarketTime: 1_700_000_000,
+              currency: "USD",
+              fullExchangeName: "NASDAQ",
+            },
+            timestamp: [1_699_827_200, 1_699_913_600, 1_700_000_000],
+            indicators: {
+              quote: [{ open: [100, 189, 198], high: [101, 191, 201], low: [99, 188, 197], close: [100, 190, 200], volume: [1, 1, 1] }],
+              adjclose: [{ adjclose: [100, 190, 200] }],
+            },
+          }],
+        },
+      });
+    }) as typeof fetch;
+
+    try {
+      const snapshot = await getSnapshot("AAPL");
+      expect(snapshot.previousClose).toBe(190);
+      expect(snapshot.dailyChange).toBe(10);
+      expect(snapshot.dailyChangePercent).toBeCloseTo(5.263157, 5);
+      expect(snapshot.periodReturnPercent).toBe(100);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("news relevance gate", () => {
+  test("accepts ticker/company matches and rejects unrelated headlines", () => {
+    expect(scoreNewsRelevance({ title: "Apple unveils new products", relatedTickers: ["AAPL"] }, "AAPL", "Apple Inc.").score).toBe(1);
+    expect(scoreNewsRelevance({ title: "Gold miners rally after rate decision", relatedTickers: ["NEM"] }, "AAPL", "Apple Inc.").score).toBe(0);
   });
 });

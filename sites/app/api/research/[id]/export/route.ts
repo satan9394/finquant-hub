@@ -1,3 +1,4 @@
+import { authenticationRequired, ownerIdFromRequest } from "@/lib/auth";
 import { getReport } from "@/lib/database";
 import { createResearchPdf } from "@/lib/pdf";
 
@@ -24,8 +25,10 @@ function documentHtml(title: string, markdown: string): string {
 }
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  const ownerId = await ownerIdFromRequest(request);
+  if (!ownerId) return authenticationRequired();
   const { id } = await context.params;
-  const report = await getReport(id);
+  const report = await getReport(ownerId, id);
   if (!report) return Response.json({ error: "报告不存在" }, { status: 404 });
   const format = new URL(request.url).searchParams.get("format") ?? "html";
   const safeName = report.symbol.replace(/[^a-zA-Z0-9.-]/g, "-");

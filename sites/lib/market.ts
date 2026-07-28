@@ -18,6 +18,14 @@ type YahooQuote = {
   quoteType?: string;
 };
 
+type YahooNews = {
+  title?: string;
+  link?: string;
+  publisher?: string;
+  providerPublishTime?: number;
+  relatedTickers?: string[];
+};
+
 type EastmoneyQuote = {
   Code?: string;
   Name?: string;
@@ -173,6 +181,7 @@ export async function getSnapshot(input: string): Promise<MarketSnapshot> {
   const timestamps = result.timestamp ?? [];
   const quote = result.indicators?.quote?.[0];
   const adjusted = result.indicators?.adjclose?.[0]?.adjclose;
+  const rawCloses = quote?.close ?? [];
   const history = timestamps.flatMap((timestamp, index) => {
     const close = quote?.close?.[index];
     const open = quote?.open?.[index];
@@ -192,19 +201,30 @@ export async function getSnapshot(input: string): Promise<MarketSnapshot> {
   });
   if (!history.length) throw new Error("该代码存在，但当前没有可用交易数据");
   const closes = history.map((item) => item.close);
-  const price = Number(meta.regularMarketPrice ?? closes.at(-1));
-  const previousClose = Number(meta.chartPreviousClose ?? closes.at(-2) ?? price);
+  const latestRawClose = [...rawCloses].reverse().find((value): value is number => typeof value === "number" && value > 0);
+  const priorRawClose = [...rawCloses].reverse().filter((value): value is number => typeof value === "number" && value > 0)[1];
+  const marketPrice = Number(meta.regularMarketPrice);
+  const marketPreviousClose = Number(meta.regularMarketPreviousClose);
+  const price = Number.isFinite(marketPrice) && marketPrice > 0 ? marketPrice : (latestRawClose ?? closes.at(-1)!);
+  // ponytail: chartPreviousClose is range-relative in Yahoo's chart API, so it must never drive a daily change.
+  const previousClose = Number.isFinite(marketPreviousClose) && marketPreviousClose > 0
+    ? marketPreviousClose
+    : (priorRawClose ?? price);
+  const periodReturn = closes.length > 1 && closes[0] > 0 ? closes.at(-1)! / closes[0] - 1 : null;
   const currency = String(meta.currency ?? "");
   const name = String(resolved.name !== resolved.symbol ? resolved.name : (meta.longName ?? meta.shortName ?? resolved.symbol));
+  const marketTime = Number(meta.regularMarketTime);
   return {
     symbol: resolved.symbol,
     name,
     exchange: String(meta.fullExchangeName ?? meta.exchangeName ?? resolved.exchange ?? ""),
     currency,
     price,
-    change: price - previousClose,
-    changePercent: previousClose ? ((price / previousClose) - 1) * 100 : 0,
     previousClose,
+    dailyChange: price - previousClose,
+    dailyChangePercent: previousClose ? ((price / previousClose) - 1) * 100 : 0,
+    periodReturn,
+    periodReturnPercent: periodReturn == null ? null : periodReturn * 100,
     fiftyTwoWeekHigh: typeof meta.fiftyTwoWeekHigh === "number" ? meta.fiftyTwoWeekHigh : Math.max(...closes),
     fiftyTwoWeekLow: typeof meta.fiftyTwoWeekLow === "number" ? meta.fiftyTwoWeekLow : Math.min(...closes),
     metrics: {
@@ -218,23 +238,60 @@ export async function getSnapshot(input: string): Promise<MarketSnapshot> {
     },
     history,
     source: "Yahoo Finance chart API",
-    asOf: new Date().toISOString(),
+    asOf: Number.isFinite(marketTime) && marketTime > 0
+      ? new Date(marketTime * 1000).toISOString()
+      : new Date((timestamps.at(-1) ?? Date.now() / 1000) * 1000).toISOString(),
   };
+}
+
+function normalizedTicker(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function companyTerms(name: string): string[] {
+  const ignored = new Set(["inc", "incorporated", "corp", "corporation", "company", "co", "ltd", "limited", "holdings", "group", "plc"]);
+  return name.toLowerCase().split(/[^a-z0-9\u3400-\u9fff]+/)
+    .filter((term) => term.length >= 3 && !ignored.has(term));
+}
+
+export function scoreNewsRelevance(item: YahooNews, symbol: string, name: string): { score: number; matchedTerms: string[] } {
+  const title = item.title?.toLowerCase() ?? "";
+  const ticker = normalizedTicker(symbol);
+  const bareTicker = normalizedTicker(symbol.split(".")[0]);
+  const related = (item.relatedTickers ?? []).some((value) => {
+    const candidate = normalizedTicker(value);
+    return candidate === ticker || candidate === bareTicker;
+  });
+  const terms = [
+    ...(bareTicker.length >= 3 && title.includes(bareTicker.toLowerCase()) ? [bareTicker] : []),
+    ...companyTerms(name).filter((term) => title.includes(term)),
+  ];
+  const uniqueTerms = [...new Set(terms)];
+  const score = Math.min(1, (related ? 0.65 : 0) + (uniqueTerms.length ? 0.45 : 0));
+  return { score, matchedTerms: uniqueTerms };
 }
 
 export async function searchNews(symbol: string, name: string): Promise<Evidence[]> {
   const asciiName = name.replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim();
   const query = [symbol, asciiName].filter(Boolean).join(" ");
-  const payload = await fetchJson<{ news?: Array<{ title?: string; link?: string; publisher?: string; providerPublishTime?: number }> }>(
-    `${YAHOO_SEARCH}?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=10`,
+  const payload = await fetchJson<{ news?: YahooNews[] }>(
+    `${YAHOO_SEARCH}?q=${encodeURIComponent(query)}&quotesCount=0&newsCount=20`,
   );
+  const seen = new Set<string>();
   return (payload.news ?? []).flatMap((item) => {
     if (!item.title || !item.link) return [];
+    const relevance = scoreNewsRelevance(item, symbol, name);
+    if (relevance.score < 0.45) return [];
+    const dedupeKey = `${item.title.trim().toLowerCase()}|${item.link}`;
+    if (seen.has(dedupeKey)) return [];
+    seen.add(dedupeKey);
     return [{
       title: item.title,
       url: item.link,
       publisher: item.publisher ?? "Yahoo Finance",
       publishedAt: item.providerPublishTime ? new Date(item.providerPublishTime * 1000).toISOString() : null,
+      relevanceScore: relevance.score,
+      matchedTerms: relevance.matchedTerms,
     }];
-  });
+  }).slice(0, 10);
 }
