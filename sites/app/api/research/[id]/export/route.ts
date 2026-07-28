@@ -1,4 +1,5 @@
 import { getReport } from "@/lib/database";
+import { createResearchPdf } from "@/lib/pdf";
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
@@ -31,8 +32,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (format === "md") {
     return new Response(report.contentMd, { headers: { "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": `attachment; filename="${safeName}-research.md"` } });
   }
-  const print = format === "pdf";
-  const html = documentHtml(report.title, report.contentMd, print);
+  if (format === "pdf") {
+    const pdf = createResearchPdf(report.title, report.contentMd);
+    return new Response(pdf, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${safeName}-research.pdf"`,
+      },
+    });
+  }
+  const html = documentHtml(report.title, report.contentMd);
   if (format === "doc") {
     return new Response(html, { headers: { "Content-Type": "application/msword; charset=utf-8", "Content-Disposition": `attachment; filename="${safeName}-research.doc"` } });
   }
