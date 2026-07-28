@@ -162,17 +162,33 @@ function annualizedVolatility(values: number[]): number | null {
 export async function getSnapshot(input: string): Promise<MarketSnapshot> {
   const resolved = await resolveSymbol(input);
   const payload = await fetchJson<{
-    chart?: { result?: Array<{ meta?: Record<string, unknown>; timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null>; volume?: Array<number | null> }> } }>; error?: { description?: string } | null };
+    chart?: { result?: Array<{ meta?: Record<string, unknown>; timestamp?: number[]; indicators?: {
+      quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }>;
+      adjclose?: Array<{ adjclose?: Array<number | null> }>;
+    } }>; error?: { description?: string } | null };
   }>(`${YAHOO_CHART}/${encodeURIComponent(resolved.symbol)}?interval=1d&range=1y&events=div%2Csplits`);
   const result = payload.chart?.result?.[0];
   if (!result) throw new Error(payload.chart?.error?.description ?? "没有可用行情数据");
   const meta = result.meta ?? {};
   const timestamps = result.timestamp ?? [];
   const quote = result.indicators?.quote?.[0];
+  const adjusted = result.indicators?.adjclose?.[0]?.adjclose;
   const history = timestamps.flatMap((timestamp, index) => {
     const close = quote?.close?.[index];
-    if (typeof close !== "number") return [];
-    return [{ date: new Date(timestamp * 1000).toISOString().slice(0, 10), close, volume: quote?.volume?.[index] ?? 0 }];
+    const open = quote?.open?.[index];
+    const high = quote?.high?.[index];
+    const low = quote?.low?.[index];
+    if (![open, high, low, close].every((value) => typeof value === "number" && value > 0)) return [];
+    const adjustedClose = adjusted?.[index];
+    const ratio = typeof adjustedClose === "number" && close ? adjustedClose / close : 1;
+    return [{
+      date: new Date(timestamp * 1000).toISOString().slice(0, 10),
+      open: open! * ratio,
+      high: high! * ratio,
+      low: low! * ratio,
+      close: close! * ratio,
+      volume: quote?.volume?.[index] ?? 0,
+    }];
   });
   if (!history.length) throw new Error("该代码存在，但当前没有可用交易数据");
   const closes = history.map((item) => item.close);

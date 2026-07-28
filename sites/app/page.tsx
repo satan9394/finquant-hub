@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { MarketSnapshot, ResearchGroup, ResearchReport } from "@/lib/types";
+import StrategyLab from "./StrategyLab";
 
 type ApiError = { error?: string };
 
@@ -163,6 +164,7 @@ export default function Home() {
           <span className="brand-mark">FQ</span>
           <span><strong>FinQuant Hub</strong><small>全球量化研究台</small></span>
         </a>
+        <nav className="topnav"><a href="#top">标的研究</a><a href="#strategy-lab">策略实验室</a></nav>
         <div className="source-status"><i /> 真实行情 · 持久化记录 · 多 API 兼容</div>
       </header>
 
@@ -220,6 +222,7 @@ export default function Home() {
                 <div><span className="market-tag">{snapshot.exchange || "GLOBAL"}</span><h2>{snapshot.name}</h2><p>{snapshot.symbol} · {snapshot.currency}</p></div>
                 <div className="price"><strong>{money(snapshot.price, snapshot.currency)}</strong><span className={snapshot.changePercent >= 0 ? "up" : "down"}>{pct(snapshot.changePercent)}</span></div>
               </div>
+              <a className="lab-link" href="#strategy-lab">在策略实验室打开 {snapshot.symbol} →</a>
               <Sparkline snapshot={snapshot} />
               <div className="metrics">
                 <div><span>20 日收益</span><strong>{pct(snapshot.metrics.return20d)}</strong></div>
@@ -250,6 +253,8 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      <StrategyLab initialSymbol={snapshot?.symbol ?? symbol} />
 
       <footer><span>FinQuant Hub Sites Edition</span><span>公开数据存在延迟，仅供研究，不构成投资建议。</span></footer>
     </main>

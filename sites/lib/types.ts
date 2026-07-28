@@ -18,7 +18,7 @@ export type MarketSnapshot = {
     rsi14: number | null;
     maxDrawdown1y: number | null;
   };
-  history: Array<{ date: string; close: number; volume: number }>;
+  history: Array<{ date: string; open: number; high: number; low: number; close: number; volume: number }>;
   source: string;
   asOf: string;
 };
@@ -48,4 +48,71 @@ export type ResearchGroup = {
   updatedAt: string;
   latestReportId: string | null;
   latestTitle: string | null;
+};
+
+export type BacktestParams = {
+  symbol: string;
+  startDate: string;
+  endDate: string;
+  shortWindow: number;
+  longWindow: number;
+  initialCapital: number;
+  commissionBps: number;
+  slippageBps: number;
+  benchmark: "buy_and_hold";
+};
+
+export type BacktestTrade = {
+  entryTime: string;
+  exitTime: string;
+  entryPrice: number;
+  exitPrice: number;
+  quantity: number;
+  entryFee: number;
+  exitFee: number;
+  entrySlippageCost: number;
+  exitSlippageCost: number;
+  pnl: number;
+  return: number;
+  forcedExit: boolean;
+};
+
+export type BacktestResult = {
+  metrics: {
+    totalReturn: number;
+    annualizedReturn: number;
+    benchmarkReturn: number;
+    excessReturn: number;
+    maxDrawdown: number;
+    sharpeRatio: number | null;
+    sortinoRatio: number | null;
+    winRate: number | null;
+    profitFactor: number | null;
+    turnover: number;
+    tradeCount: number;
+  };
+  equityCurve: Array<{ time: string; value: number }>;
+  benchmarkCurve: Array<{ time: string; value: number }>;
+  drawdownCurve: Array<{ time: string; value: number }>;
+  trades: BacktestTrade[];
+  orderMarks: Array<{ time: string; price: number; side: "buy" | "sell" }>;
+  warnings: string[];
+};
+
+export type BacktestRun = {
+  id: string;
+  symbol: string;
+  name: string;
+  status: "completed" | "failed";
+  params: BacktestParams;
+  result: BacktestResult;
+  provider: string;
+  dataAsOf: string;
+  timezone: string;
+  currency: string;
+  adjustment: string;
+  frequency: string;
+  saved: boolean;
+  createdAt: string;
+  updatedAt: string;
 };

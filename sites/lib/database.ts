@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import type { ResearchGroup, ResearchReport } from "./types";
+import type { BacktestRun, ResearchGroup, ResearchReport } from "./types";
 
 type RuntimeEnv = { DB?: D1Database };
 
@@ -39,6 +39,24 @@ export function ensureSchema(): Promise<void> {
       )`),
       binding.prepare("CREATE INDEX IF NOT EXISTS research_reports_group_idx ON research_reports (group_id, created_at DESC)"),
       binding.prepare("CREATE INDEX IF NOT EXISTS research_reports_symbol_idx ON research_reports (symbol, created_at DESC)"),
+      binding.prepare(`CREATE TABLE IF NOT EXISTS quant_backtests (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        data_as_of TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        adjustment TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        saved INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`),
+      binding.prepare("CREATE INDEX IF NOT EXISTS quant_backtests_saved_idx ON quant_backtests (saved, updated_at DESC)"),
     ]);
   })().catch((error) => {
     schemaReady = null;
@@ -144,4 +162,54 @@ export async function deleteReport(id: string): Promise<boolean> {
     ) WHERE id = ?`).bind(remaining.count, row.group_id, row.group_id).run();
   }
   return true;
+}
+
+function mapBacktest(row: Record<string, unknown>): BacktestRun {
+  return {
+    id: String(row.id),
+    symbol: String(row.symbol),
+    name: String(row.name),
+    status: String(row.status) as BacktestRun["status"],
+    params: JSON.parse(String(row.params_json)),
+    result: JSON.parse(String(row.result_json)),
+    provider: String(row.provider),
+    dataAsOf: String(row.data_as_of),
+    timezone: String(row.timezone),
+    currency: String(row.currency),
+    adjustment: String(row.adjustment),
+    frequency: String(row.frequency),
+    saved: Number(row.saved) === 1,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export async function saveBacktest(run: BacktestRun): Promise<void> {
+  await ensureSchema();
+  await db().prepare(`INSERT INTO quant_backtests
+    (id, symbol, name, status, params_json, result_json, provider, data_as_of, timezone, currency, adjustment, frequency, saved, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      run.id, run.symbol, run.name, run.status, JSON.stringify(run.params), JSON.stringify(run.result), run.provider,
+      run.dataAsOf, run.timezone, run.currency, run.adjustment, run.frequency, run.saved ? 1 : 0, run.createdAt, run.updatedAt,
+    ).run();
+}
+
+export async function listBacktests(savedOnly = false): Promise<BacktestRun[]> {
+  await ensureSchema();
+  const sql = `SELECT * FROM quant_backtests${savedOnly ? " WHERE saved = 1" : ""} ORDER BY updated_at DESC LIMIT 50`;
+  const rows = await db().prepare(sql).all<Record<string, unknown>>();
+  return (rows.results ?? []).map(mapBacktest);
+}
+
+export async function getBacktest(id: string): Promise<BacktestRun | null> {
+  await ensureSchema();
+  const row = await db().prepare("SELECT * FROM quant_backtests WHERE id = ?").bind(id).first<Record<string, unknown>>();
+  return row ? mapBacktest(row) : null;
+}
+
+export async function markBacktestSaved(id: string): Promise<BacktestRun | null> {
+  await ensureSchema();
+  await db().prepare("UPDATE quant_backtests SET saved = 1, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
+  return getBacktest(id);
 }

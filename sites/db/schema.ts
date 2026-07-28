@@ -25,3 +25,23 @@ export const researchReports = sqliteTable("research_reports", {
   index("research_reports_group_idx").on(table.groupId, table.createdAt),
   index("research_reports_symbol_idx").on(table.symbol, table.createdAt),
 ]);
+
+export const quantBacktests = sqliteTable("quant_backtests", {
+  id: text("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  name: text("name").notNull(),
+  status: text("status").notNull(),
+  paramsJson: text("params_json").notNull(),
+  resultJson: text("result_json").notNull(),
+  provider: text("provider").notNull(),
+  dataAsOf: text("data_as_of").notNull(),
+  timezone: text("timezone").notNull(),
+  currency: text("currency").notNull(),
+  adjustment: text("adjustment").notNull(),
+  frequency: text("frequency").notNull(),
+  saved: integer("saved").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("quant_backtests_saved_idx").on(table.saved, table.updatedAt),
+]);

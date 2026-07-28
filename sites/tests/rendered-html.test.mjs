@@ -16,4 +16,7 @@ test("Sites build contains a server entry and hosting metadata", async () => {
   assert.match(layout, /new URL\("\/og\.png", base\)/);
   assert.match(layout, /summary_large_image/);
   assert.ok(socialCard.size > 100_000);
+  const migrationTwo = await readFile(new URL("../drizzle/0001_clumsy_natasha_romanoff.sql", import.meta.url), "utf8");
+  assert.match(migrationTwo, /CREATE TABLE `quant_backtests`/);
+  assert.match(migrationTwo, /quant_backtests_saved_idx/);
 });
