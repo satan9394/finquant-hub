@@ -102,6 +102,7 @@ async def send_message(session_id: int, body: MessageIn):
 
     async def stream():
         full = ""
+        token_stream = None
         try:
             client, _ = await model_router.get_client(session.get("model_id"))
 
@@ -121,7 +122,8 @@ async def send_message(session_id: int, body: MessageIn):
             llm_messages = [{"role": "system", "content": system}]
             llm_messages += [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
-            async for delta in client.chat_stream(llm_messages):
+            token_stream = client.chat_stream(llm_messages)
+            async for delta in token_stream:
                 full += delta
                 yield {"event": "token", "data": json.dumps({"delta": delta}, ensure_ascii=False)}
 
@@ -142,8 +144,22 @@ async def send_message(session_id: int, body: MessageIn):
                 ),
             }
         except LLMError as e:
-            yield {"event": "error", "data": json.dumps({"message": str(e)}, ensure_ascii=False)}
+            message = str(e)
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
         except Exception as e:  # 兜底：任何异常都要以 error 事件收尾，不能静默断流
-            yield {"event": "error", "data": json.dumps({"message": f"服务内部错误：{e}"}, ensure_ascii=False)}
+            message = f"服务内部错误：{e}"
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
+        finally:
+            close = getattr(token_stream, "aclose", None)
+            if close is not None:
+                await close()
 
     return EventSourceResponse(stream())

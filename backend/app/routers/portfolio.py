@@ -2,7 +2,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .. import database
 from ..services import portfolio as svc
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])

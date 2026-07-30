@@ -1,0 +1,31 @@
+{
+  "skills": {
+    "active": ["build"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if ($env:CLAUDE_CODE_HOOK_ACTIVE -ne '1') { $env:CLAUDE_CODE_HOOK_ACTIVE = '1'; & 'E:\\Code_file\\Projects\\finquant-hub\\.claude\\hooks\\post-tool-use.ps1' }",
+            "shell": "powershell",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "PreCommit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& 'E:\\Code_file\\Projects\\finquant-hub\\.claude\\hooks\\pre-commit.ps1'",
+            "shell": "powershell",
+            "timeout": 120000
+          }
+        ]
+      }
+    ]
+  }
+}

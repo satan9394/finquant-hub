@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { validateBacktestForm, type BacktestFormValues } from '../src/features/backtest/validation';
+import { parseBacktestRequest } from '../src/features/backtest/request';
 
 const valid: BacktestFormValues = {
   symbol: 'AAPL',
@@ -31,5 +32,24 @@ describe('validateBacktestForm', () => {
     expect(errors.long_window).toBeDefined();
     expect(errors.end_date).toBeDefined();
     expect(errors.initial_capital).toBeDefined();
+  });
+});
+
+describe('parseBacktestRequest', () => {
+  test('keeps stock symbols that are also strategy abbreviations', () => {
+    expect(parseBacktestRequest('回测 MA ma_cross')).toEqual({ ticker: 'MA', strategy: 'ma_cross' });
+    expect(parseBacktestRequest('回测 RSI ma_cross')).toEqual({ ticker: 'RSI', strategy: 'ma_cross' });
+  });
+
+  test('prefers the ticker after the backtest command', () => {
+    expect(parseBacktestRequest('请用 RSI 回测 AAPL')).toEqual({ ticker: 'AAPL', strategy: 'rsi_reversal' });
+    expect(parseBacktestRequest('backtest 0700.HK bollinger')).toEqual({ ticker: '0700.HK', strategy: 'bollinger_breakout' });
+  });
+
+  test('removes every repeated ticker occurrence before strategy detection', () => {
+    expect(parseBacktestRequest('回测 RSI，重复确认 RSI，使用 ma_cross')).toEqual({
+      ticker: 'RSI',
+      strategy: 'ma_cross',
+    });
   });
 });

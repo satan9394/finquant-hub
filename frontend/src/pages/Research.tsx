@@ -275,9 +275,10 @@ export default function Research() {
               break;
             }
             case 'error': {
+              const errorMessage = data.error ?? data.message ?? '研究请求失败';
               const idx = AGENT_KEYS.indexOf(agentKey ?? '');
-              if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: data.message } : agent));
-              else message.error(data.message || '研究请求失败');
+              if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: errorMessage } : agent));
+              else message.error(errorMessage);
               break;
             }
           }

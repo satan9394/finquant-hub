@@ -11,8 +11,10 @@
 | Backend | 42 `.py` files, 35 API routes |
 | Frontend | 9 pages, React 18 + Vite 6 + AntD 5 |
 | DB | SQLite 15 tables, WAL mode |
-| Backend tests | 38 pass (all from MVP phase, NONE cover new features) |
-| Frontend build | tsc + vite → zero errors, 1.6MB bundle |
+| Backend tests | 122 pass (全部新子系统已覆盖) |
+| Frontend build | ✓ built (vendor-antd 分包) |
+| Architecture | 6 参考项目统一完成 |
+| Next step | Codex App 中继续开发调试 |
 
 ## Verified Working (✅)
 
@@ -74,9 +76,9 @@
 - Example: 600519 ma_cross 100d → Sharpe 0.21, return 3.3%, drawdown 2.58% → ✅
 - Result persistence + retrieval → ✅
 
-### WQ Alpha (partial — see broken)
-- Field DB loaded into service → ⚠️ (11 items only, not 4367)
-- Category endpoint returns 6 groups → ⚠️ (but wrong data)
+### WQ Alpha
+- Full 4,367-field catalogue remains available from `/api/wq/fields` → ✅
+- Search defaults to 10 and is hard-capped at 100 results → ✅
 
 ---
 
@@ -113,13 +115,18 @@
 - **Fix**: `_sanitize_messages` no longer strips `reasoning_content`. The research agent loop preserves `reasoning_content` from the response message in the assistant message sent back to the API.
 - **To verify**: `POST /api/analysis/stock {"ticker":"600519"}` → SSE stream completes with `done` event containing full report.
 
-### 🔥 Research Pipeline: Same engine as Analysis
-- `POST /api/research` uses the same `research_orch.run_research()` → same failure mode as analysis/stock.
-- **Fix needed**: Same as above.
+### ✅ Research Pipeline: Durable terminal states (Jul 29)
+- Interactive and scheduled research both persist report/event history → ✅
+- `running → completed/failed` transitions are checked; failed completion writes cannot leave a report stuck in `running` → ✅
+- Scheduled execution is opt-in, bounded, and configurable by local hour/minute → ✅
 
 ### 🔥 Portfolio: HK/US positions show $0 PnL
 - Portfolio PnL only works for A-shares because it queries Tencent API. HK/US positions return `current_price=avg_cost` → PnL shows $0.
 - **Fix needed**: Implement Yahoo Finance fallback for non-A-share tickers in `portfolio.py` `calc_pnl()`.
+
+### ✅ Portfolio: Dead code cleaned (Jul 28)
+- `_tencent_code()` and `_parse_tencent_map()` removed; `ensure_tables()` + `PORTFOLIO_SCHEMA` removed; lazy imports documented.
+- **Fix**: Codex, 2026-07-28.
 
 ### 🔥 Stock Screener: Two-stage pattern but untested
 - `tools/stock_screener.py` (12.5KB) was created by agent but never executed. Methods might work, data sources might fail.
@@ -146,21 +153,38 @@
 
 ---
 
-## No Test Coverage (everything new)
+## No Test Coverage (remaining gaps)
 
-All 38 existing pytest tests cover only the MVP phase features:
-- `test_indicators.py` — MA, MACD, RSI, KDJ, BOLL, ATR, compute() (12 tests) ✅
-- `test_market.py` — parsers, fallback chains (6 tests) ✅
-- `test_api.py` — health, models CRUD, agents CRUD, chat flow, discussion flow, dashboard (20 tests) ✅
+All 122 existing tests now cover:
+- MVP routes ✅ (20 tests)
+- Indicators + market parsers ✅ (19 tests)
+- Backtest engine (unified) ✅ (8 tests)
+- Scoring composite + sub-scores ✅ (4 tests)
+- ToolRegistry singleton ✅ (3 tests)
+- Signal detection + boundary ✅ (6 tests)
+- Agent tools execution ✅ (7 tests)
+- Market fallback + normalize_code ✅ (6 tests)
+- Alpha search + empty query ✅ (6 tests)
+- Portfolio PnL + multi-market ✅ (2 tests)
+- Instruments parser ✅ (updated)
+- Research persistence + terminal-state failures ✅
+- Scheduled research persistence, concurrency and failure paths ✅
+- One-time ticker migration marker ✅
 
-**Zero tests cover:**
-- Agent tools (tool execution, tool_calls format, DeepSeek function_calling response parsing)
-- Analysis pipeline (scoring, signal detection, ticker resolution)
-- Research orchestrator (4-agent parallel, tool-use loop, SSE event sequence)
-- Portfolio (PnL calculation, trade recording)
-- Backtest engines (ma_cross returns vs rsi_reversal)
-- WQ alpha (field search, correlation calculation)
-- Market multi-source (Yahoo Finance, Alpha Vantage, Finnhub)
+**Remaining coverage gaps:**
+- Live external-source integration beyond mocked deterministic tests
+- Browser-level visual regression for chart components
+
+## API 不一致待修
+
+Codex 写测试时发现的当前接口问题，已知但暂不改：
+
+| 工具 | 问题 |
+|------|------|
+| VerifyValuation.run() | 要求显式传 `price`，无缺省值；输出不含 `market_cap` |
+| SearchNews.run() | 要求显式传 `keyword`，无缺省值（通用搜索应允许不传 keyword） |
+| CalculateByFinancialRigor.run() | 只接受纯数值表达式，股票代码 `/AAPL US/` 被拒绝 |
+| alpha_service | 函数名为 `search_alpha` 非 `search_fields` |
 
 ---
 

@@ -1,5 +1,6 @@
 """FastAPI 入口：lifespan 初始化数据库与行情服务，挂载全部路由。"""
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,15 +8,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config, database
 from .routers import agents, analysis as analysis_router, backtest, backtests, chat, dashboard, discussion, instruments, market, models_crud, portfolio as portfolio_router, research, screening, wq
 from .services.market_data import MarketDataService
+from .services.scheduler import scheduler_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await database.init_db()
     app.state.market = MarketDataService()
-    yield
-    await app.state.market.aclose()
-    await database.close_db()
+    scheduler_task = (
+        asyncio.create_task(scheduler_loop(), name="post-market-scheduler")
+        if config.SCHEDULER_ENABLED
+        else None
+    )
+    try:
+        yield
+    finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await scheduler_task
+        await app.state.market.aclose()
+        await database.close_db()
 
 
 app = FastAPI(title="FinQuant Hub", version=config.APP_VERSION, lifespan=lifespan)

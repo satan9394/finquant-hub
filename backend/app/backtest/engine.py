@@ -180,8 +180,6 @@ def run_backtest(
         kline = kline[-periods:]
 
     close = _to_arr([k["close"] for k in kline])
-    high = _to_arr([k["high"] for k in kline])
-    low = _to_arr([k["low"] for k in kline])
     days = [k["day"] for k in kline]
 
     strategy_fn = _STRATEGIES.get(strategy_type)
@@ -200,7 +198,6 @@ def run_backtest(
         signals = strategy_fn(close)
 
     positions = _calc_positions(signals)
-    daily_returns = np.diff(close, prepend=close[0]) / np.maximum(close[0], 0.001)  # 基准收益
     # 策略收益 = 持仓 * 当日收益率
     strat_returns = positions * np.diff(close, prepend=close[0]) / np.maximum(close, 0.001)
 

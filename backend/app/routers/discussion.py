@@ -70,4 +70,31 @@ async def start_room(room_id: int):
     conv = await database.query_one(
         "SELECT model_id FROM conversations WHERE id=?", (room["conversation_id"],)
     )
-    return EventSourceResponse(stream_discussion(_parse_room(room), (conv or {}).get("model_id")))
+
+    async def event_stream():
+        discussion_stream = None
+        try:
+            discussion_stream = stream_discussion(_parse_room(room), (conv or {}).get("model_id"))
+            async for event in discussion_stream:
+                if event.get("event") == "error":
+                    data = json.loads(event["data"])
+                    message = data.get("error") or data.get("message") or "讨论编排错误"
+                    yield {
+                        "event": "error",
+                        "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+                    }
+                    break
+                yield event
+        except Exception as e:
+            message = f"讨论编排错误：{e}"
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
+        finally:
+            close = getattr(discussion_stream, "aclose", None)
+            if close is not None:
+                await close()
+
+    return EventSourceResponse(event_stream())

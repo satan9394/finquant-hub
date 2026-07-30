@@ -164,6 +164,43 @@ export default function Dashboard() {
     { icon: <CommentOutlined />, title: '消息数', value: stats?.message_count ?? 0, color: '#52c41a' },
   ];
 
+  const formatAmount = (value: number) => value.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const hasPortfolioData = portfolioSummary !== null;
+  const hasSignalData = signalSummary !== null;
+  const totalProfit = portfolioSummary?.total_profit ?? 0;
+  const totalProfitPercent = portfolioSummary?.total_profit_percent ?? 0;
+  const profitTone = totalProfit > 0 ? 'red' : totalProfit < 0 ? 'green' : 'cyan';
+  const screenMetrics = [
+    {
+      label: '组合市值',
+      value: hasPortfolioData ? `¥${formatAmount(portfolioSummary.total_current)}` : '—',
+      detail: hasPortfolioData ? `投入 ¥${formatAmount(portfolioSummary.total_invested)}` : '等待组合数据',
+      tone: 'cyan',
+    },
+    {
+      label: '累计收益',
+      value: hasPortfolioData ? `${totalProfit > 0 ? '+' : ''}¥${formatAmount(totalProfit)}` : '—',
+      detail: hasPortfolioData ? `${totalProfitPercent > 0 ? '+' : ''}${totalProfitPercent.toFixed(2)}%` : '等待组合数据',
+      // A-share convention: gains are red and losses are green.
+      tone: profitTone,
+    },
+    {
+      label: '组合数量',
+      value: hasPortfolioData ? portfolioSummary.group_summaries.length.toString().padStart(2, '0') : '—',
+      detail: '已纳入组合追踪',
+      tone: 'blue',
+    },
+    {
+      label: '市场信号',
+      value: hasSignalData ? signalSummary.total.toString().padStart(2, '0') : '—',
+      detail: hasSignalData ? `看多 ${signalSummary.bullish} · 看空 ${signalSummary.bearish}` : '等待信号数据',
+      tone: 'violet',
+    },
+  ];
+
   const startupTests = [
     {
       key: 'multi-market', icon: <GlobalOutlined />, title: '多市场行情',
@@ -201,6 +238,32 @@ export default function Dashboard() {
     <div style={{ padding: 24 }}>
       <Title level={4} style={{ marginBottom: 16 }}>系统总览</Title>
 
+      <section className="big-screen-overview" aria-labelledby="big-screen-title">
+        <div className="big-screen-overview__header">
+          <div>
+            <span className="big-screen-overview__eyebrow">FINQUANT DATA CENTER</span>
+            <h2 id="big-screen-title">大屏概览</h2>
+            <p>组合、信号与研究活动的实时监控面板</p>
+          </div>
+          <div className="big-screen-overview__status" aria-label="数据状态：已同步">
+            <span /> 数据已同步
+          </div>
+        </div>
+        <div className="big-screen-overview__metrics">
+          {screenMetrics.map((metric) => (
+            <div className={`big-screen-metric big-screen-metric--${metric.tone}`} key={metric.label}>
+              <span className="big-screen-metric__label">{metric.label}</span>
+              <strong className="big-screen-metric__value">{metric.value}</strong>
+              <span className="big-screen-metric__detail">{metric.detail}</span>
+            </div>
+          ))}
+        </div>
+        <div className="big-screen-overview__footer">
+          <span>数据源：投资组合与信号中心</span>
+          <button type="button" onClick={() => navigate('/portfolio')}>查看投资组合 <span aria-hidden="true">→</span></button>
+        </div>
+      </section>
+
       {/* 统计卡片 */}
       <Row gutter={[16, 16]}>
         {statsCards.map((card) => (
@@ -229,8 +292,8 @@ export default function Dashboard() {
                   title="总盈亏"
                   value={portfolioSummary.total_profit}
                   precision={2}
-                  prefix={portfolioSummary.total_profit >= 0 ? <RiseOutlined /> : <FallOutlined />}
-                  valueStyle={{ color: portfolioSummary.total_profit >= 0 ? '#f23645' : '#089981', fontFamily: 'monospace' }}
+                  prefix={portfolioSummary.total_profit > 0 ? <RiseOutlined /> : portfolioSummary.total_profit < 0 ? <FallOutlined /> : undefined}
+                  valueStyle={{ color: portfolioSummary.total_profit > 0 ? '#f23645' : portfolioSummary.total_profit < 0 ? '#089981' : '#64748b', fontFamily: 'monospace' }}
                   suffix={<span style={{ fontSize: 14, fontWeight: 400 }}>({portfolioSummary.total_profit_percent.toFixed(2)}%)</span>}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
@@ -242,8 +305,8 @@ export default function Dashboard() {
                     {portfolioSummary.group_summaries.map((g) => (
                       <div key={g.group_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
                         <span>{g.group_name}</span>
-                        <span style={{ color: g.profit >= 0 ? '#f23645' : '#089981', fontFamily: 'monospace' }}>
-                          {g.profit >= 0 ? '+' : ''}{g.profit.toFixed(2)} ({g.profit_percent.toFixed(2)}%)
+                        <span style={{ color: g.profit > 0 ? '#f23645' : g.profit < 0 ? '#089981' : '#64748b', fontFamily: 'monospace' }}>
+                          {g.profit > 0 ? '+' : ''}{g.profit.toFixed(2)} ({g.profit_percent.toFixed(2)}%)
                         </span>
                       </div>
                     ))}

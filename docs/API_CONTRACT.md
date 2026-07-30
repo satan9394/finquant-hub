@@ -1,236 +1,247 @@
-# FinQuant Hub — 前后端 API 契约 v1.1
+# FinQuant Hub — API 端点目录
 
-本文档是前后端集成的唯一事实来源。PRD 定义端点清单，本文档定义精确的请求/响应 JSON 结构与 SSE 事件格式。
+> 本文档按路由分组列出所有 API 端点。请求/响应 JSON 结构请参考对应路由文件或 FastAPI `/docs`。
+> **约定**：所有非 SSE 响应 `Content-Type: application/json; charset=utf-8`；错误格式为 `{"detail": "..."}`。
+> 四个 SSE 端点统一使用 `event: / data:` 格式；精确事件契约见下节。
 
-> 2026-07-27 增补：v2 标的研究与双均线回测接口。旧 `/api/market/*` 和 `/api/backtest/runs` 保留兼容，新页面只使用下述 v2 合同。
+---
 
-## v2-A. 统一标的研究 `/api/instruments`
+## SSE 事件协议
 
-统一标的对象：
+所有 SSE 响应均为 `Content-Type: text/event-stream`。每帧由 `event: <type>` 和单行 UTF-8 JSON `data: {...}` 组成，以空行结束。客户端必须按事件名解析；`error` 是终止事件，统一使用 `{"error": "错误描述", "message": "错误描述"}`。`error` 是规范字段，`message` 仅为旧客户端兼容别名，并计划在下一主版本移除。
 
-```json
-{
-  "symbol": "AAPL",
-  "name": "Apple Inc.",
-  "market": "US",
-  "exchange": "NasdaqGS",
-  "currency": "USD",
-  "asset_type": "equity"
-}
-```
+### 单 Agent 对话
 
-每个搜索、行情、K线和基本面响应都在根层携带：
+`POST /api/chat/sessions/{id}/messages`：
 
-```json
-{
-  "provider": "yahoo",
-  "as_of": "2026-07-27T20:59:53+00:00",
-  "timezone": "America/New_York",
-  "currency": "USD",
-  "adjustment": "none",
-  "frequency": "1d",
-  "quality_flags": []
-}
-```
+| event | data |
+|------|------|
+| `token` | `{"delta": "部分文本"}` |
+| `done` | `{"message_id": 12, "token_count": 245, "user_message_id": 11}` |
+| `error` | `{"error": "错误描述"}` |
 
-- `GET /api/instruments/search?q=` → `{items: Instrument[], ...provenance}`
-- `GET /api/instruments/{symbol}/snapshot` → `{instrument, data: {price,last_close,open,high,low,volume,amount,change,change_percent,turnover_rate,pe,pb,market_cap,amplitude}, ...provenance}`
-- `GET /api/instruments/{symbol}/bars?period=1d&count=260` → `{instrument, items: [{day,open,high,low,close,volume}], indicators: {ma,macd,rsi}, ...provenance}`
-- `GET /api/instruments/{symbol}/fundamentals` → `{instrument, items: [{metric,value,as_of,currency,period_type}], ...provenance}`
-- `GET /api/instruments/workspaces` → 每个 symbol 一条已保存研究工作区
-- `GET /api/instruments/{symbol}/workspace` → 工作区或 `{symbol,notes:"",evidence:[],saved:false}`
-- `PUT /api/instruments/{symbol}/workspace` ← `{name,instrument,notes,evidence,snapshot}` → 合并保存
+### 多 Agent 讨论
 
-缺失提供方字段用 `null` 并加入 `quality_flags`，不以 `0` 冒充；所有上游不可用时返回 502。
+`POST /api/discussion/rooms/{id}/start`：
 
-## v2-B. 双均线回测 `/api/backtests`
+| event | data |
+|------|------|
+| `round_start` | `{"round": 1, "total_rounds": 3}` |
+| `agent_start` | `{"agent": "value_investor", "name": "价值投资官", "avatar": "🏛️", "round": 1}` |
+| `token` | `{"delta": "部分文本", "agent": "value_investor"}` |
+| `agent_end` | `{"agent": "value_investor", "message_id": 31, "token_count": 320}` |
+| `summary` | `{"content": "讨论总结全文"}` |
+| `done` | `{"room_id": 1}` |
+| `error` | `{"error": "错误描述"}` |
 
-`POST /api/backtests`（202）：
+### 并行研究
 
-```json
-{
-  "symbol": "AAPL",
-  "start_date": "2024-07-27",
-  "end_date": "2026-07-27",
-  "short_window": 20,
-  "long_window": 50,
-  "initial_capital": 100000,
-  "commission_bps": 3,
-  "slippage_bps": 2,
-  "benchmark": "buy_and_hold"
-}
-```
+`POST /api/analysis/stock` 与 `POST /api/research` 共用以下研究事件；后者会先发送 `report_started`，并在 `done` 中附加同一个 `report_id`。
 
-返回 `{id,symbol,status:"queued",params}`。状态依次为：`queued`、`loading_data`、`running`、`calculating_metrics`、`completed`；终止状态还包括 `failed`、`cancelled`。
+| event | data |
+|------|------|
+| `report_started` | `{"report_id": 42}`，仅 `/api/research` |
+| `agent_started` | `{"role_key": "business_analyst", "name": "商业模式", "avatar": "..."}` |
+| `tool_call` | `{"role_key": "business_analyst", "tool_name": "search_news", "arguments": "{...}"}` |
+| `agent_completed` | `{"role_key": "business_analyst", "name": "商业模式", "length": 1200}` |
+| `report_progress` | `{"section": 1, "total": 8, "name": "生成执行摘要"}` |
+| `done` | `{"ticker": "usAAPL", "report": {...}, "agent_results": {...}, "report_id": 42}`；`report_id` 仅 `/api/research` |
+| `error` | `{"error": "错误描述", "role_key": "risk_manager"}`；`role_key` 仅 Agent 级错误存在 |
 
-- `GET /api/backtests/{id}` → 运行状态；完成后根层增加 `metrics`、`equity_curve`、`benchmark_curve`、`drawdown_curve`、`trades`、`order_marks`、`warnings`、`provenance`
-- `GET /api/backtests/{id}/trades` → `{id,status,items: Trade[]}`
-- `POST /api/backtests/{id}/save` → `{id,is_saved:true}`
-- `POST /api/backtests/{id}/cancel` → `{id,status:"cancelled"}`
-- `GET /api/backtests?symbol=AAPL&saved_only=true` → 已保存/历史运行
+`/api/research` 会持久化 `agent_started` 至 `done/error` 的事件 payload；`done.payload.report_id` 必须与首帧 `report_started.report_id` 相同。HTTP 建连前的校验失败仍使用普通 `{"detail": "..."}` 错误响应。
 
-收益率字段使用十进制（`0.1234` 表示 12.34%），曲线权益字段使用账户金额；回撤曲线使用十进制负值。信号在 T 日收盘确认、T+1 日开盘执行，买卖双方均扣除 `commission_bps` 与 `slippage_bps`。期末未平仓头寸会在最后收盘价扣费后强制平仓并加入警告。
-
-通用约定：
-- 所有响应 `Content-Type: application/json; charset=utf-8`（SSE 除外）
-- 错误响应：`{"detail": "错误描述"}` + 合适 HTTP 状态码
-- 时间格式：ISO 字符串（SQLite datetime('now')，UTC）
-- 列表响应统一包 `{items: [...]}`
+---
 
 ## 0. 健康检查
 
-`GET /api/health` → `{"status": "ok", "version": "1.0.0", "db": "ok"}`
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/health` | GET | 返回服务状态、版本号、数据库状态 | MVP |
+
+---
 
 ## 1. 模型管理 `/api/models`
 
-ModelConfig 对象：
-```json
-{
-  "id": 1, "name": "DeepSeek Flash", "provider": "openai",
-  "base_url": "https://api.deepseek.com", "model_name": "deepseek-v4-flash",
-  "api_key_env": "DEEPSEEK_API_KEY", "api_key": "sk-***",
-  "temperature": 0.7, "max_tokens": 4096, "is_default": 1,
-  "created_at": "...", "updated_at": "..."
-}
-```
-- `GET /api/models` → `{items: [ModelConfig]}`
-- `POST /api/models` ← `{name, provider?, base_url, model_name, api_key?, api_key_env?, temperature?, max_tokens?}` → ModelConfig
-- `PUT /api/models/{id}` ← 任意字段子集 → ModelConfig
-- `DELETE /api/models/{id}` → `{"ok": true}`
-- `POST /api/models/{id}/test` → `{"ok": true, "latency_ms": 850, "message": "连通成功", "reply": "模型的一句话回复"}` 或 `{"ok": false, "latency_ms": null, "message": "错误原因"}`
-- `POST /api/models/{id}/set-default` → `{"ok": true}`（互斥：其他记录 is_default 置 0）
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/models` | GET | 列出所有模型配置（API Key 不返回明文） | MVP |
+| `/api/models` | POST | 创建新模型配置 | MVP |
+| `/api/models/{id}` | PUT | 更新模型配置字段子集 | MVP |
+| `/api/models/{id}` | DELETE | 删除模型配置 | MVP |
+| `/api/models/{id}/test` | POST | 测试模型连通性，返回延迟和回复 | MVP |
+| `/api/models/{id}/set-default` | POST | 设为默认模型（互斥） | MVP |
 
-## 2. 角色管理 `/api/agents`
+---
 
-AgentPreset 对象：
-```json
-{"id": 1, "name": "价值投资官", "role_key": "value_investor", "avatar": "🏛️",
- "system_prompt": "...", "model_id": null, "is_preset": 1, "created_at": "..."}
-```
-- `GET /api/agents` → `{items: [AgentPreset]}`（首次启动自动播种 6 个预置角色）
-- `POST /api/agents` ← `{name, role_key, avatar?, system_prompt, model_id?}` → AgentPreset
-- `PUT /api/agents/{id}` ← 子集 → AgentPreset
-- `DELETE /api/agents/{id}` → `{"ok": true}`（is_preset=1 的也允许删除）
+## 2. 角色预设 `/api/agents`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/agents` | GET | 列出所有 Agent 角色预设（首次启动自动播种 6 个） | MVP |
+| `/api/agents` | POST | 创建新角色（`role_key` 全局唯一） | MVP |
+| `/api/agents/{id}` | PUT | 更新角色字段子集 | MVP |
+| `/api/agents/{id}` | DELETE | 删除角色（预设角色也允许删除） | MVP |
+
+---
 
 ## 3. 单 Agent 对话 `/api/chat`
 
-Session 对象：
-```json
-{"id": 1, "title": "关于茅台的讨论", "mode": "single", "role_preset": "value_investor",
- "model_id": 1, "status": "active", "created_at": "...", "updated_at": "...",
- "message_count": 6, "last_message": "最后一条消息摘要(前50字)"}
-```
-- `POST /api/chat/sessions` ← `{title?, role_preset?, model_id?}` → Session（无 message_count）
-- `GET /api/chat/sessions` → `{items: [Session]}` 按 updated_at 倒序
-- `PUT /api/chat/sessions/{id}` ← `{title?, role_preset?, model_id?}` → Session
-- `DELETE /api/chat/sessions/{id}` → `{"ok": true}`（级联删 messages）
-- `GET /api/chat/sessions/{id}/messages` → `{items: [Message]}` 按时间升序
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/chat/sessions` | POST | 创建新会话（可指定角色预设、模型） | MVP |
+| `/api/chat/sessions` | GET | 列出活跃会话（含消息数和最后摘要） | MVP |
+| `/api/chat/sessions/{id}` | PUT | 更新会话标题/角色/模型 | MVP |
+| `/api/chat/sessions/{id}` | DELETE | 删除会话（级联删除消息） | MVP |
+| `/api/chat/sessions/{id}/messages` | GET | 获取会话历史消息（按时间升序） | MVP |
+| `/api/chat/sessions/{id}/messages` | POST | 发送消息，**SSE 流**返回回复 | MVP |
 
-Message 对象：
-```json
-{"id": 1, "conversation_id": 1, "role": "user|assistant|agent", "agent_name": null,
- "content": "...", "round_number": 0, "token_count": 128, "created_at": "..."}
-```
-
-- `POST /api/chat/sessions/{id}/messages` ← `{"content": "用户消息"}` → **SSE 流**：
-```
-event: token
-data: {"delta": "部分文本"}
-
-event: done
-data: {"message_id": 12, "token_count": 245, "user_message_id": 11}
-
-event: error
-data: {"message": "错误描述"}
-```
+---
 
 ## 4. 多 Agent 讨论 `/api/discussion`
 
-Room 对象（participants 已解析为数组）：
-```json
-{"id": 1, "conversation_id": 2, "topic": "贵州茅台当前是否值得买入",
- "participants": [{"role_key": "value_investor", "name": "价值投资官", "avatar": "🏛️"}],
- "total_rounds": 3, "current_phase": "active|done", "summary": null, "created_at": "..."}
-```
-- `POST /api/discussion/rooms` ← `{topic, role_keys: ["value_investor","tech_analyst","risk_manager"], total_rounds: 3, model_id?}` → Room
-- `GET /api/discussion/rooms` → `{items: [Room]}` 倒序
-- `GET /api/discussion/rooms/{id}` → `{room: Room, messages: [Message]}`（messages 中 role='agent'，agent_name=role_key）
-- `POST /api/discussion/rooms/{id}/start` → **SSE 流**：
-```
-event: round_start
-data: {"round": 1, "total_rounds": 3}
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/discussion/rooms` | POST | 创建讨论房间（指定角色列表和轮数） | MVP |
+| `/api/discussion/rooms` | GET | 列出所有讨论房间 | MVP |
+| `/api/discussion/rooms/{id}` | GET | 获取房间详情及所有消息 | MVP |
+| `/api/discussion/rooms/{id}/start` | POST | **SSE 流**启动讨论（已完成的房间返回 409） | MVP |
 
-event: agent_start
-data: {"agent": "value_investor", "name": "价值投资官", "avatar": "🏛️", "round": 1}
+---
 
-event: token
-data: {"delta": "部分文本", "agent": "value_investor"}
+## 5. 行情数据 `/api/market`
 
-event: agent_end
-data: {"agent": "value_investor", "message_id": 31, "token_count": 320}
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/market/search?q=` | GET | 搜索股票（东方财富 + Yahoo 双源合并） | MVP |
+| `/api/market/quote?ticker=` | GET | 实时行情（腾讯→新浪→Yahoo 降级链） | MVP |
+| `/api/market/kline?ticker=&period=&count=` | GET | K 线数据（新浪→腾讯→Yahoo 降级链） | MVP |
+| `/api/market/indicators?ticker=&indicators=&count=` | GET | 技术指标计算（MA/MACD/RSI/KDJ/BOLL/ATR/VolMA） | MVP |
 
-event: summary
-data: {"content": "讨论总结全文"}
-
-event: done
-data: {"room_id": 1}
-
-event: error
-data: {"message": "错误描述"}
-```
-已 done 的房间再次 start → `{"detail": "讨论已完成"}` 409。
-
-## 5. 行情数据 `/api/market`（多市场数据源代理）
-
-支持可由当前数据源解析的 A 股、港股、美股与 ETF。常见输入包括 `600519`、`00700`、`0700.HK`、`AAPL`、`BRK.B`、`SPY`；无效或数据源未覆盖的代码返回明确错误，不以零价格伪装成功。
-
-- `GET /api/market/search?q=茅台` → `{items: [{"code": "600519", "name": "贵州茅台", "market": "sh", "type": "股票"}]}`
-- `GET /api/market/quote?ticker=600519`（自动补全市场前缀）→
-```json
-{"code": "sh600519", "name": "贵州茅台", "price": 1680.0, "last_close": 1670.0,
- "open": 1675.0, "high": 1690.0, "low": 1665.0, "volume": 12345, "amount": 20739600.0,
- "change": 10.0, "change_percent": 0.6, "turnover_rate": 0.1, "pe": 25.3, "pb": 8.1,
- "market_cap": 21100.0, "amplitude": 1.5, "timestamp": 1753334400}
-```
-- `GET /api/market/kline?ticker=600519&period=1d&count=100` → `{items: [{"day": "2026-07-24", "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.05, "volume": 100}]}`（period: 1d=240, 60m, 30m, 15m, 5m 映射新浪 scale）
-- `GET /api/market/indicators?ticker=600519&indicators=ma,macd,rsi,kdj,boll,atr,volma`（不传 indicators 返回全部）→
-```json
-{"ticker": "sh600519", "days": ["2026-07-20", "..."],
- "indicators": {
-   "ma":    {"ma5": [..], "ma10": [..], "ma20": [..], "ma30": [..], "ma60": [..]},
-   "macd":  {"dif": [..], "dea": [..], "hist": [..]},
-   "rsi":   {"rsi6": [..], "rsi12": [..], "rsi24": [..]},
-   "kdj":   {"k": [..], "d": [..], "j": [..]},
-   "boll":  {"upper": [..], "mid": [..], "lower": [..]},
-   "atr":   {"atr14": [..]},
-   "volma": {"volma5": [..], "volma20": [..]}
- }}
-```
-数组与 days 等长对齐， warmup 期为 null。
+---
 
 ## 6. 仪表盘 `/api/dashboard`
 
-`GET /api/dashboard/stats` →
-```json
-{"model_count": 2, "conversation_count": 5, "discussion_count": 2, "message_count": 48,
- "default_model": {"id": 1, "name": "DeepSeek Flash", "model_name": "deepseek-v4-flash"},
- "recent_conversations": [Session], "recent_rooms": [Room]}
-```
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/dashboard/stats` | GET | 聚合统计（模型数、会话数、讨论数、消息数等） | MVP |
 
-## 7. 前端代理约定
+---
 
-Vite dev proxy：`/api` → `http://127.0.0.1:8000`，必须配置 `compress: false`、`timeout: 0`（SSE 防缓冲）。
-后端端口 8000，前端 5173。SSE 消费方式：fetch + ReadableStream 解析 `event:`/`data:` 行（EventSource 不支持 POST）。
+## 7. 个股分析 `/api/analysis`
 
-## 8. 已实现分析、研究、组合与筛选接口
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/analysis/stock` | POST | **SSE 流**多 Agent 并行研究分析 | MVP |
+| `/api/analysis/{ticker}/indicators` | GET | 技术指标 + 信号检测 + 综合评分（-100 ~ +100） | MVP |
+| `/api/analysis/{ticker}/chart-data` | GET | 轻量级图表数据（lightweight-charts 兼容格式） | MVP |
 
-- `GET /api/analysis/{ticker}/indicators?count=120` → `{ticker, days, indicators, signals, scoring}`。`scoring.composite_score` 范围为 -100 至 +100。
-- `GET /api/analysis/{ticker}/chart-data?count=200&period=1d` → `{ticker, period, data}`，每个数据点含 `time/open/high/low/close/volume`。
-- `POST /api/analysis/stock` ← `{ticker, model_id?}` → SSE。事件为 `agent_started`、`tool_call`、`agent_completed`、`report_progress`、`done`、`error`。
-- `POST /api/research` ← `{ticker, model_id?}` → SSE。首个 `report_started` 事件返回持久化 `report_id`，随后记录 `agent_started`、`tool_call`、`agent_completed`、`report_progress`、`done` 或 `error`。报告在开始时即建档；中断/失败同样保留状态和事件记录。
-- `GET /api/research?page=1&page_size=20` 返回逐版本历史报告摘要；`GET /api/research/history` 以规范化股票代码分组，返回每只股票的一条聚合记录及其 `runs` 版本列表；`GET /api/research/{id}` 返回报告正文、每个 Agent 的工具调用日志和事件时间线。新闻检索等外部来源的 URL 会随工具日志保存，供后续追溯。
-- `GET /api/research/{id}/export?format=md|html|pdf|docx` 从指定的已保存版本按需输出文件，并以附件形式下载。HTML、Markdown、PDF、Word 都由同一份数据库报告正文和来源证据即时生成，不保存多份容易漂移的副本；不支持的格式返回 422。
-- 模型配置支持任意 OpenAI 兼容端点（如 OpenAI、DeepSeek、OpenRouter 或自建网关）。模型列表和创建/更新响应不会返回已存 API Key，只返回 `has_api_key`；推荐以 `api_key_env` 引用环境变量。
-- `GET /api/portfolio` → `{items: [Portfolio]}`；`POST /api/portfolio` ← `{name, description?, currency?}`；`GET /api/portfolio/{id}/pnl` → `{total_cost, total_market_value, total_pnl, total_pnl_pct, positions}`。持仓创建为 `POST /api/portfolio/{id}/positions` ← `{ticker, shares, avg_cost, name?, currency?}`，其中 `name` 可省略并在有行情时自动显示行情名称。
-- `POST /api/screening` ← `{tickers: ["600519", "00700", "AAPL"]}`（1–30 个）→ `{items, errors}`。只对用户提供的清单执行真实行情与近 60 根日线筛选，不宣称覆盖整个交易所。
-- `GET /api/wq/fields` → `{items, total}`，返回项目打包的完整 WorldQuant 字段目录；`GET /api/wq/search?q=pe_ratio` → `{items, total}`。
+---
+
+## 8. 投资组合 `/api/portfolio`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/portfolio` | POST | 创建投资组合 | MVP |
+| `/api/portfolio` | GET | 列出所有投资组合 | MVP |
+| `/api/portfolio/{id}` | GET | 获取单组合详情 | MVP |
+| `/api/portfolio/{id}` | PUT | 更新组合名称/描述/货币 | MVP |
+| `/api/portfolio/{id}` | DELETE | 删除组合 | MVP |
+| `/api/portfolio/{id}/positions` | POST | 添加持仓 | MVP |
+| `/api/portfolio/{id}/positions` | GET | 列出持仓 | MVP |
+| `/api/portfolio/positions/{position_id}` | PUT | 更新持仓股数/成本 | MVP |
+| `/api/portfolio/positions/{position_id}` | DELETE | 删除持仓 | MVP |
+| `/api/portfolio/{id}/pnl` | GET | 实时盈亏计算（多市场行情估值） | MVP |
+
+---
+
+## 9. 回测 v1（同步）`/api/backtest`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/backtest/runs` | POST | 执行向量化回测（3 策略：ma_cross/rsi_reversal/bollinger），同步返回结果 | MVP |
+| `/api/backtest/runs` | GET | 列出历史回测运行记录 | MVP |
+| `/api/backtest/runs/{id}` | GET | 获取单次回测完整结果 | MVP |
+
+---
+
+## 10. 研究报告 `/api/research`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/research` | POST | **SSE 流**启动 4 Agent 并行研究，先建持久化记录再推送进度 | 新增 |
+| `/api/research` | GET | 列出历史研究报告（分页） | 新增 |
+| `/api/research/history` | GET | 按股票代码聚合的历史版本（含运行统计） | 新增 |
+| `/api/research/{id}` | GET | 获取单份报告详情（含事件时间线、工具调用日志） | 新增 |
+| `/api/research/{id}/export?format=` | GET | 按格式导出（md/html/pdf/docx），即时生成 | 新增 |
+
+---
+
+## 11. 回测 v2（异步）`/api/backtests`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/backtests` | POST | 创建 MA 双均线回测任务（BackgroundTasks 异步，返回 202） | 新增 |
+| `/api/backtests` | GET | 列出回测运行（可按 symbol 过滤或仅已保存） | 新增 |
+| `/api/backtests/{id}` | GET | 获取回测状态和结果（含 equity_curve/trades/warnings） | 新增 |
+| `/api/backtests/{id}/trades` | GET | 获取回测交易明细 | 新增 |
+| `/api/backtests/{id}/save` | POST | 标记回测为已保存 | 新增 |
+| `/api/backtests/{id}/cancel` | POST | 取消进行中的回测 | 新增 |
+
+**状态机**：`queued` → `loading_data` → `running` → `calculating_metrics` → `completed`（终态：`failed` / `cancelled`）
+
+---
+
+## 12. 统一标的 `/api/instruments`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/instruments/search?q=` | GET | 搜索标的（含 provider/timezone/adjustment 溯源元数据） | 新增 |
+| `/api/instruments/{symbol}/snapshot` | GET | 标的快照（含完整 provenance 块） | 新增 |
+| `/api/instruments/{symbol}/bars?period=&count=` | GET | K 线数据（含 indicators 和 provenance） | 新增 |
+| `/api/instruments/{symbol}/fundamentals` | GET | 基本面数据 | 新增 |
+| `/api/instruments/{symbol}/workspace` | GET | 获取研究工作区（不存在则返回空模板） | 新增 |
+| `/api/instruments/{symbol}/workspace` | PUT | 保存/合并研究工作区（UPSERT） | 新增 |
+| `/api/instruments/workspaces` | GET | 列出所有已保存研究工作区 | 新增 |
+
+---
+
+## 13. 多市场筛选 `/api/screening`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/screening` | POST | 对用户提供的 1-30 个 ticker 执行实时行情 + 60 日动量筛选 | 新增 |
+
+---
+
+## 14. WorldQuant Alpha `/api/wq`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/wq/search?q=&max_results=` | GET | 搜索 Alpha 因子库；默认 10 条，`max_results` 范围 1–100 | 新增 |
+| `/api/wq/categories` | GET | 按类别组织的 Alpha 因子概览 | 新增 |
+| `/api/wq/fields` | GET | 完整 WorldQuant 字段目录（4367 条） | 新增 |
+| `/api/wq/correlation` | POST | 计算两序列 Pearson 相关系数 + p-value | 新增 |
+| `/api/wq/help` | GET | 使用说明 | 新增 |
+
+---
+
+## 路由汇总
+
+| 序号 | 前缀 | 文件 | MVP 端点 | 新增端点 |
+|------|------|------|----------|----------|
+| 1 | `/api/health` | main.py（内联） | 1 | 0 |
+| 2 | `/api/models` | models_crud.py | 6 | 0 |
+| 3 | `/api/agents` | agents.py | 4 | 0 |
+| 4 | `/api/chat` | chat.py | 6 | 0 |
+| 5 | `/api/discussion` | discussion.py | 4 | 0 |
+| 6 | `/api/market` | market.py | 4 | 0 |
+| 7 | `/api/dashboard` | dashboard.py | 1 | 0 |
+| 8 | `/api/analysis` | analysis.py | 3 | 0 |
+| 9 | `/api/portfolio` | portfolio.py | 10 | 0 |
+| 10 | `/api/backtest` | backtest.py | 3 | 0 |
+| 11 | `/api/research` | research.py | 0 | 5 |
+| 12 | `/api/backtests` | backtests.py | 0 | 6 |
+| 13 | `/api/instruments` | instruments.py | 0 | 7 |
+| 14 | `/api/screening` | screening.py | 0 | 1 |
+| 15 | `/api/wq` | wq.py | 0 | 5 |
+| | **合计** | | **42** | **24** |

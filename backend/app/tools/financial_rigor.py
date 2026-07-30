@@ -19,13 +19,22 @@ import argparse
 import json
 import math
 import sys
-from decimal import Decimal, Context, ROUND_HALF_EVEN, InvalidOperation
+from decimal import Decimal, Context, ROUND_HALF_EVEN
 
 # ---------------------------------------------------------------------------
 # Exact Decimal Engine (no floating-point drift)
 # ---------------------------------------------------------------------------
 
 _CTX = Context(prec=28, rounding=ROUND_HALF_EVEN)
+
+
+def _force_utf8_stdio() -> None:
+    """确保含 emoji 的状态信息可在 Windows GBK 终端安全输出。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def exact(value) -> Decimal:
@@ -79,9 +88,9 @@ def verify_market_cap(price, shares, reported_cap, currency=""):
 
     if deviation > 5:
         print(f"  ❌ 警告: 偏差 {deviation:.1f}% > 5%, 请检查:")
-        print(f"     - 股本是否为最新（回购/增发）?")
-        print(f"     - 单位是否一致（港币 vs 人民币 vs 美元）?")
-        print(f"     - 股价是否为最新?")
+        print("     - 股本是否为最新（回购/增发）?")
+        print("     - 单位是否一致（港币 vs 人民币 vs 美元）?")
+        print("     - 股价是否为最新?")
         return False
     elif deviation > 1:
         print(f"  ⚠️  偏差 {deviation:.1f}% 在可接受范围, 可能因股价波动/股本变化")
@@ -118,7 +127,7 @@ def verify_valuation(price, eps=None, bvps=None, fcf_per_share=None,
             ey = _CTX.divide(e, p) * 100
             print(f"  盈利收益率: {ey:.2f}%")
         else:
-            print(f"  PE: EPS为0, 无法计算")
+            print("  PE: EPS为0, 无法计算")
 
     if bvps is not None:
         b = exact(bvps)
@@ -196,7 +205,7 @@ def cross_validate(field_name, source_values: dict, unit="", tolerance_pct=2.0):
         print(f"  ✅ 所有来源偏差 ≤ {tolerance_pct}%, 数据一致")
     else:
         print(f"  ⚠️  存在来源偏差 > {tolerance_pct}%, 请核实差异原因")
-        print(f"     建议: 优先采用公司年报/交易所数据")
+        print("     建议: 优先采用公司年报/交易所数据")
 
     # Consensus value
     consensus = median
@@ -317,7 +326,7 @@ def exact_calc(expr: str):
 # 6. Three-Scenario Valuation (三情景估值)
 # ---------------------------------------------------------------------------
 
-def three_scenario_valuation(current_price, current_eps, shares_billion,
+def three_scenario_valuation(current_price, current_eps,
                              growth_optimistic, growth_neutral, growth_pessimistic,
                              pe_optimistic, pe_neutral, pe_pessimistic,
                              years=3, currency=""):
@@ -328,7 +337,6 @@ def three_scenario_valuation(current_price, current_eps, shares_billion,
 
     p = exact(current_price)
     eps = exact(current_eps)
-    shares = exact(shares_billion)
 
     scenarios = [
         ("乐观 (Bull)", growth_optimistic, pe_optimistic),
@@ -414,7 +422,6 @@ Examples:
     ts = sub.add_parser("three-scenario", help="三情景估值")
     ts.add_argument("--price", type=float, required=True)
     ts.add_argument("--eps", type=float, required=True)
-    ts.add_argument("--shares", type=float, required=True, help="总股本(亿)")
     ts.add_argument("--growth", nargs=3, type=float, required=True,
                     help="三情景年增速 (乐观 中性 悲观), 如 0.15 0.08 0.0")
     ts.add_argument("--pe", nargs=3, type=float, required=True,
@@ -422,6 +429,7 @@ Examples:
     ts.add_argument("--years", type=int, default=3)
     ts.add_argument("--currency", default="")
 
+    _force_utf8_stdio()
     args = parser.parse_args()
 
     if args.command == "verify-market-cap":
@@ -439,7 +447,7 @@ Examples:
         exact_calc(args.expr)
     elif args.command == "three-scenario":
         three_scenario_valuation(
-            args.price, args.eps, args.shares,
+            args.price, args.eps,
             args.growth[0], args.growth[1], args.growth[2],
             args.pe[0], args.pe[1], args.pe[2],
             args.years, args.currency)

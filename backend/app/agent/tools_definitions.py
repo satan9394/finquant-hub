@@ -24,23 +24,6 @@ _NEWS_API = "https://searchapi.sina.com.cn/?c=news&q={keyword}&range=all&num=10&
 _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
-def _detect_market(code: str) -> str:
-    import re
-    digits = re.sub(r"\D", "", code)
-    if re.match(r"^(6|68)", digits):
-        return "sh"
-    if re.match(r"^(0|3)", digits):
-        return "sz"
-    return "sh"
-
-
-def _normalize_code(code: str) -> str:
-    code = code.strip().lower()
-    if re.match(r"^(sh|sz|hk|us)", code):
-        return code
-    return _detect_market(code) + code
-
-
 # ===================================================================
 # 1. GetStockData — 获取实时行情
 # ===================================================================

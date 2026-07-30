@@ -12,6 +12,8 @@ import apiClient from '../services/api';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
+import BacktestResultCard, { type BacktestResult } from '../components/BacktestResultCard';
+import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
 import { useSearchParams } from 'react-router-dom';
 
@@ -33,6 +35,8 @@ export default function Chat() {
   const [selectedRole, setSelectedRole] = useState<string | undefined>();
   const [inputValue, setInputValue] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [backtestResults, setBacktestResults] = useState<Array<{ id: number; sessionId: number; ticker: string; result: BacktestResult }>>([]);
+  const [isBacktesting, setIsBacktesting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -62,7 +66,7 @@ export default function Chat() {
   // 自动滚动
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, currentSessionId]);
+  }, [messages, streamingContent, backtestResults, currentSessionId]);
 
   // 创建新会话
   const handleNewSession = async () => {
@@ -98,6 +102,37 @@ export default function Chat() {
       message.success('角色已切换');
     } catch (e: any) {
       message.error(e.message);
+    }
+  };
+
+  const handleRunBacktest = async () => {
+    if (!currentSessionId) return;
+    const description = inputValue.trim();
+    if (!description) {
+      message.warning('请先输入策略描述，例如：回测 600519 ma_cross');
+      return;
+    }
+
+    const { ticker, strategy } = parseBacktestRequest(description);
+    if (!ticker) {
+      message.warning('策略描述中需要包含股票代码，例如 600519 或 AAPL');
+      return;
+    }
+
+    setIsBacktesting(true);
+    try {
+      const res = await apiClient.post<BacktestResult>('/backtest/runs', {
+        ticker,
+        strategy_type: strategy,
+        periods: 252,
+      });
+      setBacktestResults((items) => [...items, { id: res.data.id, sessionId: currentSessionId, ticker, result: res.data }]);
+      message.success('回测已完成');
+    } catch (e: any) {
+      const detail = e.response?.data?.detail;
+      message.error(typeof detail === 'string' ? detail : e.message || '回测失败');
+    } finally {
+      setIsBacktesting(false);
     }
   };
 
@@ -144,16 +179,22 @@ export default function Chat() {
       const decoder = new TextDecoder();
       let buffer = '';
       let accumulatedContent = '';
+      let currentEvent = 'message';
 
       const processLine = (line: string) => {
         if (line.startsWith('event: ')) {
-          // event lines are followed by data lines
+          currentEvent = line.slice(7).trim();
           return;
         }
         if (line.startsWith('data: ')) {
           const jsonStr = line.slice(6);
           try {
             const data = JSON.parse(jsonStr);
+            if (currentEvent === 'error') {
+              message.error(data.error ?? data.message ?? '发送失败');
+              currentEvent = 'message';
+              return;
+            }
             if (data.delta !== undefined) {
               accumulatedContent += data.delta;
               setStreamingContent(accumulatedContent);
@@ -174,11 +215,8 @@ export default function Chat() {
               setStreamingContent('');
               setIsStreaming(false);
             }
+            currentEvent = 'message';
           } catch { /* ignore parse errors for partial data */ }
-        }
-        if (line.startsWith('event: error')) {
-          // next line is data
-          return;
         }
       };
 
@@ -291,6 +329,9 @@ export default function Chat() {
               {currentMessages.map((msg) => (
                 <ChatMessageBubble key={msg.id} message={msg} />
               ))}
+              {backtestResults.filter((item) => item.sessionId === currentSessionId).map((item) => (
+                <BacktestResultCard key={item.id} ticker={item.ticker} result={item.result} />
+              ))}
               {isStreaming && (
                 <ChatMessageBubble
                   message={{
@@ -330,9 +371,16 @@ export default function Chat() {
                 {isStreaming ? (
                   <Button danger onClick={handleStop}>停止</Button>
                 ) : (
-                  <Button type="primary" icon={<SendOutlined />} onClick={handleSendMessage}>
-                    发送
-                  </Button>
+                  <>
+                    <Button
+                      loading={isBacktesting}
+                      disabled={!inputValue.trim()}
+                      onClick={handleRunBacktest}
+                    >运行回测</Button>
+                    <Button type="primary" icon={<SendOutlined />} onClick={handleSendMessage}>
+                      发送
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

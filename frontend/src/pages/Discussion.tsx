@@ -118,6 +118,7 @@ export default function Discussion() {
       let buffer = '';
       let currentAgent = '';
       let accumulatedContent = '';
+      let currentEvent = 'message';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -131,8 +132,8 @@ export default function Discussion() {
           const trimmed = line.trim();
 
           if (trimmed.startsWith('event: ')) {
-            const eventType = trimmed.slice(7);
-            if (eventType === 'agent_start') {
+            currentEvent = trimmed.slice(7).trim();
+            if (currentEvent === 'agent_start') {
               currentAgent = '';
               accumulatedContent = '';
             }
@@ -143,6 +144,12 @@ export default function Discussion() {
             const jsonStr = trimmed.slice(6);
             try {
               const data = JSON.parse(jsonStr);
+
+              if (currentEvent === 'error') {
+                message.error(data.error ?? data.message ?? '讨论请求失败');
+                currentEvent = 'message';
+                continue;
+              }
 
               if (data.agent && data.name && data.round !== undefined) {
                 // agent_start: set current agent
@@ -173,6 +180,7 @@ export default function Discussion() {
                 }
                 currentAgent = '';
                 accumulatedContent = '';
+                currentEvent = 'message';
                 continue;
               }
 
@@ -186,8 +194,10 @@ export default function Discussion() {
                 // done event
                 setRoomDetail((prev) => prev ? { ...prev, current_phase: 'done' } : prev);
                 setIsStreaming(false);
+                currentEvent = 'message';
                 continue;
               }
+              currentEvent = 'message';
             } catch { /* ignore */ }
           }
         }

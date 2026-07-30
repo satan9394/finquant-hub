@@ -67,20 +67,6 @@ async def create_backtest(body: BacktestRequest, request: Request):
 async def _save_run(ticker: str, strategy_type: str, periods: int,
                     params: dict, result: dict) -> int:
     """持久化回测结果，返回新记录 ID。"""
-    await database.get_db().execute(
-        """CREATE TABLE IF NOT EXISTS backtest_runs (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker        TEXT NOT NULL,
-            strategy_type TEXT NOT NULL,
-            periods       INTEGER DEFAULT 252,
-            params        TEXT,
-            result        TEXT NOT NULL,
-            status        TEXT DEFAULT 'completed',
-            created_at    TEXT DEFAULT (datetime('now'))
-        )"""
-    )
-    await database.get_db().commit()
-
     new_id = await database.execute(
         "INSERT INTO backtest_runs (ticker, strategy_type, periods, params, result) VALUES (?, ?, ?, ?, ?)",
         (ticker, strategy_type, periods,
@@ -97,21 +83,6 @@ async def _save_run(ticker: str, strategy_type: str, periods: int,
 @router.get("/runs")
 async def list_backtest_runs(page: int = 1, page_size: int = 20):
     """列出历史回测运行记录。"""
-    # 确保表存在
-    await database.get_db().execute(
-        "CREATE TABLE IF NOT EXISTS backtest_runs ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  ticker TEXT NOT NULL,"
-        "  strategy_type TEXT NOT NULL,"
-        "  periods INTEGER DEFAULT 252,"
-        "  params TEXT,"
-        "  result TEXT NOT NULL,"
-        "  status TEXT DEFAULT 'completed',"
-        "  created_at TEXT DEFAULT (datetime('now'))"
-        ")"
-    )
-    await database.get_db().commit()
-
     offset = (page - 1) * page_size
     items = await database.query_all(
         "SELECT id, ticker, strategy_type, periods, status, created_at "

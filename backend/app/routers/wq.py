@@ -13,9 +13,12 @@ class CorrelationIn(BaseModel):
 
 
 @router.get("/search")
-async def search_alpha(q: str = Query(default="", description="搜索关键词，支持中英文")):
+async def search_alpha(
+    q: str = Query(default="", description="搜索关键词，支持中英文"),
+    max_results: int = Query(default=10, ge=1, le=100, description="最大返回数量"),
+):
     """搜索 Alpha 因子库，返回匹配的因子列表。"""
-    results = alpha_service.search_alpha(q, max_results=20)
+    results = alpha_service.search_alpha(q, max_results=max_results)
     return {"items": results, "total": len(results)}
 
 

@@ -68,21 +68,45 @@ async def start_research(body: ResearchRequest, request: Request):
 
     async def event_stream():
         completed = False
+        research_stream = None
 
         try:
             yield {"event": "report_started", "data": json.dumps({"report_id": report_id}, ensure_ascii=False)}
-            async for event, data in run_research(ticker, company_name, body.model_id):
-                await _append_event(report_id, event, data)
+            research_stream = run_research(ticker, company_name, body.model_id)
+            async for event, data in research_stream:
                 if event == "done":
-                    completed = True
+                    data = {**data, "report_id": report_id}
+                await _append_event(report_id, event, data)
+                if event == "error":
+                    message = data.get("error") or data.get("message") or "研究管线异常"
+                    await _fail_report(report_id, message, record_event=False)
+                    error_data = {"error": message, "message": message}
+                    if data.get("role_key"):
+                        error_data["role_key"] = data["role_key"]
+                    yield {"event": "error", "data": json.dumps(error_data, ensure_ascii=False)}
+                    break
+                if event == "done":
                     await _complete_report(report_id, data.get("report", {}), data.get("agent_results", {}))
-                    data["report_id"] = report_id
+                    completed = True
 
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as e:
-            await _fail_report(report_id, f"研究管线异常：{e}")
-            yield {"event": "error", "data": json.dumps({"message": f"研究管线异常：{e}"}, ensure_ascii=False)}
+            if completed:
+                return
+            message = f"研究管线异常：{e}"
+            await _fail_report(report_id, message)
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
         finally:
+            close = getattr(research_stream, "aclose", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:
+                    pass
             if not completed:
                 report = await database.query_one("SELECT status FROM research_reports WHERE id=?", (report_id,))
                 if report and report["status"] == "running":
@@ -107,14 +131,20 @@ async def _append_event(report_id: int, event: str, data: dict) -> None:
 
 
 async def _complete_report(report_id: int, report_data: dict, agent_results: dict) -> None:
-    await database.execute(
-        "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', updated_at=datetime('now') WHERE id=?",
+    db = database.get_db()
+    cursor = await db.execute(
+        "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', "
+        "updated_at=datetime('now') WHERE id=? AND status='running'",
         (json.dumps(report_data, ensure_ascii=False), json.dumps(agent_results, ensure_ascii=False), report_id),
     )
+    await db.commit()
+    if cursor.rowcount != 1:
+        raise RuntimeError(f"研究报告 {report_id} 无法从 running 转为 completed")
 
 
-async def _fail_report(report_id: int, message: str) -> None:
-    await _append_event(report_id, "error", {"message": message})
+async def _fail_report(report_id: int, message: str, *, record_event: bool = True) -> None:
+    if record_event:
+        await _append_event(report_id, "error", {"error": message})
     await database.execute(
         "UPDATE research_reports SET status='failed', updated_at=datetime('now') WHERE id=? AND status='running'",
         (report_id,),
@@ -169,18 +199,7 @@ async def grouped_history():
 @router.get("/{report_id:int}")
 async def get_report(report_id: int):
     """获取单份研究报告的完整内容。"""
-    row = await database.query_one(
-        "SELECT * FROM research_reports WHERE id=?", (report_id,)
-    )
-    if not row:
-        raise HTTPException(404, f"报告不存在：id={report_id}")
-
-    # 反序列化 JSON 字段
-    report = dict(row)
-    if isinstance(report.get("report_data"), str):
-        report["report_data"] = json.loads(report["report_data"])
-    if isinstance(report.get("agent_results"), str):
-        report["agent_results"] = json.loads(report["agent_results"])
+    report = await _load_report(report_id)
     report["events"] = await database.query_all(
         "SELECT id, event_type, agent_role_key, payload, created_at FROM research_events "
         "WHERE research_id=? ORDER BY id",

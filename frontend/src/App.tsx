@@ -17,8 +17,8 @@ import {
   BarChartOutlined,
   WalletOutlined,
   ExperimentOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
@@ -52,7 +52,12 @@ const menuItems = [
   { path: '/settings', name: '设置', icon: <SettingOutlined /> },
 ];
 
-function AppLayout() {
+interface AppLayoutProps {
+  isDark: boolean;
+  onToggleTheme: () => void;
+}
+
+function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const setModels = useModelStore((s) => s.setModels);
@@ -65,8 +70,6 @@ function AppLayout() {
       .catch(() => {});
   }, [setModels]);
 
-  // 检查主题偏好
-  const isDark = localStorage.getItem('finquant_theme') === 'dark';
 
   const menuData = useMemo(
     () => menuItems.map((item) => ({ ...item, key: item.path })),
@@ -85,27 +88,22 @@ function AppLayout() {
       logo="/favicon.svg"
       layout="side"
       navTheme={isDark ? 'realDark' : 'light'}
-      contentStyle={{ background: '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
-      headerRender={(props) => (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          height: 48, padding: '0 24px', gap: 12,
-          background: isDark ? '#141414' : '#fff',
-          borderBottom: `1px solid ${isDark ? '#303030' : '#f0f0f0'}`,
-        }}>
-          <Button
-            className="mobile-nav-toggle"
-            type="text"
-            aria-label="切换导航"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed((value) => !value)}
-          />
-          <Space.Compact>
-            <span style={{ fontSize: 12, color: '#888', alignSelf: 'center', marginRight: 8 }}>当前模型:</span>
-            <ModelSelector />
-          </Space.Compact>
-        </div>
-      )}
+      contentStyle={{ background: isDark ? '#141414' : '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
+      actionsRender={() => [
+        <Space.Compact key="model-selector">
+          <span style={{ fontSize: 12, color: '#888', alignSelf: 'center', marginRight: 8 }}>当前模型:</span>
+          <ModelSelector />
+        </Space.Compact>,
+        <Button
+          key="theme-toggle"
+          type="default"
+          style={{ borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          aria-label={isDark ? '切换到浅色主题' : '切换到深色主题'}
+          title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+          icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+          onClick={onToggleTheme}
+        />,
+      ]}
       menuDataRender={() => menuData}
       menuItemRender={(item: any, dom: any) => (
         <a onClick={() => navigate(item.path || '/')}>{dom}</a>
@@ -140,7 +138,15 @@ function AppLayout() {
 }
 
 export default function App() {
-  const isDark = localStorage.getItem('finquant_theme') === 'dark';
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('finquant_theme') === 'dark');
+
+  const toggleTheme = () => {
+    setIsDark((current) => {
+      const next = !current;
+      localStorage.setItem('finquant_theme', next ? 'dark' : 'light');
+      return next;
+    });
+  };
 
   return (
     <ConfigProvider
@@ -150,7 +156,7 @@ export default function App() {
       }}
     >
       <BrowserRouter>
-        <AppLayout />
+        <AppLayout isDark={isDark} onToggleTheme={toggleTheme} />
       </BrowserRouter>
     </ConfigProvider>
   );

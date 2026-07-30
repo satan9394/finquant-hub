@@ -220,9 +220,32 @@ CREATE TABLE IF NOT EXISTS portfolio_trades (
     created_at    TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (item_id) REFERENCES portfolio_items(id)
 );
+
+CREATE TABLE IF NOT EXISTS portfolios (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    description   TEXT DEFAULT '',
+    currency      TEXT DEFAULT 'CNY',
+    created_at    TEXT DEFAULT (datetime('now')),
+    updated_at    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS positions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id    INTEGER NOT NULL,
+    ticker          TEXT NOT NULL,
+    name            TEXT DEFAULT '',
+    shares          REAL NOT NULL,
+    avg_cost        REAL NOT NULL,
+    currency        TEXT DEFAULT 'CNY',
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
+);
 """
 
 _db: aiosqlite.Connection | None = None
+_TICKER_NORMALIZATION_VERSION = 1
 
 
 async def init_db() -> None:
@@ -244,6 +267,35 @@ async def _migrate_schema() -> None:
     """Keep existing local databases compatible without destructive resets."""
     await _ensure_column("research_reports", "model_id", "model_id INTEGER")
     await _ensure_column("research_reports", "updated_at", "updated_at TEXT")
+    row = await (await _db.execute("PRAGMA user_version")).fetchone()
+    if row[0] >= _TICKER_NORMALIZATION_VERSION:
+        return
+
+    await _db.execute("SAVEPOINT normalize_legacy_tickers")
+    try:
+        await _normalize_legacy_tickers()
+        await _db.execute(f"PRAGMA user_version={_TICKER_NORMALIZATION_VERSION}")
+        await _db.execute("RELEASE SAVEPOINT normalize_legacy_tickers")
+    except Exception:
+        await _db.execute("ROLLBACK TO SAVEPOINT normalize_legacy_tickers")
+        await _db.execute("RELEASE SAVEPOINT normalize_legacy_tickers")
+        raise
+
+
+async def _normalize_legacy_tickers() -> None:
+    """Upgrade records written before internal US tickers gained the ``us`` prefix."""
+    from .services.market_data import normalize_code
+
+    # ponytail: a versioned one-time scan is sufficient for the two local tables.
+    for table in ("research_reports", "backtest_runs"):
+        rows = await (await _db.execute(f"SELECT id, ticker FROM {table}")).fetchall()
+        for row in rows:
+            try:
+                normalized = normalize_code(row["ticker"])
+            except ValueError:
+                continue
+            if normalized != row["ticker"]:
+                await _db.execute(f"UPDATE {table} SET ticker=? WHERE id=?", (normalized, row["id"]))
 
 
 async def _ensure_column(table: str, column: str, definition: str) -> None:

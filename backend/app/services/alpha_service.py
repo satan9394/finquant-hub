@@ -4,7 +4,6 @@
 基于内置的常见 Alpha 因子库（204 个经典 Alpha + 自定义字段）。
 """
 import math
-import re
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -14,13 +13,40 @@ from typing import Any
 _WQ_FIELDS_PATH = Path(__file__).resolve().parents[1] / "data" / "wq_fields.json"
 
 
-def _load_wq_fields() -> tuple[dict[str, Any], ...]:
-    """Load the bundled field catalogue. Not cached — file may appear after import."""
+@lru_cache(maxsize=1)
+def _read_wq_fields(mtime_ns: int, size: int) -> tuple[dict[str, Any], ...]:
+    """Read one file version; the stat values make replacement invalidate the cache."""
     try:
         data = json.loads(_WQ_FIELDS_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ()
     return tuple(item for item in data if isinstance(item, dict) and item.get("id"))
+
+
+def _load_wq_fields() -> tuple[dict[str, Any], ...]:
+    """Load the catalogue, including files created after module import."""
+    try:
+        stat = _WQ_FIELDS_PATH.stat()
+    except OSError:
+        return ()
+    return _read_wq_fields(stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=1)
+def _read_wq_search_rows(mtime_ns: int, size: int) -> tuple[tuple[dict[str, Any], str], ...]:
+    fields = _read_wq_fields(mtime_ns, size)
+    return tuple(
+        (item, " ".join(str(item.get(key, "")) for key in ("id", "description", "type", "region")).casefold())
+        for item in fields
+    )
+
+
+def _load_wq_search_rows() -> tuple[tuple[dict[str, Any], str], ...]:
+    try:
+        stat = _WQ_FIELDS_PATH.stat()
+    except OSError:
+        return ()
+    return _read_wq_search_rows(stat.st_mtime_ns, stat.st_size)
 
 
 def list_fields() -> list[dict[str, Any]]:
@@ -111,16 +137,30 @@ WorldQuant Alpha 是量化金融中最著名的因子表达式体系。
 """
 
 
-def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
+def search_alpha(keyword: str | None = "", max_results: int = 10) -> list[dict]:
     """搜索 Alpha 因子库，支持中英文关键词。
 
     返回匹配的 Alpha 列表，按相关度排序。
     """
-    q = keyword.lower().strip()
+    q = (keyword or "").casefold().strip()
+    result_limit = min(100, max(1, max_results))
+    if not q:
+        return [
+            {
+                "name": item["id"],
+                "field": item["id"],
+                "desc": item.get("description", ""),
+                "type": "wq_field",
+                "dataset": (item.get("dataset") or {}).get("name", ""),
+                "category": (item.get("category") or {}).get("name", ""),
+                "region": item.get("region", ""),
+            }
+            for item in _load_wq_fields()[:result_limit]
+        ]
+
     field_results = []
-    for item in _load_wq_fields():
-        haystack = " ".join(str(item.get(key, "")) for key in ("id", "description", "type", "region"))
-        if not q or q in haystack.lower():
+    for item, search_text in _load_wq_search_rows():
+        if q in search_text:
             field_results.append({
                 "name": item["id"],
                 "field": item["id"],
@@ -130,13 +170,10 @@ def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
                 "category": (item.get("category") or {}).get("name", ""),
                 "region": item.get("region", ""),
             })
-            if len(field_results) >= max_results:
+            if len(field_results) >= result_limit:
                 break
     if field_results:
         return field_results
-
-    if not q:
-        return _ALPHA_LIBRARY[:max_results]
 
     scored = []
     for alpha in _ALPHA_LIBRARY:
@@ -154,11 +191,6 @@ def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
         if q in formula_lower:
             score += 20
 
-        # 中文关键词匹配描述
-        for kw in q:
-            if kw in desc_lower:
-                score += 5
-
         if score > 0:
             scored.append((score, alpha))
 
@@ -174,9 +206,9 @@ def search_alpha(keyword: str, max_results: int = 10) -> list[dict]:
             })
 
     scored.sort(key=lambda x: -x[0])
-    results = scored[:max_results]
-    return [{"name": a["name"], "formula": a["formula"], "desc": a["desc"], "type": "alpha"}
-            for _, a in results] + custom_results[:max_results]
+    results = [{"name": a["name"], "formula": a["formula"], "desc": a["desc"], "type": "alpha"}
+               for _, a in scored]
+    return (results + custom_results)[:result_limit]
 
 
 def list_categories() -> list[dict]:

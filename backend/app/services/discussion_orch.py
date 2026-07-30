@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 
 from .. import database
 from ..services import model_router
-from ..services.llm_client import LLMClient, LLMError
+from ..services.llm_client import LLMError
 from ..services.market_data import MarketDataService, MarketError
 
 SUMMARY_PROMPT = """你是投研讨论的主持人。以下是多位分析师围绕主题「{topic}」的完整发言记录。
@@ -69,7 +69,7 @@ async def run_discussion(
             role_key = p["role_key"]
             preset = presets.get(role_key)
             if preset is None:
-                yield "error", {"message": f"角色预设不存在：{role_key}"}
+                yield "error", {"error": f"角色预设不存在：{role_key}"}
                 return
             yield "agent_start", {
                 "agent": role_key, "name": preset["name"],
@@ -126,6 +126,6 @@ async def stream_discussion(room: dict, model_id: int | None = None):
         async for event, data in run_discussion(room, model_id):
             yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
     except LLMError as e:
-        yield {"event": "error", "data": json.dumps({"message": str(e)}, ensure_ascii=False)}
+        yield {"event": "error", "data": json.dumps({"error": str(e)}, ensure_ascii=False)}
     except Exception as e:
-        yield {"event": "error", "data": json.dumps({"message": f"讨论编排错误：{e}"}, ensure_ascii=False)}
+        yield {"event": "error", "data": json.dumps({"error": f"讨论编排错误：{e}"}, ensure_ascii=False)}

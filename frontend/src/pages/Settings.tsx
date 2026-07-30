@@ -3,14 +3,13 @@
  * ============================================================ */
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Card, Table, Button, Modal, Form, Input, Select, Popconfirm, Switch, message, Typography, Tabs,
+  Card, Table, Button, Modal, Form, Input, Select, Popconfirm, message, Tabs, Typography,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, BulbOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
 import { useModelStore } from '../store/modelStore';
 import type { AgentPreset } from '../types';
 
-const { Text } = Typography;
 
 export default function Settings() {
   const models = useModelStore((s) => s.models);
@@ -20,9 +19,6 @@ export default function Settings() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentPreset | null>(null);
   const [form] = Form.useForm();
-  const [themeDark, setThemeDark] = useState(() => {
-    return localStorage.getItem('finquant_theme') === 'dark';
-  });
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
@@ -38,12 +34,6 @@ export default function Settings() {
 
   useEffect(() => { loadAgents(); }, [loadAgents]);
 
-  // 主题切换
-  const handleThemeChange = (dark: boolean) => {
-    setThemeDark(dark);
-    localStorage.setItem('finquant_theme', dark ? 'dark' : 'light');
-    message.success(dark ? '已切换到暗色模式' : '已切换到亮色模式');
-  };
 
   // 打开编辑
   const openEdit = (agent?: AgentPreset) => {
@@ -125,11 +115,9 @@ export default function Settings() {
       label: '外观',
       children: (
         <Card title="主题设置">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <BulbOutlined style={{ fontSize: 20 }} />
-            <Text>暗色模式</Text>
-            <Switch checked={themeDark} onChange={handleThemeChange} />
-          </div>
+          <Typography.Text type="secondary">
+            明暗主题切换已移至页面顶部栏，请使用太阳或月亮按钮切换。
+          </Typography.Text>
         </Card>
       ),
     },

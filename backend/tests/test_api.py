@@ -245,6 +245,8 @@ class TestResearchHistory:
         detail = (await client.get(f"/api/research/{report_id}")).json()
         assert detail["agent_results"]["business_analyst"]["tool_log"][0]["name"] == "search_news"
         assert [event["event_type"] for event in detail["events"]] == ["agent_started", "tool_call", "done"]
+        done_event = next(event for event in detail["events"] if event["event_type"] == "done")
+        assert done_event["payload"]["report_id"] == report_id
 
         async with client.stream("POST", "/api/research", json={"ticker": "600519", "model_id": 1}) as second_response:
             second_events = await _collect_sse(second_response)
@@ -273,6 +275,50 @@ class TestResearchHistory:
         assert docx.status_code == 200 and docx.content.startswith(b"PK")
 
         assert (await client.get(f"/api/research/{report_id}/export?format=xlsx")).status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_research_error_is_normalized_and_persisted_once(self, client, monkeypatch):
+        async def fake_research(ticker, company_name, model_id):
+            yield "error", {"role_key": "risk_manager", "error": "API rate limit exceeded"}
+
+        monkeypatch.setattr(research_router, "run_research", fake_research)
+        async with client.stream("POST", "/api/research", json={"ticker": "AAPL"}) as response:
+            events = await _collect_sse(response)
+
+        report_id = next(data["report_id"] for event, data in events if event == "report_started")
+        error = next(data for event, data in events if event == "error")
+        assert error == {
+            "error": "API rate limit exceeded",
+            "message": "API rate limit exceeded",
+            "role_key": "risk_manager",
+        }
+
+        detail = (await client.get(f"/api/research/{report_id}")).json()
+        persisted_errors = [event for event in detail["events"] if event["event_type"] == "error"]
+        assert detail["status"] == "failed"
+        assert len(persisted_errors) == 1
+        assert persisted_errors[0]["payload"]["error"] == "API rate limit exceeded"
+
+    @pytest.mark.asyncio
+    async def test_research_completion_failure_transitions_to_failed(self, client, monkeypatch):
+        async def fake_research(ticker, company_name, model_id):
+            yield "done", {"report": {"ticker": ticker}, "agent_results": {}}
+
+        async def fail_completion(*args, **kwargs):
+            raise RuntimeError("database write failed")
+
+        monkeypatch.setattr(research_router, "run_research", fake_research)
+        monkeypatch.setattr(research_router, "_complete_report", fail_completion)
+
+        async with client.stream("POST", "/api/research", json={"ticker": "AAPL"}) as response:
+            events = await _collect_sse(response)
+
+        report_id = next(data["report_id"] for event, data in events if event == "report_started")
+        error = next(data for event, data in events if event == "error")
+        assert error["error"] == "研究管线异常：database write failed"
+        assert error["message"] == error["error"]
+        report = await database.query_one("SELECT status FROM research_reports WHERE id=?", (report_id,))
+        assert report["status"] == "failed"
 
 
 class TestQuantResearchV2:

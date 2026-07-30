@@ -52,11 +52,29 @@ async def analyze_stock(body: StockAnalysisRequest, request: Request):
         pass
 
     async def event_stream():
+        research_stream = None
         try:
-            async for event, data in run_research(ticker, company_name, body.model_id):
+            research_stream = run_research(ticker, company_name, body.model_id)
+            async for event, data in research_stream:
+                if event == "error":
+                    message = data.get("error") or data.get("message") or "研究管线异常"
+                    error_data = {"error": message, "message": message}
+                    if data.get("role_key"):
+                        error_data["role_key"] = data["role_key"]
+                    yield {"event": "error", "data": json.dumps(error_data, ensure_ascii=False)}
+                    break
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as e:
-            yield {"event": "error", "data": json.dumps({"message": f"研究管线异常：{e}"}, ensure_ascii=False)}
+            message = f"研究管线异常：{e}"
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
+        finally:
+            close = getattr(research_stream, "aclose", None)
+            if close is not None:
+                await close()
 
     return EventSourceResponse(event_stream())
 

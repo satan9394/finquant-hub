@@ -7,9 +7,8 @@
 import json
 from collections.abc import AsyncIterator
 
-from .. import config
 from ..agent.tools import ToolRegistry
-from ..prompts.research_roles import RESEARCH_ROLES, ROLE_MAP
+from ..prompts.research_roles import RESEARCH_ROLES
 from ..prompts.research_memo_prompt import get_memo_sections
 from ..services.llm_client import LLMClient, LLMError
 
@@ -97,7 +96,7 @@ async def run_research(
     try:
         client, _ = await model_router.get_client(model_id)
     except LLMError as e:
-        yield "error", {"message": str(e)}
+        yield "error", {"error": str(e)}
         return
 
     registry = ToolRegistry()
@@ -128,7 +127,7 @@ async def run_research(
             })
             return role["role_key"], content, role["name"], tool_log
         except LLMError as e:
-            yield_event("error", {"role_key": role["role_key"], "message": str(e)})
+            yield_event("error", {"role_key": role["role_key"], "error": str(e)})
             return role["role_key"], f"【分析失败】{e}", role["name"], []
 
     # 使用队列实现 SSE 事件与并行执行解耦
@@ -138,23 +137,33 @@ async def run_research(
         event_queue.put_nowait((evt, data))
 
     async def worker(role: dict):
-        result = await run_one(role)
+        try:
+            result = await run_one(role)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            yield_event("error", {"role_key": role["role_key"], "error": f"研究 Agent 异常：{e}"})
+            result = role["role_key"], f"【分析失败】{e}", role["name"], []
         event_queue.put_nowait(("_result", result))
 
     tasks = [asyncio.create_task(worker(r)) for r in RESEARCH_ROLES]
     processed = 0
 
-    # 消费事件队列，直到所有 task 完成
-    while processed < len(RESEARCH_ROLES):
-        evt, data = await event_queue.get()
-        if evt == "_result":
-            role_key, content, name, tool_log = data
-            agent_results[role_key] = {"content": content, "name": name, "tool_log": tool_log}
-            processed += 1
-        else:
-            yield evt, data
-
-    await asyncio.gather(*tasks, return_exceptions=True)
+    try:
+        # 消费事件队列，直到所有 worker 都交付结果。
+        while processed < len(RESEARCH_ROLES):
+            evt, data = await event_queue.get()
+            if evt == "_result":
+                role_key, content, name, tool_log = data
+                agent_results[role_key] = {"content": content, "name": name, "tool_log": tool_log}
+                processed += 1
+            else:
+                yield evt, data
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     # 生成结构化报告（模拟进度）
     yield "report_progress", {"section": 0, "total": total_sections, "name": "开始整合备忘录"}

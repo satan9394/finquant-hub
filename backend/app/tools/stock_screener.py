@@ -10,7 +10,8 @@ Stage 2 — 价值评分：
 
 移植自 ai-berkshire 工具集，适配 FinQuant Hub 数据服务。
 """
-from datetime import datetime
+
+from ..services.market_data import normalize_code
 
 TEN_CENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
 SINA_KLINE = (
@@ -52,7 +53,7 @@ async def momentum_discovery(
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, trust_env=False) as http:
         for item in candidates:
             ticker = item["ticker"]
-            code = _normalize_code(ticker)
+            code = normalize_code(ticker)
             # 获取 K 线
             try:
                 resp = await http.get(
@@ -133,7 +134,6 @@ async def value_scoring(
 
     返回按综合分降序排列的列表，含评分理由。
     """
-    import json
 
     import httpx
 
@@ -147,7 +147,7 @@ async def value_scoring(
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, trust_env=False) as http:
         for item in candidates:
             ticker = item["ticker"]
-            code = _normalize_code(ticker)
+            code = normalize_code(ticker)
 
             # 获取实时行情（含 PE/PB）
             try:
@@ -324,22 +324,6 @@ async def screen(
 # ===================================================================
 
 import re
-
-
-def _detect_market(code: str) -> str:
-    digits = re.sub(r"\D", "", code)
-    if re.match(r"^(6|68)", digits):
-        return "sh"
-    if re.match(r"^(0|3)", digits):
-        return "sz"
-    return "sh"
-
-
-def _normalize_code(code: str) -> str:
-    code = code.strip().lower()
-    if re.match(r"^(sh|sz|hk|us)", code):
-        return code
-    return _detect_market(code) + code
 
 
 _TENCENT_LINE = re.compile(r'^v_(sh|sz|hk|us)(\w+)="(.*)";?\s*$', re.M)

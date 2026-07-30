@@ -1,0 +1,9 @@
+[tool.ruff]
+# FinQuant Hub 后端 lint 配置
+# 从 F 类开始（实际 bug），逐步收紧
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F", "W", "E"]
+ignore = ["E501", "E741", "E402"]  # E501: 旧代码行长; E741: l 变量惯例; E402: 第三方导入位置

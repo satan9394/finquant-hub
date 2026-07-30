@@ -1,45 +1,12 @@
 """投资组合管理：增删改查 + 使用统一多市场行情计算实时盈亏。"""
-from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
 
 from .. import database
-from ..services.llm_client import LLMError
 
 TENCENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
 _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
-
-# 建表 SQL（由导入时自动执行）
-PORTFOLIO_SCHEMA = """
-CREATE TABLE IF NOT EXISTS portfolios (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    description   TEXT DEFAULT '',
-    currency      TEXT DEFAULT 'CNY',
-    created_at    TEXT DEFAULT (datetime('now')),
-    updated_at    TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS positions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    portfolio_id    INTEGER NOT NULL,
-    ticker          TEXT NOT NULL,
-    name            TEXT DEFAULT '',
-    shares          REAL NOT NULL,
-    avg_cost        REAL NOT NULL,
-    currency        TEXT DEFAULT 'CNY',
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
-);
-"""
-
-
-async def ensure_tables():
-    """确保组合相关表存在。"""
-    await database.get_db().executescript(PORTFOLIO_SCHEMA)
-    await database.get_db().commit()
 
 
 # ------------------------------------------------------------------
@@ -47,7 +14,6 @@ async def ensure_tables():
 # ------------------------------------------------------------------
 
 async def create_portfolio(name: str, description: str = "", currency: str = "CNY") -> dict:
-    await ensure_tables()
     new_id = await database.execute(
         "INSERT INTO portfolios (name, description, currency) VALUES (?, ?, ?)",
         (name, description, currency),
@@ -56,7 +22,6 @@ async def create_portfolio(name: str, description: str = "", currency: str = "CN
 
 
 async def list_portfolios() -> list[dict]:
-    await ensure_tables()
     items = await database.query_all(
         """SELECT p.*,
                   (SELECT COUNT(*) FROM positions WHERE portfolio_id=p.id) AS position_count
@@ -105,7 +70,6 @@ async def delete_portfolio(portfolio_id: int) -> bool:
 
 async def add_position(portfolio_id: int, ticker: str, shares: float,
                        avg_cost: float, name: str = "", currency: str = "") -> dict:
-    await ensure_tables()
     if not currency:
         portfolio = await get_portfolio(portfolio_id)
         currency = portfolio["currency"] if portfolio else "CNY"
@@ -166,6 +130,7 @@ async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
 
     # Reuse the same multi-market service as the quote pages.  The former
     # Tencent-only path silently priced HK/US holdings at cost and hid PnL.
+    # 延迟导入避免循环依赖。
     from .market_data import MarketDataService, normalize_code
 
     owns_market_service = market_service is None
@@ -232,50 +197,3 @@ async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
         "total_pnl_pct": round(total_pnl_pct, 2),
         "positions": details,
     }
-
-
-def _tencent_code(ticker: str) -> str:
-    """将 ticker 转为腾讯行情 code 格式。"""
-    t = ticker.lower().strip()
-    if t.startswith(("sh", "sz", "hk", "us")):
-        return t
-    # A 股 6 位
-    if len(t) == 6 and t.isdigit():
-        prefix = "sh" if t.startswith(("6", "68")) else "sz"
-        return prefix + t
-    # 港股 4-5 位
-    if t.isdigit() and 4 <= len(t) <= 5:
-        return "hk" + t
-    return t
-
-
-def _parse_tencent_map(raw: str) -> dict[str, dict]:
-    import re
-    result = {}
-    pattern = re.compile(r'^v_(sh|sz|hk|us)(\w+)="(.*)";?\s*$', re.M)
-    for m in pattern.finditer(raw):
-        market, scode, payload = m.group(1), m.group(2), m.group(3)
-        f = payload.split("~")
-        if len(f) < 50:
-            continue
-
-        def num(i: int, default=0.0) -> float:
-            try:
-                v = float(f[i])
-                return v if v == v else default
-            except (ValueError, IndexError):
-                return default
-
-        price, last_close = num(3), num(4)
-        change = num(31) or round(price - last_close, 3)
-        k = f"{market}{scode}"
-        result[k] = {
-            "price": price,
-            "last_close": last_close,
-            "change_percent": num(32),
-            "change": change,
-            "high": num(33),
-            "low": num(34),
-            "volume": num(6),
-        }
-    return result
