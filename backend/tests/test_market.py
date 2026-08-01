@@ -250,8 +250,12 @@ class TestFallback:
         assert svc.source_status()["priorities"]["quote"][0] == "sina"
         with pytest.raises(ValueError, match="必须且只能"):
             svc.configure_source_priority("quote", ["sina", "yahoo"])
-        with pytest.raises(ValueError, match="kind"):
+        svc.configure_source_priority("fundamentals", ["tushare", "akshare", "yahoo"])
+        assert svc.source_status()["priorities"]["fundamentals"][0] == "tushare"
+        with pytest.raises(ValueError, match="必须且只能"):
             svc.configure_source_priority("fundamentals", ["sina", "tencent", "yahoo"])
+        with pytest.raises(ValueError, match="kind"):
+            svc.configure_source_priority("unknown", ["sina", "tencent", "yahoo"])
         await svc.aclose()
 
 

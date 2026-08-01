@@ -213,9 +213,18 @@ class InstrumentService:
                         "trailingOperatingCashFlow", "trailingFreeCashFlow",
                     })
         present = {item["metric"] for item in items}
-        latest = max((str(item["as_of"]) for item in items if item.get("as_of")), default=None)
+        latest = max((str(item.get("as_of_date") or item.get("as_of")) for item in items
+                      if item.get("as_of_date") or item.get("as_of")), default=None)
         currencies = [str(item["currency"]) for item in items if item.get("currency")]
         providers = list(dict.fromkeys(str(item.get("provider") or "unknown") for item in items))
+        item_flags = [
+            str(flag)
+            for item in items
+            for flag in item.get("quality_flags", [])
+        ]
+        quality_flags = list(dict.fromkeys(
+            [f"missing_{metric}" for metric in sorted(expected - present)] + item_flags
+        ))
         return {
             "instrument": instrument,
             "items": items,
@@ -226,6 +235,6 @@ class InstrumentService:
                 currency=currencies[0] if currencies and len(set(currencies)) == 1 else instrument["currency"],
                 adjustment="not_applicable",
                 frequency="TTM_or_point_in_time",
-                quality_flags=[f"missing_{metric}" for metric in sorted(expected - present)],
+                quality_flags=quality_flags,
             ),
         }

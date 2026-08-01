@@ -138,6 +138,7 @@ class MarketDataService:
     yahoo_http: httpx.AsyncClient = field(default=None)
     quote_priority: tuple[str, ...] = ("tencent", "sina", "yahoo")
     kline_priority: tuple[str, ...] = ("sina", "tencent", "yahoo")
+    fundamentals_priority: tuple[str, ...] = ("akshare", "tushare", "yahoo")
     breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -164,10 +165,16 @@ class MarketDataService:
 
     def configure_source_priority(self, kind: str, providers: list[str]) -> None:
         """Reorder installed providers without silently disabling fallbacks."""
-        if kind not in {"quote", "kline"}:
-            raise ValueError("kind 必须是 quote 或 kline")
-        if len(providers) != 3 or set(providers) != {"tencent", "sina", "yahoo"}:
-            raise ValueError("源优先级必须且只能包含 tencent、sina、yahoo 各一次")
+        expected = {
+            "quote": {"tencent", "sina", "yahoo"},
+            "kline": {"tencent", "sina", "yahoo"},
+            "fundamentals": {"akshare", "tushare", "yahoo"},
+        }
+        if kind not in expected:
+            raise ValueError("kind 必须是 quote、kline 或 fundamentals")
+        if len(providers) != 3 or set(providers) != expected[kind]:
+            names = "、".join(sorted(expected[kind]))
+            raise ValueError(f"源优先级必须且只能包含 {names} 各一次")
         setattr(self, f"{kind}_priority", tuple(providers))
 
     def source_status(self) -> dict:
@@ -175,6 +182,7 @@ class MarketDataService:
             "priorities": {
                 "quote": list(self.quote_priority),
                 "kline": list(self.kline_priority),
+                "fundamentals": list(self.fundamentals_priority),
             },
             "providers": {
                 provider: self._breaker(provider).snapshot()
@@ -597,22 +605,49 @@ class MarketDataService:
         raise MarketError(f"未找到股票代码：{symbol}") from last_error
 
     async def fundamentals(self, ticker: str) -> list[dict]:
-        """Return provider-sourced point-in-time fundamentals.
-
-        Yahoo's public fundamentals timeseries endpoint is used because it has
-        consistent A/HK/US coverage and embeds each metric's as-of date and
-        currency. Missing metrics stay missing rather than being coerced to 0.
-        """
+        """Return period-safe fundamentals with domestic-source priority."""
         code = normalize_code(ticker)
-        if code.startswith(("sh", "sz")):
-            from .fundamentals import fetch_cn_fundamentals
+        if not code.startswith(("sh", "sz")):
+            return await self._yahoo_fundamentals(ticker)
 
+        from .fundamentals import (
+            AkshareFundamentalsAdapter,
+            TushareFundamentalsAdapter,
+            fetch_cn_fundamentals,
+        )
+
+        adapters = {
+            "akshare": AkshareFundamentalsAdapter,
+            "tushare": TushareFundamentalsAdapter,
+        }
+        errors = []
+        suspicious_candidate: list[dict] | None = None
+        for provider in self.fundamentals_priority:
             try:
-                domestic = await fetch_cn_fundamentals(code)
-            except RuntimeError:
-                domestic = []
-            if domestic:
-                return domestic
+                if provider == "yahoo":
+                    items = await self._yahoo_fundamentals(ticker)
+                else:
+                    items = await fetch_cn_fundamentals(code, (adapters[provider](),))
+            except (MarketError, RuntimeError) as exc:
+                errors.append(f"{provider}:{type(exc).__name__}")
+                continue
+            if items:
+                suspicious = any(
+                    str(flag).startswith("suspicious_")
+                    for item in items
+                    for flag in item.get("quality_flags", [])
+                )
+                if suspicious and provider != "yahoo":
+                    suspicious_candidate = suspicious_candidate or items
+                    continue
+                return items
+        if suspicious_candidate:
+            return suspicious_candidate
+        raise MarketError(f"无法获取 {ticker} 的基本面数据（{', '.join(errors) or '无可用数据源'}）")
+
+    async def _yahoo_fundamentals(self, ticker: str) -> list[dict]:
+        code = normalize_code(ticker)
+        domestic = code.startswith(("sh", "sz"))
         symbol = _yahoo_symbol(code)
         metric_types = [
             "trailingMarketCap",
@@ -624,6 +659,20 @@ class MarketDataService:
             "trailingGrossProfit",
             "trailingOperatingCashFlow",
             "trailingFreeCashFlow",
+            "quarterlyTotalRevenue",
+            "quarterlyOperatingRevenue",
+            "quarterlyNetIncome",
+            "quarterlyNetIncomeCommonStockholders",
+            "quarterlyGrossProfit",
+            "quarterlyOperatingCashFlow",
+            "quarterlyFreeCashFlow",
+            "annualTotalRevenue",
+            "annualOperatingRevenue",
+            "annualNetIncome",
+            "annualNetIncomeCommonStockholders",
+            "annualGrossProfit",
+            "annualOperatingCashFlow",
+            "annualFreeCashFlow",
             "quarterlyTotalAssets",
             "quarterlyTotalLiabilitiesNetMinorityInterest",
             "quarterlyStockholdersEquity",
@@ -648,6 +697,11 @@ class MarketDataService:
         if payload.get("error"):
             raise MarketError(f"无法获取 {ticker} 的基本面数据")
 
+        if domestic:
+            from .fundamentals import normalize_yahoo_cn_fundamentals
+
+            return normalize_yahoo_cn_fundamentals(payload)
+
         items: list[dict] = []
         for series in payload.get("result") or []:
             metric = ((series.get("meta") or {}).get("type") or [None])[0]
@@ -662,9 +716,12 @@ class MarketDataService:
                 "metric": metric,
                 "value": float(raw),
                 "as_of": latest.get("asOfDate"),
+                "as_of_date": latest.get("asOfDate"),
                 "currency": latest.get("currencyCode"),
                 "period_type": latest.get("periodType"),
                 "provider": "yahoo_fundamentals_timeseries",
+                "source": "yahoo.fundamentals_timeseries",
+                "is_ttm": latest.get("periodType") == "TTM",
             })
         by_metric = {item["metric"]: item for item in items}
         derived_specs = {
@@ -683,9 +740,14 @@ class MarketDataService:
                 "metric": metric,
                 "value": numerator["value"] / denominator["value"] * 100,
                 "as_of": max(str(numerator.get("as_of") or ""), str(denominator.get("as_of") or "")) or None,
+                "as_of_date": max(
+                    str(numerator.get("as_of") or ""), str(denominator.get("as_of") or "")
+                ) or None,
                 "currency": None,
                 "period_type": "derived",
                 "provider": "yahoo_fundamentals_timeseries",
+                "source": "yahoo.fundamentals_timeseries",
+                "is_ttm": bool(numerator.get("is_ttm") and denominator.get("is_ttm")),
                 "components": [numerator_key, denominator_key],
             })
         return items

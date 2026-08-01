@@ -10,12 +10,13 @@ LOGGER = logging.getLogger(__name__)
 KEYS = {
     "quote": "market_quote_priority",
     "kline": "market_kline_priority",
+    "fundamentals": "market_fundamentals_priority",
 }
 
 
 async def restore_source_priorities(market: MarketDataService) -> None:
     rows = await database.query_all(
-        "SELECT key, value_json FROM system_settings WHERE key IN (?, ?)",
+        "SELECT key, value_json FROM system_settings WHERE key IN (?, ?, ?)",
         tuple(KEYS.values()),
     )
     kind_by_key = {value: key for key, value in KEYS.items()}

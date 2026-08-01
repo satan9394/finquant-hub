@@ -61,15 +61,23 @@ async def test_fundamentals_preserve_as_of_and_currency():
         "metric": "trailingNetIncome",
         "value": 123.0,
         "as_of": "2026-03-31",
+        "as_of_date": "2026-03-31",
         "currency": "USD",
         "period_type": "TTM",
         "provider": "yahoo_fundamentals_timeseries",
+        "source": "yahoo.fundamentals_timeseries",
+        "is_ttm": True,
     }]
     await service.aclose()
 
 
 @pytest.mark.asyncio
-async def test_yahoo_fundamentals_derives_auditable_core_ratios():
+async def test_yahoo_fundamentals_derives_auditable_core_ratios(monkeypatch):
+    async def no_domestic_data(symbol, adapters=None):
+        return []
+
+    monkeypatch.setattr("app.services.fundamentals.fetch_cn_fundamentals", no_domestic_data)
+
     def series(metric, value, period="TTM"):
         return {
             "meta": {"type": [metric]},
@@ -104,8 +112,55 @@ async def test_yahoo_fundamentals_derives_auditable_core_ratios():
     assert metrics["net_profit_margin"]["value"] == 25
     assert metrics["debt_to_assets"]["value"] == 25
     assert metrics["gross_margin"]["components"] == [
-        "trailingGrossProfit", "trailingTotalRevenue",
+        "gross_profit", "total_revenue",
     ]
+    assert metrics["total_revenue"]["is_ttm"] is False
+    assert "unverified_yahoo_ttm" in metrics["total_revenue"]["quality_flags"]
+
+
+@pytest.mark.asyncio
+async def test_suspicious_domestic_source_continues_to_yahoo_with_flags(monkeypatch):
+    async def suspicious_domestic(symbol, adapters=None):
+        return [{
+            "metric": "net_income",
+            "value": 100,
+            "quality_flags": ["suspicious_net_income_quarter_change_gt_5x"],
+        }]
+
+    monkeypatch.setattr("app.services.fundamentals.fetch_cn_fundamentals", suspicious_domestic)
+
+    def quarterly(metric, values):
+        return {
+            "meta": {"type": [metric]},
+            metric: [
+                {
+                    "asOfDate": date,
+                    "periodType": "3M",
+                    "currencyCode": "CNY",
+                    "reportedValue": {"raw": value},
+                }
+                for date, value in zip(
+                    ("2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31"), values,
+                )
+            ],
+        }
+
+    payload = {"timeseries": {"result": [
+        quarterly("quarterlyTotalRevenue", [100, 100, 100, 100]),
+        quarterly("quarterlyNetIncome", [100, 1, 2, 3]),
+    ], "error": None}}
+    http = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=payload, request=request)
+    ))
+    service = MarketDataService(http=http)
+    try:
+        items = await service.fundamentals("000858")
+    finally:
+        await service.aclose()
+
+    net_income = next(item for item in items if item["metric"] == "net_income")
+    assert net_income["provider"] == "yahoo"
+    assert "suspicious_net_income_quarter_change_gt_5x" in net_income["quality_flags"]
 
 
 @pytest.mark.asyncio

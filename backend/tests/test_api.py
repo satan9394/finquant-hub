@@ -911,8 +911,10 @@ class TestCoverageCriticalRoutes:
 
         sources = await client.patch("/api/market/sources", json={
             "quote": ["sina", "tencent", "yahoo"],
+            "fundamentals": ["tushare", "akshare", "yahoo"],
         })
         assert sources.json()["priorities"]["quote"][0] == "sina"
+        assert sources.json()["priorities"]["fundamentals"][0] == "tushare"
         assert (await client.get("/api/market/sources")).status_code == 200
         assert (await client.patch("/api/market/sources", json={})).status_code == 422
         assert (await client.patch("/api/market/sources", json={"quote": ["sina"]})).status_code == 400

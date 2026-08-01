@@ -28,6 +28,7 @@ def _overview(request: Request) -> MarketOverviewService:
 class SourcePriorityUpdate(BaseModel):
     quote: list[str] | None = None
     kline: list[str] | None = None
+    fundamentals: list[str] | None = None
 
 
 class PrefetchRequest(BaseModel):
@@ -91,13 +92,15 @@ async def source_status(request: Request):
 
 @router.patch("/sources")
 async def update_source_priority(request: Request, body: SourcePriorityUpdate):
-    if body.quote is None and body.kline is None:
-        raise HTTPException(422, "至少提供 quote 或 kline")
+    if body.quote is None and body.kline is None and body.fundamentals is None:
+        raise HTTPException(422, "至少提供 quote、kline 或 fundamentals")
     try:
         if body.quote is not None:
             await save_source_priority(_svc(request), "quote", body.quote)
         if body.kline is not None:
             await save_source_priority(_svc(request), "kline", body.kline)
+        if body.fundamentals is not None:
+            await save_source_priority(_svc(request), "fundamentals", body.fundamentals)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return _svc(request).source_status()

@@ -13,6 +13,7 @@ import { useModelStore } from '../store/modelStore';
 import type { AgentPreset } from '../types';
 import MCPServerSettingsPanel from '../components/settings/MCPServerSettingsPanel';
 import SystemSettingsPanel from '../components/settings/SystemSettingsPanel';
+import FundamentalsSourcePanel from '../components/settings/FundamentalsSourcePanel';
 
 
 interface UsageSummary {
@@ -196,6 +197,11 @@ export default function Settings() {
       key: 'mcp',
       label: 'MCP 服务器',
       children: <MCPServerSettingsPanel />,
+    },
+    {
+      key: 'fundamentals-sources',
+      label: '基本面数据源',
+      children: <FundamentalsSourcePanel />,
     },
     {
       key: 'agents',

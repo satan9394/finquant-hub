@@ -28,11 +28,13 @@ def _service():
 async def test_source_priority_round_trip(source_db):
     first = _service()
     await save_source_priority(first, "quote", ["sina", "tencent", "yahoo"])
+    await save_source_priority(first, "fundamentals", ["tushare", "akshare", "yahoo"])
     await first.aclose()
 
     restored = _service()
     await restore_source_priorities(restored)
     assert restored.quote_priority == ("sina", "tencent", "yahoo")
+    assert restored.fundamentals_priority == ("tushare", "akshare", "yahoo")
     await restored.aclose()
 
 

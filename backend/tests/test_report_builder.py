@@ -106,6 +106,8 @@ def test_mocked_fundamentals_fill_financial_chapters_with_provenance():
     assert "毛利率：91.20%" in report["profitability_analysis"]
     assert "资产负债率：21.50%" in report["solvency_analysis"]
     assert "经营活动现金流：450.00 亿元 CNY" in report["cash_flow_analysis"]
-    assert "来源：akshare；截至：2026-03-31" in report["financial_overview"]
+    assert "【基本面事实｜数据存疑】" in report["financial_overview"]
+    assert "来源：akshare；截至：2026-03-31；TTM：否" in report["financial_overview"]
+    assert "质量提示：missing_roe" in report["financial_overview"]
     assert report["shareholder_analysis"].startswith("unknown（")
     assert report["fundamental_evidence"] == fundamentals

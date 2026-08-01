@@ -240,6 +240,13 @@ def _format_fundamental_value(metric: str, item: dict[str, Any]) -> str:
 
 def _fundamental_chapter_facts(payload: object) -> dict[str, str]:
     items = _fundamental_items(payload)
+    payload_flags = payload.get("quality_flags", []) if isinstance(payload, dict) else []
+    item_flags = [
+        str(flag)
+        for item in items.values()
+        for flag in item.get("quality_flags", [])
+    ]
+    quality_flags = list(dict.fromkeys(str(flag) for flag in [*payload_flags, *item_flags]))
     facts: dict[str, str] = {}
     for chapter, metrics in _CHAPTER_METRICS.items():
         lines = []
@@ -247,11 +254,13 @@ def _fundamental_chapter_facts(payload: object) -> dict[str, str]:
             item = items.get(metric)
             if not item:
                 continue
-            provenance = [f"来源：{item.get('provider') or 'unknown'}"]
-            if item.get("as_of"):
-                provenance.append(f"截至：{item['as_of']}")
+            provenance = [f"来源：{item.get('source') or item.get('provider') or 'unknown'}"]
+            as_of = item.get("as_of_date") or item.get("as_of")
+            if as_of:
+                provenance.append(f"截至：{as_of}")
+            provenance.append(f"TTM：{'是' if item.get('is_ttm') else '否'}")
             if item.get("period_type"):
-                provenance.append(f"口径：{item['period_type']}")
+                provenance.append(f"期间：{item['period_type']}")
             if item.get("components"):
                 provenance.append("由原始字段计算")
             lines.append(
@@ -259,7 +268,9 @@ def _fundamental_chapter_facts(payload: object) -> dict[str, str]:
                 f"（{'；'.join(provenance)}）"
             )
         if lines:
-            facts[chapter] = "【基本面事实】\n" + "\n".join(lines)
+            heading = "【基本面事实｜数据存疑】" if quality_flags else "【基本面事实】"
+            warning = f"\n质量提示：{', '.join(quality_flags)}" if quality_flags else ""
+            facts[chapter] = heading + "\n" + "\n".join(lines) + warning
     return facts
 
 

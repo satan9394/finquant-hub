@@ -1,7 +1,19 @@
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from app.services import market_data
-from app.services.fundamentals import FundamentalsAdapter, fetch_cn_fundamentals, normalize_fundamental_record
+from app.services.fundamentals import (
+    AkshareFundamentalsAdapter,
+    FundamentalsAdapter,
+    build_ttm_from_single_quarters,
+    cumulative_to_single_quarters,
+    fetch_cn_fundamentals,
+    normalize_fundamental_record,
+    normalize_yahoo_cn_fundamentals,
+    validate_fundamental_quality,
+)
 from app.services.instruments import InstrumentService
 
 
@@ -23,6 +35,9 @@ def test_normalize_akshare_and_tushare_records_to_same_metrics():
         (item["metric"], item["value"]) for item in tushare
     ]
     assert akshare[0]["as_of"] == "2026-03-31"
+    assert akshare[0]["as_of_date"] == "2026-03-31"
+    assert akshare[0]["source"] == "akshare"
+    assert akshare[0]["is_ttm"] is False
     assert {item["provider"] for item in tushare} == {"tushare"}
 
 
@@ -33,6 +48,7 @@ def test_normalize_core_financial_statements_without_confusing_growth_columns():
         "营业总收入同比增长": "12.5%",
         "归母净利润": "456.7亿",
         "经营活动产生的现金流量净额": "321亿",
+        "每股经营现金流": "9.99",
         "资产总计": "3,000亿",
         "负债合计": "800亿",
     }, "akshare")
@@ -44,6 +60,15 @@ def test_normalize_core_financial_statements_without_confusing_growth_columns():
     assert values["operating_cash_flow"] == 32_100_000_000
     assert values["total_assets"] == 300_000_000_000
     assert values["total_liabilities"] == 80_000_000_000
+
+
+def test_per_share_cash_flow_is_not_treated_as_total_cash_flow():
+    items = normalize_fundamental_record({
+        "报告期": "2026-03-31",
+        "每股经营现金流": "9.99",
+    }, "akshare")
+
+    assert "operating_cash_flow" not in {item["metric"] for item in items}
 
 
 class StubAdapter(FundamentalsAdapter):
@@ -79,8 +104,9 @@ async def test_market_service_uses_cn_adapter_before_yahoo(monkeypatch):
         "currency": "CNY", "period_type": "reported", "provider": "akshare",
     }]
 
-    async def domestic(symbol):
+    async def domestic(symbol, adapters=None):
         assert symbol == "sh600519"
+        assert adapters is not None
         return expected
 
     monkeypatch.setattr("app.services.fundamentals.fetch_cn_fundamentals", domestic)
@@ -102,3 +128,121 @@ async def test_cn_fundamentals_reports_all_provider_failures():
             StubAdapter("disabled", available=False),
             StubAdapter("akshare", error=RuntimeError("down")),
         ))
+
+
+def test_ttm_requires_and_sums_four_consecutive_single_quarters():
+    records = [
+        {"报告期": date, "营业总收入": revenue, "净利润": income}
+        for date, revenue, income in (
+            ("2025-06-30", 10, 1),
+            ("2025-09-30", 20, 2),
+            ("2025-12-31", 30, 3),
+            ("2026-03-31", 40, 4),
+        )
+    ]
+    metrics = {item["metric"]: item for item in build_ttm_from_single_quarters(records, "test")}
+
+    assert metrics["total_revenue"]["value"] == 100
+    assert metrics["net_income"]["value"] == 10
+    assert metrics["total_revenue"]["is_ttm"] is True
+    assert metrics["total_revenue"]["source_periods"] == [
+        "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31",
+    ]
+
+
+def test_ttm_rejects_missing_quarter_instead_of_mislabeling_single_period():
+    records = [
+        {"报告期": "2025-03-31", "营业总收入": 10},
+        {"报告期": "2025-06-30", "营业总收入": 20},
+        {"报告期": "2025-12-31", "营业总收入": 30},
+        {"报告期": "2026-03-31", "营业总收入": 40},
+    ]
+
+    assert build_ttm_from_single_quarters(records, "test") == []
+
+
+def test_quarter_scale_jump_and_unreasonable_margin_are_flagged():
+    records = [
+        {"报告期": date, "营业总收入": 100, "净利润": income}
+        for date, income in (
+            ("2025-06-30", 1_000),
+            ("2025-09-30", 1),
+            ("2025-12-31", 2),
+            ("2026-03-31", 3),
+        )
+    ]
+    ttm = build_ttm_from_single_quarters(records, "test")
+    items = validate_fundamental_quality(ttm)
+    metrics = {item["metric"]: item for item in items}
+
+    assert "suspicious_net_income_quarter_change_gt_5x" in metrics["net_income"]["quality_flags"]
+    assert "suspicious_net_profit_margin_outside_0_60" in metrics["net_profit_margin"]["quality_flags"]
+
+
+def test_tushare_cumulative_rows_are_converted_before_ttm_sum():
+    records = [
+        {"end_date": "20250331", "total_revenue": 10, "n_income_attr_p": 1},
+        {"end_date": "20250630", "total_revenue": 30, "n_income_attr_p": 3},
+        {"end_date": "20250930", "total_revenue": 60, "n_income_attr_p": 6},
+        {"end_date": "20251231", "total_revenue": 100, "n_income_attr_p": 10},
+    ]
+
+    quarters = cumulative_to_single_quarters(records, "tushare")
+    metrics = {item["metric"]: item for item in build_ttm_from_single_quarters(quarters, "tushare")}
+
+    assert metrics["total_revenue"]["value"] == 100
+    assert metrics["net_income"]["value"] == 10
+
+
+def test_yahoo_single_trailing_value_is_never_claimed_as_ttm():
+    value = {
+        "asOfDate": "2026-03-31",
+        "periodType": "TTM",
+        "currencyCode": "CNY",
+        "reportedValue": {"raw": 46_280_000_000},
+    }
+    payload = {"result": [{
+        "meta": {"type": ["trailingTotalRevenue"]},
+        "trailingTotalRevenue": [value],
+    }]}
+
+    item = normalize_yahoo_cn_fundamentals(payload)[0]
+
+    assert item["metric"] == "total_revenue"
+    assert item["is_ttm"] is False
+    assert item["period_type"] == "reported_unverified"
+    assert item["quality_flags"] == ["unverified_yahoo_ttm"]
+
+
+@pytest.mark.asyncio
+async def test_akshare_adapter_requests_explicit_single_quarter_data(monkeypatch):
+    calls = []
+
+    class Frame:
+        def __init__(self, records):
+            self.records = records
+
+        def to_dict(self, orientation):
+            assert orientation == "records"
+            return self.records
+
+    quarter_records = [
+        {"报告期": date, "营业总收入": 10, "净利润": 2}
+        for date in ("2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31")
+    ]
+
+    def abstract(*, symbol, indicator):
+        assert symbol == "600519"
+        calls.append(indicator)
+        if indicator == "按单季度":
+            return Frame(quarter_records)
+        if indicator == "按年度":
+            return Frame([{"报告期": "2025", "营业总收入": 40, "净利润": 8}])
+        return Frame([{"报告期": "2026-03-31", "基本每股收益": 1.5}])
+
+    monkeypatch.setitem(sys.modules, "akshare", SimpleNamespace(stock_financial_abstract_ths=abstract))
+    items = await AkshareFundamentalsAdapter().fetch("600519")
+
+    assert calls == ["按单季度", "按报告期", "按年度"]
+    assert {item["metric"]: item["value"] for item in items}["total_revenue"] == 40
+    assert next(item for item in items if item["metric"] == "total_revenue")["is_ttm"] is True
