@@ -9,6 +9,8 @@
 """
 import numpy as np
 
+from .metrics import calculate_performance, calculate_trade_metrics
+
 # ---------------------------------------------------------------------------
 # 信号生成
 # ---------------------------------------------------------------------------
@@ -225,7 +227,7 @@ def run_backtest(
             entry_price = 0.0
 
     # 绩效指标
-    metrics = _calc_metrics(equity, strat_returns, close)
+    metrics = _calc_metrics(equity, strat_returns, close, trades)
 
     # 准备权益曲线
     equity_curve = [
@@ -233,8 +235,13 @@ def run_backtest(
          "signal": int(signals[i]), "position": int(positions[i])}
         for i in range(len(equity))
     ]
+    benchmark_equity = close / close[0]
+    benchmark_curve = [
+        {"day": days[index], "equity": round(float(value), 4)}
+        for index, value in enumerate(benchmark_equity)
+    ]
 
-    buy_hold_return = (close[-1] - close[0]) / close[0] * 100 if close[0] != 0 else 0.0
+    buy_hold_return = (benchmark_equity[-1] - 1.0) * 100
 
     return {
         "strategy": strategy_type,
@@ -244,19 +251,22 @@ def run_backtest(
         "buy_hold_return_pct": round(float(buy_hold_return), 2),
         "trades": trades,
         "equity_curve": equity_curve,
+        "benchmark_curve": benchmark_curve,
     }
 
 
-def _calc_metrics(equity: np.ndarray, strat_returns: np.ndarray, close: np.ndarray) -> dict:
+def _calc_metrics(
+    equity: np.ndarray,
+    strat_returns: np.ndarray,
+    close: np.ndarray,
+    trades: list[dict],
+) -> dict:
     """计算绩效指标。"""
-    n = len(equity)
-
-    # 总收益率
-    total_return = float((equity[-1] - 1.0) * 100)
-
-    # 年化收益率（假设 252 个交易日）
-    years = n / 252.0
-    ann_return = ((equity[-1] / 1.0) ** (1.0 / max(years, 0.01)) - 1.0) * 100
+    benchmark = close / close[0]
+    performance = calculate_performance(equity, benchmark, 252)
+    trade_metrics = calculate_trade_metrics([trade["return_pct"] for trade in trades])
+    total_return = float(performance["total_return"] or 0.0) * 100
+    ann_return = float(performance["annualized_return"] or 0.0) * 100
 
     # 年化波动率
     non_zero = strat_returns[strat_returns != 0]
@@ -272,11 +282,7 @@ def _calc_metrics(equity: np.ndarray, strat_returns: np.ndarray, close: np.ndarr
     else:
         sharpe = 0.0
 
-    # 最大回撤
-    running_max = np.maximum.accumulate(equity)
-    drawdowns = (equity - running_max) / running_max * 100
-    max_drawdown = float(np.min(drawdowns))
-    max_drawdown = round(max_drawdown, 2)
+    max_drawdown = round(float(performance["max_drawdown"] or 0.0) * 100, 2)
 
     # 胜率
     non_zero_returns = strat_returns[strat_returns != 0]
@@ -287,7 +293,15 @@ def _calc_metrics(equity: np.ndarray, strat_returns: np.ndarray, close: np.ndarr
         "annual_return_pct": round(ann_return, 2),
         "annual_volatility_pct": round(ann_vol, 2),
         "sharpe_ratio": round(sharpe, 3),
+        "sortino_ratio": round(float(performance["sortino_ratio"]), 3)
+        if performance["sortino_ratio"] is not None else None,
+        "calmar_ratio": round(float(performance["calmar_ratio"]), 3)
+        if performance["calmar_ratio"] is not None else None,
+        "information_ratio": round(float(performance["information_ratio"]), 3)
+        if performance["information_ratio"] is not None else None,
+        "profit_factor": round(float(trade_metrics["profit_factor"]), 3)
+        if trade_metrics["profit_factor"] is not None else None,
         "max_drawdown_pct": max_drawdown,
         "win_rate_pct": round(win_rate, 1),
-        "trade_count": int(np.sum(np.abs(np.diff(strat_returns > 0, prepend=False))) // 2),
+        "trade_count": trade_metrics["trade_count"],
     }

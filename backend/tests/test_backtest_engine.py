@@ -43,6 +43,9 @@ def test_ma_cross_generates_profitable_trades_and_equity_curve():
     result = run_backtest(make_bars(closes), strategy_type="ma_cross")
 
     assert len(result["equity_curve"]) == len(closes)
+    assert len(result["benchmark_curve"]) == len(closes)
+    assert result["benchmark_curve"][0]["equity"] == 1.0
+    assert result["benchmark_curve"][-1]["equity"] == round(closes[-1] / closes[0], 4)
     assert result["metrics"]["trade_count"] >= 1
     assert result["metrics"]["total_return_pct"] > 0
 

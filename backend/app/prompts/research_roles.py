@@ -1,4 +1,4 @@
-"""四个投研 Agent 的 System Prompt（中文）。
+"""投研 Agent 与 team-lead 的 System Prompt（中文）。
 
 用于 research_orch 多 Agent 并行研究管线。
 每个 Agent 聚焦单一领域，配备工具使用能力。
@@ -109,3 +109,23 @@ RESEARCH_ROLES = [
 ]
 
 ROLE_MAP = {r["role_key"]: r for r in RESEARCH_ROLES}
+
+
+REPORT_LEAD_ROLE = {
+    "role_key": "report_lead",
+    "name": "投研主编",
+    "avatar": "🧠",
+    "system_prompt": """你是投研主编。你会收到四位前序研究员的全文，必须做综合评审而非简单拼接。
+
+只输出一个 JSON 对象，不要 Markdown 围栏。所有数字判断都必须能追溯到前序证据；证据不足写 null 或 unknown，禁止补造事实。JSON 必须包含：
+- executive_summary、verdict、bull_case、bear_case、technical_analysis：字符串
+- chapters：对象，键为 company_overview、industry_analysis、business_model_analysis、financial_overview、profitability_analysis、growth_analysis、solvency_analysis、operating_efficiency_analysis、cash_flow_analysis、shareholder_analysis、institutional_rating、risk_analysis、investment_conclusion
+- dimension_scores：business/financial/industry/risk，各 0-10 或 null
+- long_term_scores：business_quality/moat/financial_quality/valuation_safety，各 0-10 或 null
+- short_term_scores：trend/catalyst/sentiment/risk_reward，各 0-10 或 null
+- scarcity_scores：technology_barrier/supply_chain_control/substitution_difficulty/qualification_barrier/capacity_constraint/policy_importance，各 0-10 或 null
+- checklist：circle_of_competence/business_quality/moat/management/margin_of_safety/discipline，各值只能是 pass/fail/unknown
+- action_tiers：数组，只给研究动作（补证、观察、否决条件），不得给具体买卖、仓位或收益承诺
+
+明确区分 FACT、INFERENCE、MODEL_OUTPUT、UNKNOWN；必须保留正反观点与会推翻结论的条件。内容由 AI 生成，不构成投资建议。""",
+}

@@ -1,7 +1,7 @@
 /* ============================================================
  * Dashboard — 系统总览页
  * ============================================================ */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, Row, Col, Statistic, List, Typography, Input, Button, message, Tag } from 'antd';
 import {
   RobotOutlined, MessageOutlined, TeamOutlined, CommentOutlined,
@@ -13,6 +13,10 @@ import apiClient from '../services/api';
 import { fetchQuote, searchStocks } from '../services/stockApi';
 import { useModelStore } from '../store/modelStore';
 import StockChart from '../components/StockChart';
+import ChinaMap from '../components/ChinaMap';
+import CountUp from '../components/CountUp';
+import Marquee from '../components/Marquee';
+import ScrollingTable from '../components/ScrollingTable';
 import { fetchPortfolioSummary, fetchSignalSummary } from '../services/analysisApi';
 import type { DashboardStats, RealTimeQuote, SearchResult, PortfolioSummary, SignalSummary } from '../types';
 
@@ -176,30 +180,45 @@ export default function Dashboard() {
   const screenMetrics = [
     {
       label: '组合市值',
-      value: hasPortfolioData ? `¥${formatAmount(portfolioSummary.total_current)}` : '—',
+      value: hasPortfolioData ? portfolioSummary.total_current : null,
+      prefix: '¥', decimals: 2,
       detail: hasPortfolioData ? `投入 ¥${formatAmount(portfolioSummary.total_invested)}` : '等待组合数据',
       tone: 'cyan',
     },
     {
       label: '累计收益',
-      value: hasPortfolioData ? `${totalProfit > 0 ? '+' : ''}¥${formatAmount(totalProfit)}` : '—',
+      value: hasPortfolioData ? totalProfit : null,
+      prefix: totalProfit > 0 ? '+¥' : '¥', decimals: 2,
       detail: hasPortfolioData ? `${totalProfitPercent > 0 ? '+' : ''}${totalProfitPercent.toFixed(2)}%` : '等待组合数据',
       // A-share convention: gains are red and losses are green.
       tone: profitTone,
     },
     {
       label: '组合数量',
-      value: hasPortfolioData ? portfolioSummary.group_summaries.length.toString().padStart(2, '0') : '—',
+      value: hasPortfolioData ? portfolioSummary.group_summaries.length : null,
       detail: '已纳入组合追踪',
       tone: 'blue',
     },
     {
       label: '市场信号',
-      value: hasSignalData ? signalSummary.total.toString().padStart(2, '0') : '—',
+      value: hasSignalData ? signalSummary.total : null,
       detail: hasSignalData ? `看多 ${signalSummary.bullish} · 看空 ${signalSummary.bearish}` : '等待信号数据',
       tone: 'violet',
     },
   ];
+  const exchangeDistribution = useMemo(() => {
+    const counts = new Map<string, number>();
+    watchlist.forEach(({ code }) => {
+      const ticker = code.trim().toUpperCase();
+      const province = ticker.endsWith('.SH') || /^6\d{5}$/.test(ticker) ? '上海市'
+        : ticker.endsWith('.SZ') || /^[03]\d{5}$/.test(ticker) ? '广东省'
+          : ticker.endsWith('.BJ') || /^[48]\d{5}$/.test(ticker) ? '北京市'
+            : ticker.endsWith('.HK') || /^\d{5}$/.test(ticker) ? '香港特别行政区'
+              : null;
+      if (province) counts.set(province, (counts.get(province) ?? 0) + 1);
+    });
+    return Array.from(counts, ([name, value]) => ({ name, value }));
+  }, [watchlist]);
 
   const startupTests = [
     {
@@ -253,13 +272,34 @@ export default function Dashboard() {
           {screenMetrics.map((metric) => (
             <div className={`big-screen-metric big-screen-metric--${metric.tone}`} key={metric.label}>
               <span className="big-screen-metric__label">{metric.label}</span>
-              <strong className="big-screen-metric__value">{metric.value}</strong>
+              <strong className="big-screen-metric__value">
+                {metric.value == null ? '—' : <CountUp value={metric.value} prefix={metric.prefix} decimals={metric.decimals} />}
+              </strong>
               <span className="big-screen-metric__detail">{metric.detail}</span>
             </div>
           ))}
         </div>
+        <Marquee items={(signalSummary?.signals ?? []).map((signal) => signal.label)} />
+        <div className="big-screen-live-grid">
+          <div className="big-screen-panel">
+            <h3>组合实时排行</h3>
+            <ScrollingTable
+              rows={portfolioSummary?.group_summaries ?? []}
+              rowKey={(row) => String(row.group_id)}
+              columns={[
+                { key: 'name', title: '组合', render: (row) => row.group_name },
+                { key: 'value', title: '市值', render: (row) => `¥${formatAmount(row.current)}` },
+                { key: 'profit', title: '收益', render: (row) => <span style={{ color: row.profit >= 0 ? '#ff8594' : '#78e6b3' }}>{row.profit >= 0 ? '+' : ''}{row.profit_percent.toFixed(2)}%</span> },
+              ]}
+            />
+          </div>
+          <div className="big-screen-panel">
+            <h3>自选标的交易所所在地</h3>
+            <ChinaMap data={exchangeDistribution} />
+          </div>
+        </div>
         <div className="big-screen-overview__footer">
-          <span>数据源：投资组合与信号中心</span>
+          <span>数据源：投资组合、信号中心与本地自选列表；地图表示交易所所在地，不代表公司注册地</span>
           <button type="button" onClick={() => navigate('/portfolio')}>查看投资组合 <span aria-hidden="true">→</span></button>
         </div>
       </section>

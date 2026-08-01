@@ -63,8 +63,49 @@ async def test_fundamentals_preserve_as_of_and_currency():
         "as_of": "2026-03-31",
         "currency": "USD",
         "period_type": "TTM",
+        "provider": "yahoo_fundamentals_timeseries",
     }]
     await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_yahoo_fundamentals_derives_auditable_core_ratios():
+    def series(metric, value, period="TTM"):
+        return {
+            "meta": {"type": [metric]},
+            metric: [{
+                "asOfDate": "2026-03-31",
+                "periodType": period,
+                "currencyCode": "CNY",
+                "reportedValue": {"raw": value},
+            }],
+        }
+
+    payload = {"timeseries": {"result": [
+        series("trailingTotalRevenue", 1000),
+        series("trailingGrossProfit", 600),
+        series("trailingNetIncome", 250),
+        series("quarterlyTotalAssets", 2000, "3M"),
+        series("quarterlyTotalLiabilitiesNetMinorityInterest", 500, "3M"),
+    ], "error": None}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = MarketDataService(http=http)
+    try:
+        items = await service.fundamentals("600519")
+    finally:
+        await service.aclose()
+    metrics = {item["metric"]: item for item in items}
+
+    assert metrics["gross_margin"]["value"] == 60
+    assert metrics["net_profit_margin"]["value"] == 25
+    assert metrics["debt_to_assets"]["value"] == 25
+    assert metrics["gross_margin"]["components"] == [
+        "trailingGrossProfit", "trailingTotalRevenue",
+    ]
 
 
 @pytest.mark.asyncio

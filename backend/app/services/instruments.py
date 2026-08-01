@@ -202,19 +202,25 @@ class InstrumentService:
     async def fundamentals(self, symbol: str) -> dict[str, Any]:
         items = await self.market.fundamentals(symbol)
         instrument = instrument_from_code(symbol)
-        expected = {
-            "trailingMarketCap", "trailingPeRatio", "trailingPbRatio",
-            "trailingTotalRevenue", "trailingNetIncome",
-            "trailingOperatingCashFlow", "trailingFreeCashFlow",
+        domestic = normalize_code(symbol).startswith(("sh", "sz"))
+        expected = ({
+            "total_revenue", "net_income", "operating_cash_flow", "eps", "roe",
+            "gross_margin", "net_profit_margin", "debt_to_assets", "current_ratio",
         }
+                    if domestic else {
+                        "trailingMarketCap", "trailingPeRatio", "trailingPbRatio",
+                        "trailingTotalRevenue", "trailingNetIncome",
+                        "trailingOperatingCashFlow", "trailingFreeCashFlow",
+                    })
         present = {item["metric"] for item in items}
         latest = max((str(item["as_of"]) for item in items if item.get("as_of")), default=None)
         currencies = [str(item["currency"]) for item in items if item.get("currency")]
+        providers = list(dict.fromkeys(str(item.get("provider") or "unknown") for item in items))
         return {
             "instrument": instrument,
             "items": items,
             **provenance(
-                provider="yahoo_fundamentals_timeseries",
+                provider=",".join(providers),
                 as_of=latest,
                 timezone=MARKET_META[normalize_code(symbol)[:2]]["timezone"],
                 currency=currencies[0] if currencies and len(set(currencies)) == 1 else instrument["currency"],

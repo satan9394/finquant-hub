@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { validateBacktestForm, type BacktestFormValues } from '../src/features/backtest/validation';
 import { parseBacktestRequest } from '../src/features/backtest/request';
 

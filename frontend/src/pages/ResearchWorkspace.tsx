@@ -9,6 +9,7 @@ import {
   SaveOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import ResearchCharts from '../components/research/ResearchCharts';
+import SwarmStatusCard from '../components/SwarmStatusCard';
 import {
   fetchInstrumentBars,
   fetchInstrumentFundamentals,
@@ -252,6 +253,8 @@ export default function ResearchWorkspace() {
       </div>
 
       {errors.map((error) => <Alert key={error} type="warning" showIcon message={error} action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspace()}>重试</Button>} style={{ marginBottom: 12 }} />)}
+
+      <SwarmStatusCard ticker={currentSymbol} />
 
       {loading && !snapshot ? <Skeleton active paragraph={{ rows: 10 }} /> : snapshot ? (
         <>

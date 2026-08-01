@@ -78,6 +78,13 @@ async def test_post_market_analysis_reloads_targets_and_consumes_research(monkey
     assert [event["event_type"] for event in events].count("agent_started") == 2
     assert [event["event_type"] for event in events].count("done") == 2
     assert all('"report_id"' in event["payload"] for event in events if event["event_type"] == "done")
+    notifications = await database.query_all(
+        "SELECT event_type, source_id FROM notifications ORDER BY id"
+    )
+    assert [item["event_type"] for item in notifications] == [
+        "research.completed",
+        "research.completed",
+    ]
 
 
 @pytest.mark.asyncio
@@ -130,3 +137,30 @@ async def test_post_market_analysis_persists_failed_runs(monkeypatch):
     )
     assert len(events) == 1
     assert events[0]["event_type"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_cycle_runs_research_even_when_alert_scan_fails(monkeypatch):
+    calls = []
+
+    async def fail_alerts(market, **kwargs):
+        calls.append(("alerts", market, kwargs))
+        raise RuntimeError("scan failed")
+
+    async def fake_research():
+        calls.append(("research",))
+
+    async def fake_market_review(review_market):
+        calls.append(("market_review", review_market))
+
+    market = object()
+    monkeypatch.setattr(scheduler, "scan_enabled_rules", fail_alerts)
+    monkeypatch.setattr(scheduler, "run_scheduled_market_review", fake_market_review)
+    monkeypatch.setattr(scheduler, "run_post_market_analysis", fake_research)
+
+    await scheduler.run_scheduled_cycle(market)
+
+    assert calls[0][0] == "alerts"
+    assert calls[0][1] is market
+    assert calls[1] == ("market_review", market)
+    assert calls[2] == ("research",)

@@ -102,6 +102,9 @@ export type BacktestCreatePayload = {
   commission_bps: number;
   slippage_bps: number;
   benchmark: 'buy_and_hold';
+  market_rules?: 'auto' | 'none';
+  price_limit_ratio?: number | null;
+  validation_samples?: number;
 };
 
 export type CurvePoint = { time: string; value: number };
@@ -134,6 +137,8 @@ export type BacktestRun = {
     max_drawdown: number;
     sharpe_ratio: number | null;
     sortino_ratio: number | null;
+    calmar_ratio: number | null;
+    information_ratio: number | null;
     win_rate: number | null;
     profit_factor: number | null;
     turnover: number;
@@ -144,5 +149,33 @@ export type BacktestRun = {
   drawdown_curve?: CurvePoint[];
   trades?: BacktestTrade[];
   order_marks?: { time: string; price: number; side: 'buy' | 'sell' }[];
+  rejected_orders?: { time: string; side: 'buy' | 'sell'; reason: string }[];
+  execution_rules?: {
+    market: string;
+    t_plus_one: boolean;
+    allow_short: boolean;
+    price_limit_ratio: number | null;
+    assumptions: string[];
+    period: string;
+  };
+  validation?: {
+    bootstrap: {
+      confidence_interval: [number, number];
+      probability_positive: number;
+      samples: number;
+    };
+    monte_carlo: {
+      terminal_return: { p05: number; median: number; p95: number };
+      probability_loss: number;
+      probability_bust: number;
+      samples: number;
+    };
+    walk_forward: {
+      status: 'ok' | 'insufficient_data';
+      fold_count?: number;
+      positive_fold_ratio?: number;
+      median_fold_return?: number;
+    };
+  };
   warnings?: string[];
 };

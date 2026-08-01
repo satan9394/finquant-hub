@@ -13,19 +13,21 @@ import {
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
 import apiClient from '../services/api';
+import { readSSE } from '../services/sse';
 import { useModelStore } from '../store/modelStore';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 // ==================== Agent 定义 ====================
-const AGENT_KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor'];
+const AGENT_KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor', 'report_lead'];
 
 const AGENT_LABELS: Record<string, { name: string; role: string; icon: string }> = {
   business_analyst: { name: '商业模式', role: '业务、护城河与竞争力', icon: '🏢' },
   financial_analyst: { name: '财务分析', role: '估值与财务健康度', icon: '📊' },
   industry_researcher: { name: '行业研究', role: '产业链与行业周期', icon: '🔬' },
   risk_assessor: { name: '风险评估', role: '独立识别投资风险', icon: '🛡️' },
+  report_lead: { name: '投研主编', role: '综合评审与 13 章定稿', icon: '🧠' },
 };
 
 type StoredReport = {
@@ -44,7 +46,27 @@ type HistoryGroup = {
   failed_count: number; latest_at: string; latest_report_id?: number | null; runs: StoredReport[];
 };
 
+type ResearchStreamData = {
+  agent?: string;
+  role_key?: string;
+  report_id?: number;
+  name?: string;
+  report?: Record<string, unknown>;
+  error?: string;
+  message?: string;
+};
+
 function reportToMarkdown(report: Record<string, unknown>): string {
+  if (Array.isArray(report.chapters)) {
+    return report.chapters
+      .filter((chapter): chapter is { title: string; content: string } => (
+        typeof chapter === 'object' && chapter !== null
+        && typeof (chapter as { title?: unknown }).title === 'string'
+        && typeof (chapter as { content?: unknown }).content === 'string'
+      ))
+      .map((chapter) => `## ${chapter.title}\n${chapter.content}`)
+      .join('\n\n');
+  }
   const sections: [string, string][] = [
     ['执行摘要', 'executive_summary'], ['商业模式', 'business_model_analysis'],
     ['财务分析', 'financial_analysis'], ['行业分析', 'industry_analysis'],
@@ -221,97 +243,61 @@ export default function Research() {
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('无响应数据流');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
       let accContent = '';
       let streamCompleted = false;
 
-      const processSSEEvent = (event: string, payload: string) => {
-        try {
-          const data = JSON.parse(payload) as Record<string, any>;
-          // Research orchestration emits `agent`; older discussion endpoints
-          // used `role_key`.  Accept both so progress is never stranded.
-          const agentKey = (data.agent ?? data.role_key) as string | undefined;
-          switch (event) {
-            case 'report_started': {
-              setSelectedReportId(data.report_id ?? null);
-              void loadHistory();
-              break;
-            }
-            case 'agent_started': {
-              const idx = AGENT_KEYS.indexOf(agentKey ?? '');
-              if (idx >= 0) {
-                setAgents((prev) => prev.map((a, i) =>
-                  i === idx ? { ...a, status: 'running' as AgentStatus } : a
-                ));
-              }
-              break;
-            }
-            case 'agent_completed': {
-              const idx2 = AGENT_KEYS.indexOf(agentKey ?? '');
-              if (idx2 >= 0) {
-                setAgents((prev) => prev.map((a, i) =>
-                  i === idx2 ? { ...a, status: 'completed' as AgentStatus } : a
-                ));
-              }
-              break;
-            }
-            case 'report_progress': {
-              setReportContent(`正在整合报告：${data.name ?? '处理中'}`);
-              break;
-            }
-            case 'done': {
-              const report = data.report ?? {};
-              setReportTitle(`${report.company_name ?? code} 研究报告`);
-              accContent = reportToMarkdown(report);
-              setReportContent(accContent || '报告生成完成，但没有可展示的正文。');
-              setDone(true);
-              streamCompleted = true;
-              setRunning(false);
-              void loadHistory();
-              break;
-            }
-            case 'error': {
-              const errorMessage = data.error ?? data.message ?? '研究请求失败';
-              const idx = AGENT_KEYS.indexOf(agentKey ?? '');
-              if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: errorMessage } : agent));
-              else message.error(errorMessage);
-              break;
-            }
+      await readSSE<ResearchStreamData>(response.body, ({ event, data }) => {
+        // Research orchestration emits `agent`; older discussion endpoints
+        // used `role_key`. Accept both so progress is never stranded.
+        const agentKey = data.agent ?? data.role_key;
+        switch (event) {
+          case 'report_started': {
+            setSelectedReportId(data.report_id ?? null);
+            void loadHistory();
+            break;
           }
-        } catch { /* SSE 心跳或不完整分片不应中断研究 */ }
-      };
-
-      while (true) {
-        const { done: streamDone, value } = await reader.read();
-        if (streamDone) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        // sse-starlette emits CRLF frames. Splitting only on "\n\n" leaves
-        // every event in one buffer and causes the final `done` event to vanish.
-        const messages = buffer.split(/\r?\n\r?\n/);
-        buffer = messages.pop() || '';
-        for (const messageBlock of messages) {
-          let event = 'message';
-          const lines = messageBlock.split(/\r?\n/);
-          const payload = lines.find((line) => line.startsWith('data: '))?.slice(6);
-          const eventLine = lines.find((line) => line.startsWith('event: '));
-          if (eventLine) event = eventLine.slice(7).trim();
-          if (payload) processSSEEvent(event, payload);
+          case 'agent_started': {
+            const idx = AGENT_KEYS.indexOf(agentKey ?? '');
+            if (idx >= 0) {
+              setAgents((prev) => prev.map((a, i) =>
+                i === idx ? { ...a, status: 'running' as AgentStatus } : a
+              ));
+            }
+            break;
+          }
+          case 'agent_completed': {
+            const idx2 = AGENT_KEYS.indexOf(agentKey ?? '');
+            if (idx2 >= 0) {
+              setAgents((prev) => prev.map((a, i) =>
+                i === idx2 ? { ...a, status: 'completed' as AgentStatus } : a
+              ));
+            }
+            break;
+          }
+          case 'report_progress': {
+            setReportContent(`正在整合报告：${data.name ?? '处理中'}`);
+            break;
+          }
+          case 'done': {
+            const report = data.report ?? {};
+            setReportTitle(`${report.company_name ?? code} 研究报告`);
+            accContent = reportToMarkdown(report);
+            setReportContent(accContent || '报告生成完成，但没有可展示的正文。');
+            setDone(true);
+            streamCompleted = true;
+            setRunning(false);
+            void loadHistory();
+            break;
+          }
+          case 'error': {
+            const errorMessage = data.error ?? data.message ?? '研究请求失败';
+            const idx = AGENT_KEYS.indexOf(agentKey ?? '');
+            if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: errorMessage } : agent));
+            else message.error(errorMessage);
+            break;
+          }
         }
-      }
-      buffer += decoder.decode();
-      if (buffer.trim()) {
-        for (const messageBlock of buffer.split(/\r?\n\r?\n/)) {
-          const lines = messageBlock.split(/\r?\n/);
-          const payload = lines.find((line) => line.startsWith('data: '))?.slice(6);
-          const eventLine = lines.find((line) => line.startsWith('event: '));
-          if (payload) processSSEEvent(eventLine?.slice(7).trim() ?? 'message', payload);
-        }
-      }
+      }, '研究服务未返回事件流');
       if (!streamCompleted && !abortRef.current.signal.aborted) {
         setAgents((prev) => prev.map((agent) => agent.status === 'running'
           ? { ...agent, status: 'failed' as AgentStatus, progress: '研究流意外中断' }

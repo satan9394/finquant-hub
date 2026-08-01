@@ -125,3 +125,9 @@
 
 **最终验收: 110 passed / ruff 0 / bun run build ✓**
 **6 项目统一完成**: BigDataView / ai-berkshire / Vibe-Trading / daily_stock_analysis / wq-alpha-research / stock-analyzer
+
+## 2026-08-01
+- What changed: completed `docs/ai/LONG_TERM_GOAL.md` Phase 9.0-9.4 across backend, frontend, tests, and architecture/API/data-source docs.
+- Why: close the verified gap-analysis sequence from exception/SSE containment through report, market, backtest, and tool-chain capabilities.
+- Docs updated: `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DATA_SOURCES.md`, `docs/ROUTER_MAP.md`, `docs/ai/LONG_TERM_GOAL.md`, `docs/ai/TRADING_CONNECTOR_ASSESSMENT.md`, `CLAUDE.md`.
+- Risk: medium; real-money and login capabilities remain explicitly unimplemented.

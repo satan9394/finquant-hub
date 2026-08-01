@@ -71,7 +71,7 @@ def _rolling_min(x: np.ndarray, n: int) -> np.ndarray:
 # 输出 {指标名: {子序列: [float|None]}}
 # ----------------------------------------------------------------------
 
-def calc_ma(close: list[float], windows=(5, 10, 20, 30, 60)) -> dict:
+def calc_ma(close: list[float], windows=(5, 10, 20, 30, 60, 120, 250)) -> dict:
     c = np.asarray(close, dtype=float)
     return {f"ma{w}": _to_float_list(sma(c, w)) for w in windows}
 
@@ -132,7 +132,7 @@ def calc_atr(high: list[float], low: list[float], close: list[float], n=14) -> d
     return {f"atr{n}": _to_float_list(sma_cn(tr, n, 1))}
 
 
-def calc_volma(volume: list[float], windows=(5, 20)) -> dict:
+def calc_volma(volume: list[float], windows=(5, 10, 20)) -> dict:
     v = np.asarray(volume, dtype=float)
     return {f"volma{w}": _to_float_list(sma(v, w), 0) for w in windows}
 

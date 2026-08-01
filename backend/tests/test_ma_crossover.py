@@ -35,6 +35,8 @@ def test_ma_crossover_metrics_and_curves():
     assert len(result["drawdown_curve"]) == len(bars)
     assert result["metrics"]["trade_count"] >= 1
     assert result["metrics"]["max_drawdown"] <= 0
+    for name in ("calmar_ratio", "sortino_ratio", "information_ratio", "profit_factor"):
+        assert name in result["metrics"]
 
 
 def test_commission_and_slippage_reduce_returns():

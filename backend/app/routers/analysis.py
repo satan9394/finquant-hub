@@ -4,12 +4,13 @@
 依赖 analysis/ticker/signals/scoring 模块。
 """
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from ..services import indicators
+from ..services import alerts, indicators
 from ..services.analysis import scoring as score_mod
 from ..services.analysis import signals as sig_mod
 from ..services.analysis.ticker import resolve_ticker
@@ -17,6 +18,7 @@ from ..services.market_data import MarketDataService, MarketError
 from ..services.research_orch import run_research
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+LOGGER = logging.getLogger(__name__)
 
 
 class StockAnalysisRequest(BaseModel):
@@ -39,7 +41,7 @@ async def analyze_stock(body: StockAnalysisRequest, request: Request):
     事件类型：agent_started, tool_call, agent_completed, report_progress, done, error
     """
     try:
-        ticker = resolve_ticker(body.ticker)
+        ticker = await resolve_ticker(body.ticker, _svc(request))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -65,6 +67,10 @@ async def analyze_stock(body: StockAnalysisRequest, request: Request):
                     break
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as e:
+            LOGGER.exception(
+                "Analysis SSE pipeline failed",
+                extra={"event": "analysis.stream.error", "ticker": ticker},
+            )
             message = f"研究管线异常：{e}"
             yield {
                 "event": "error",
@@ -91,7 +97,7 @@ async def get_indicators(
 ):
     """获取技术指标数据 + 综合评分。"""
     try:
-        code = resolve_ticker(ticker)
+        code = await resolve_ticker(ticker, _svc(request))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -114,6 +120,8 @@ async def get_indicators(
 
     # 信号检测
     signals = sig_mod.detect_all(ind, close, high, low, volume)
+    days = [k["day"] for k in kline]
+    alert_triggers = await alerts.evaluate_signals(code, signals, days)
 
     # 评分
     ma5 = ind.get("ma", {}).get("ma5", [])
@@ -125,9 +133,10 @@ async def get_indicators(
 
     return {
         "ticker": code,
-        "days": [k["day"] for k in kline],
+        "days": days,
         "indicators": ind,
         "signals": signals,
+        "alert_triggers": alert_triggers,
         "scoring": score_result,
     }
 
@@ -145,7 +154,7 @@ async def get_chart_data(
 ):
     """获取轻量级图表数据（lightweight-charts 兼容格式）。"""
     try:
-        code = resolve_ticker(ticker)
+        code = await resolve_ticker(ticker, _svc(request))
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

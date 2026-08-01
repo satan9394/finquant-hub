@@ -7,6 +7,9 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from .context import DEFAULT_CONTEXT_BUDGET, compact_messages, estimate_tokens
+from .llm_usage import record_llm_usage
+
 
 class LLMError(Exception):
     """LLM 调用失败，message 面向用户可读。"""
@@ -21,18 +24,22 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         timeout: float = 120.0,
+        context_budget: int = DEFAULT_CONTEXT_BUDGET,
     ):
+        if context_budget < 256:
+            raise ValueError("context_budget 不能小于 256")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self.context_budget = context_budget
 
     def _payload(self, messages: list[dict], stream: bool) -> dict:
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": self._prepare_messages(messages),
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "stream": stream,
@@ -40,6 +47,12 @@ class LLMClient:
         if stream:
             payload["stream_options"] = {"include_usage": True}
         return payload
+
+    def _prepare_messages(self, messages: list[dict], tools: list[dict] | None = None) -> list[dict]:
+        """压缩输入消息，并为工具 schema 预留上下文预算。"""
+        tool_tokens = estimate_tokens(tools) if tools else 0
+        message_budget = max(128, self.context_budget - tool_tokens)
+        return compact_messages(messages, token_budget=message_budget)
 
     def _headers(self) -> dict:
         return {
@@ -60,6 +73,7 @@ class LLMClient:
         data = resp.json()
         content = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage") or {}
+        record_llm_usage(self.model, usage)
         return content, usage.get("total_tokens")
 
     async def chat_with_tools(
@@ -72,7 +86,7 @@ class LLMClient:
         """
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": self._prepare_messages(messages, tools),
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "stream": False,
@@ -103,6 +117,7 @@ class LLMClient:
                 },
             })
         usage = data.get("usage") or {}
+        record_llm_usage(self.model, usage)
         return content, tool_calls, usage.get("total_tokens")
 
     async def chat_with_tools_safe(
@@ -118,7 +133,7 @@ class LLMClient:
         """
         payload = {
             "model": self.model,
-            "messages": self._sanitize_messages(messages),
+            "messages": self._sanitize_messages(self._prepare_messages(messages, tools)),
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "stream": False,
@@ -149,6 +164,7 @@ class LLMClient:
                 },
             })
         usage = data.get("usage") or {}
+        record_llm_usage(self.model, usage)
         return content, tool_calls, usage.get("total_tokens")
 
     def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
@@ -181,12 +197,31 @@ class LLMClient:
             (最终文本, 全部工具调用记录 list[dict], total_tokens)
         """
         all_tool_calls = []
+        total_tokens = 0
+
+        # Each upstream request made by chat_with_tools_safe is persisted once.
+        # Do not add an aggregate row here: that would double-count tool loops.
 
         for _round in range(max_rounds):
-            content, tool_calls, tokens = await self.chat_with_tools(messages, tools)
+            content, tool_calls, tokens = await self.chat_with_tools_safe(messages, tools)
+            total_tokens += tokens or 0
 
             if not tool_calls:
-                return content, all_tool_calls, tokens
+                return content, all_tool_calls, total_tokens or None
+
+            assistant_message = {
+                "role": "assistant",
+                "content": content or None,
+                "tool_calls": [{
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": tc["function"],
+                } for tc in tool_calls],
+            }
+            reasoning = next((tc.get("reasoning_content") for tc in tool_calls if tc.get("reasoning_content")), None)
+            if reasoning:
+                assistant_message["reasoning_content"] = reasoning
+            messages.append(assistant_message)
 
             for tc in tool_calls:
                 func = tc["function"]
@@ -202,15 +237,6 @@ class LLMClient:
                 })
 
                 messages.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": func["name"], "arguments": func["arguments"]},
-                    }],
-                })
-                messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "content": result_text,
@@ -218,12 +244,14 @@ class LLMClient:
 
         # 超出最大轮数，强制要求最终回复
         messages.append({"role": "user", "content": "请基于已有数据输出最终结论。"})
-        content, _, tokens = await self.chat_with_tools(messages, tools)
-        return content, all_tool_calls, tokens
+        content, _, tokens = await self.chat_with_tools_safe(messages, tools)
+        total_tokens += tokens or 0
+        return content, all_tool_calls, total_tokens or None
 
     async def chat_stream(self, messages: list[dict]) -> AsyncIterator[str]:
         """流式调用，逐 token yield 增量文本。"""
         url = f"{self.base_url}/chat/completions"
+        usage: dict = {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as http:
                 async with http.stream(
@@ -242,6 +270,8 @@ class LLMClient:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
+                        if isinstance(chunk.get("usage"), dict):
+                            usage = chunk["usage"]
                         choices = chunk.get("choices") or []
                         if not choices:
                             continue  # 末包 usage 帧无 choices
@@ -249,5 +279,6 @@ class LLMClient:
                         text = delta.get("content")
                         if text:
                             yield text
+            record_llm_usage(self.model, usage)
         except httpx.HTTPError as e:
             raise LLMError(f"网络错误：{e}") from e

@@ -6,6 +6,8 @@ import math
 import numpy as np
 
 from ..services.indicators import sma
+from .execution_rules import execution_rules_for
+from .metrics import calculate_performance, calculate_trade_metrics
 
 
 def validate_bars(bars: list[dict], long_window: int) -> None:
@@ -28,6 +30,10 @@ def run_ma_crossover(
     initial_capital: float,
     commission_bps: float,
     slippage_bps: float,
+    symbol: str | None = None,
+    period: str = "1d",
+    market_rules: str = "auto",
+    price_limit_ratio: float | None = None,
 ) -> dict:
     """Run a no-lookahead, next-open execution simulation.
 
@@ -44,6 +50,11 @@ def run_ma_crossover(
     if commission_bps < 0 or slippage_bps < 0:
         raise ValueError("手续费和滑点不能为负数")
     validate_bars(bars, long_window)
+    rules = execution_rules_for(
+        symbol,
+        mode=market_rules,
+        price_limit_ratio=price_limit_ratio,
+    )
 
     days = [str(bar["day"]) for bar in bars]
     opens = np.asarray([bar["open"] for bar in bars], dtype=float)
@@ -62,14 +73,23 @@ def run_ma_crossover(
     entry: dict | None = None
     trades: list[dict] = []
     order_marks: list[dict] = []
+    rejected_orders: list[dict] = []
     turnover_notional = 0.0
     equity_values: list[float] = []
 
     for index, day in enumerate(days):
         target = int(targets[index - 1]) if index > 0 else 0
         open_price = float(opens[index])
+        previous_close = float(closes[index - 1]) if index > 0 else None
 
         if target == 1 and shares == 0:
+            allowed, reason = rules.check_fill(
+                "buy", bars[index], previous_close=previous_close
+            )
+            if not allowed:
+                rejected_orders.append({"time": day, "side": "buy", "reason": reason})
+                equity_values.append(cash)
+                continue
             fill_price = open_price * (1.0 + slippage)
             shares = cash / (fill_price * (1.0 + commission))
             notional = shares * fill_price
@@ -87,6 +107,16 @@ def run_ma_crossover(
             order_marks.append({"time": day, "price": fill_price, "side": "buy"})
 
         elif target == 0 and shares > 0 and entry is not None:
+            allowed, reason = rules.check_fill(
+                "sell",
+                bars[index],
+                previous_close=previous_close,
+                entry_date=_trade_date(entry["entry_time"]),
+            )
+            if not allowed:
+                rejected_orders.append({"time": day, "side": "sell", "reason": reason})
+                equity_values.append(cash + shares * float(closes[index]))
+                continue
             fill_price = open_price * (1.0 - slippage)
             notional = shares * fill_price
             fee = notional * commission
@@ -113,54 +143,48 @@ def run_ma_crossover(
     warnings: list[str] = []
     if shares > 0 and entry is not None:
         market_price = float(closes[-1])
-        fill_price = market_price * (1.0 - slippage)
-        notional = shares * fill_price
-        fee = notional * commission
-        cash += notional - fee
-        turnover_notional += notional
-        pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
-        trades.append({
-            **entry,
-            "exit_time": days[-1],
-            "exit_price": fill_price,
-            "exit_fee": fee,
-            "exit_notional": notional,
-            "exit_slippage_cost": shares * (market_price - fill_price),
-            "pnl": pnl,
-            "return": pnl / (entry["entry_notional"] + entry["entry_fee"]),
-            "forced_exit": True,
-        })
-        order_marks.append({"time": days[-1], "price": fill_price, "side": "sell"})
-        shares = 0.0
-        equity_values[-1] = cash
-        warnings.append("position_forced_closed_at_end")
+        previous_close = float(closes[-2]) if len(closes) > 1 else None
+        allowed, reason = rules.check_fill(
+            "sell",
+            {**bars[-1], "open": market_price},
+            previous_close=previous_close,
+            entry_date=_trade_date(entry["entry_time"]),
+        )
+        if allowed:
+            fill_price = market_price * (1.0 - slippage)
+            notional = shares * fill_price
+            fee = notional * commission
+            cash += notional - fee
+            turnover_notional += notional
+            pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
+            trades.append({
+                **entry,
+                "exit_time": days[-1],
+                "exit_price": fill_price,
+                "exit_fee": fee,
+                "exit_notional": notional,
+                "exit_slippage_cost": shares * (market_price - fill_price),
+                "pnl": pnl,
+                "return": pnl / (entry["entry_notional"] + entry["entry_fee"]),
+                "forced_exit": True,
+            })
+            order_marks.append({"time": days[-1], "price": fill_price, "side": "sell"})
+            shares = 0.0
+            equity_values[-1] = cash
+            warnings.append("position_forced_closed_at_end")
+        else:
+            rejected_orders.append({"time": days[-1], "side": "sell", "reason": reason})
+            warnings.append(f"position_open_at_end_due_to_{reason}")
 
     equity = np.asarray(equity_values, dtype=float)
     benchmark = initial_capital * closes / closes[0]
     running_peak = np.maximum.accumulate(equity)
     drawdown = equity / running_peak - 1.0
-    daily_returns = np.diff(equity, prepend=equity[0]) / np.maximum(
-        np.roll(equity, 1), 1e-12
-    )
-    daily_returns[0] = 0.0
-
-    total_return = equity[-1] / initial_capital - 1.0
-    benchmark_return = benchmark[-1] / initial_capital - 1.0
-    periods = max(len(equity) - 1, 1)
-    annualized_return = (max(equity[-1], 1e-12) / initial_capital) ** (252.0 / periods) - 1.0
-    volatility = float(np.std(daily_returns, ddof=1)) if len(daily_returns) > 1 else 0.0
-    sharpe = float(np.mean(daily_returns) / volatility * math.sqrt(252)) if volatility > 0 else None
-    downside = daily_returns[daily_returns < 0]
-    downside_dev = float(np.std(downside, ddof=1)) if len(downside) > 1 else 0.0
-    sortino = float(np.mean(daily_returns) / downside_dev * math.sqrt(252)) if downside_dev > 0 else None
-
-    wins = [trade["pnl"] for trade in trades if trade["pnl"] > 0]
-    losses = [trade["pnl"] for trade in trades if trade["pnl"] < 0]
-    win_rate = len(wins) / len(trades) if trades else None
-    profit_factor = sum(wins) / abs(sum(losses)) if losses else None
+    performance = calculate_performance(equity, benchmark, 252)
+    trade_metrics = calculate_trade_metrics([trade["pnl"] for trade in trades])
     if not trades:
         warnings.append("no_trades_in_period")
-    if profit_factor is None and wins:
+    if trade_metrics["profit_factor"] is None and any(trade["pnl"] > 0 for trade in trades):
         warnings.append("profit_factor_undefined_without_losses")
 
     def curve(values: np.ndarray) -> list[dict]:
@@ -178,22 +202,27 @@ def run_ma_crossover(
 
     return {
         "metrics": {
-            "total_return": round(float(total_return), 8),
-            "annualized_return": round(float(annualized_return), 8),
-            "benchmark_return": round(float(benchmark_return), 8),
-            "excess_return": round(float(total_return - benchmark_return), 8),
-            "max_drawdown": round(float(np.min(drawdown)), 8),
-            "sharpe_ratio": round(sharpe, 8) if sharpe is not None else None,
-            "sortino_ratio": round(sortino, 8) if sortino is not None else None,
-            "win_rate": round(float(win_rate), 8) if win_rate is not None else None,
-            "profit_factor": round(float(profit_factor), 8) if profit_factor is not None else None,
+            **{
+                key: round(value, 8) if value is not None else None
+                for key, value in performance.items()
+            },
+            "win_rate": round(float(trade_metrics["win_rate"]), 8)
+            if trade_metrics["win_rate"] is not None else None,
+            "profit_factor": round(float(trade_metrics["profit_factor"]), 8)
+            if trade_metrics["profit_factor"] is not None else None,
             "turnover": round(float(turnover_notional / initial_capital), 8),
-            "trade_count": len(trades),
+            "trade_count": trade_metrics["trade_count"],
         },
         "equity_curve": curve(equity),
         "benchmark_curve": curve(benchmark),
         "drawdown_curve": curve(drawdown),
         "trades": cleaned_trades,
         "order_marks": order_marks,
+        "rejected_orders": rejected_orders,
+        "execution_rules": {**rules.metadata(), "period": period},
         "warnings": warnings,
     }
+
+
+def _trade_date(value: object) -> str:
+    return str(value)[:10]

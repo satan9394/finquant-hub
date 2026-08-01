@@ -9,11 +9,17 @@ __pycache__/
 *.pyc
 *.egg-info/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 
 # Node
 node_modules/
 dist/
 *.tsbuildinfo
+playwright-report/
+test-results/
 
 # 数据与日志
 *.db

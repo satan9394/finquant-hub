@@ -7,3 +7,33 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["F", "W", "E"]
 ignore = ["E501", "E741", "E402"]  # E501: 旧代码行长; E741: l 变量惯例; E402: 第三方导入位置
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# ponytail: 首批只守核心编排链；后续扩展 files 即可逐步收紧全仓。
+files = [
+    "app/agent/tools.py",
+    "app/orchestrator/runtime.py",
+    "app/orchestrator/team.py",
+    "app/services/context.py",
+    "app/services/research_orch.py",
+    "app/services/swarm_orch.py",
+]
+follow_imports = "silent"
+pretty = true
+show_error_codes = true
+warn_unused_configs = true
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_covered = true
+fail_under = 80
+
+[tool.coverage.html]
+directory = "htmlcov"

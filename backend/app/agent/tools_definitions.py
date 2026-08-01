@@ -3,12 +3,14 @@
 每个工具继承 BaseTool，注册到 ToolRegistry。
 工具按领域分：行情、技术指标、估值验算、选股、新闻搜索、精确计算。
 """
-import json
 from decimal import Decimal, Context, ROUND_HALF_EVEN
 
-import httpx
-
 from ..agent.tools import BaseTool, ToolResult, ToolRegistry
+from ..services.market_data import MarketDataService
+from ..services.news_search import NewsSearchService
+from ..tools.trading_analysis import analyze_shadow_trades, connector_design_assessment
+from ..tools.report_audit import extract_data_points, render_verdict, sample_points
+from ..tools.stock_screener import screen as run_stock_screen
 
 # ---------------------------------------------------------------------------
 # 共享依赖
@@ -18,12 +20,6 @@ _CTX = Context(prec=28, rounding=ROUND_HALF_EVEN)
 
 EASTMONEY_SEARCH = "https://searchadapter.eastmoney.com/api/suggest/get"
 TENCENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-_NEWS_API = "https://searchapi.sina.com.cn/?c=news&q={keyword}&range=all&num=10&ie=utf-8"
-_HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
-
-
 # ===================================================================
 # 1. GetStockData — 获取实时行情
 # ===================================================================
@@ -215,56 +211,71 @@ class VerifyValuation(BaseTool):
 _SCREEN_PARAMS = {
     "type": "object",
     "properties": {
-        "market": {
-            "type": "string",
-            "enum": ["a", "hk", "us"],
-            "description": "市场：a=全部A股, hk=港股, us=美股",
+        "tickers": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "maxItems": 30,
+            "description": "待筛选的 A 股、港股或美股代码列表",
         },
-        "pe_max": {"type": "number", "description": "最大PE（TTM）"},
-        "pe_min": {"type": "number", "description": "最小PE（TTM）"},
-        "market_cap_min": {"type": "number", "description": "最小市值（亿元）"},
-        "market_cap_max": {"type": "number", "description": "最大市值（亿元）"},
-        "keyword": {"type": "string", "description": "行业/概念关键词"},
     },
-    "required": ["market"],
+    "required": ["tickers"],
 }
 
 
 class ScreenStocks(BaseTool):
-    """简易选股筛选器，按PE/市值/关键词条件过滤。
-
-    当前版本为框架性实现，返回占位提示；后续对接实时数据源后自动生效。
-    """
+    """Run the shared two-stage momentum and valuation screener."""
 
     name = "screen_stocks"
-    description = "按PE/市值/行业关键词筛选股票，A股/港股/美股三市场可选"
+    description = "对用户给定的 A股、港股或美股代码执行动量发现与价值评分"
     parameters = _SCREEN_PARAMS
 
     async def run(self, **kwargs) -> ToolResult:
-        market = kwargs.get("market", "a")
-        pe_max = kwargs.get("pe_max")
-        pe_min = kwargs.get("pe_min")
-        cap_min = kwargs.get("market_cap_min")
-        cap_max = kwargs.get("market_cap_max")
-        keyword = kwargs.get("keyword", "")
+        tickers = [str(item).strip() for item in kwargs.get("tickers", []) if str(item).strip()]
+        if not tickers or len(tickers) > 30:
+            return ToolResult(False, error="tickers 必须包含 1-30 个股票代码")
+        market = MarketDataService()
+        try:
+            result = await run_stock_screen([{"ticker": ticker} for ticker in tickers], market)
+            return ToolResult(True, data=result)
+        except ValueError as exc:
+            return ToolResult(False, error=str(exc))
+        finally:
+            await market.aclose()
 
-        conditions = []
-        if pe_min is not None:
-            conditions.append(f"PE ≥ {pe_min}")
-        if pe_max is not None:
-            conditions.append(f"PE ≤ {pe_max}")
-        if cap_min is not None:
-            conditions.append(f"市值 ≥ {cap_min}亿")
-        if cap_max is not None:
-            conditions.append(f"市值 ≤ {cap_max}亿")
-        if keyword:
-            conditions.append(f"关键词：{keyword}")
 
-        return ToolResult(True, data={
-            "market": {"a": "A股", "hk": "港股", "us": "美股"}.get(market, market),
-            "conditions": conditions or "无条件",
-            "note": "选股结果需要对接实时数据源（如东方财富选股API）后自动填充。当前返回条件摘要，供Agent参考。",
-        })
+_REPORT_AUDIT_PARAMS = {
+    "type": "object",
+    "properties": {
+        "markdown": {"type": "string", "description": "待抽取财务数据点的 Markdown 报告"},
+        "verified_results": {
+            "type": "array",
+            "items": {"type": "object"},
+            "description": "已补充 fetched_value/fetched_source 的核验结果；省略时仅返回抽样点",
+        },
+    },
+    "required": ["markdown"],
+}
+
+
+class AuditReportData(BaseTool):
+    """Extract report data points and render a release verdict when verified."""
+
+    name = "audit_report_data"
+    description = "抽取研究报告财务数据点，并对已核验数值生成准出或打回结论"
+    parameters = _REPORT_AUDIT_PARAMS
+
+    async def run(self, **kwargs) -> ToolResult:
+        markdown = str(kwargs.get("markdown", ""))
+        if not markdown.strip():
+            return ToolResult(False, error="markdown 不能为空")
+        points = extract_data_points(markdown)
+        verified = kwargs.get("verified_results")
+        if verified is None:
+            return ToolResult(True, data={"points": points, "sample": sample_points(points) if points else []})
+        if not isinstance(verified, list):
+            return ToolResult(False, error="verified_results 必须是数组")
+        return ToolResult(True, data=render_verdict(verified))
 
 
 # ===================================================================
@@ -295,26 +306,13 @@ class SearchNews(BaseTool):
         if not keyword:
             return ToolResult(False, error="参数 keyword 不能为空")
 
+        service = NewsSearchService()
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, trust_env=False) as http:
-                url = f"https://searchapi.sina.com.cn/?c=news&q={keyword}&range=all&num={max_results}&ie=utf-8"
-                resp = await http.get(url, headers=SINA_HEADERS)
-                data = resp.json()
-        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as e:
+            return ToolResult(True, data=await service.search(keyword, max_results=max_results))
+        except (ValueError, RuntimeError) as e:
             return ToolResult(False, error=f"新闻搜索失败：{e}")
-
-        items = data.get("result", []) if isinstance(data, dict) else data
-        if not isinstance(items, list):
-            items = []
-        news_list = []
-        for it in items[:max_results]:
-            news_list.append({
-                "title": it.get("title", "").replace("<em>", "").replace("</em>", ""),
-                "source": it.get("source", ""),
-                "ctime": it.get("ctime", ""),
-                "url": it.get("url", ""),
-            })
-        return ToolResult(True, data={"keyword": keyword, "news": news_list})
+        finally:
+            await service.aclose()
 
 
 # ===================================================================
@@ -357,14 +355,267 @@ class CalculateByFinancialRigor(BaseTool):
             return ToolResult(False, error=f"计算异常：{e}")
 
 
+_BUFFETT_GATE_PROPERTIES = {
+    gate: {
+        "type": "string",
+        "enum": ["pass", "fail", "unknown"],
+        "description": label,
+    }
+    for gate, label in {
+        "circle_of_competence": "能力圈",
+        "business_quality": "生意质量",
+        "moat": "护城河",
+        "management": "管理层",
+        "margin_of_safety": "安全边际",
+        "discipline": "仓位与决策纪律",
+    }.items()
+}
+
+
+class CheckBuffettRules(BaseTool):
+    """Evaluate the six value-investing gates from evidence-backed judgments."""
+
+    name = "check_buffett_rules"
+    description = "检查能力圈、生意质量、护城河、管理层、安全边际和决策纪律六关；缺证据必须填 unknown"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "assessments": {
+                "type": "object",
+                "properties": _BUFFETT_GATE_PROPERTIES,
+                "required": list(_BUFFETT_GATE_PROPERTIES),
+                "additionalProperties": False,
+            },
+            "notes": {
+                "type": "object",
+                "description": "可选的逐关证据摘要，键名与 assessments 相同",
+                "additionalProperties": {"type": "string"},
+            },
+        },
+        "required": ["assessments"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        from ..tools.investment_checklist import check_buffett_rules
+
+        assessments = kwargs.get("assessments")
+        if not isinstance(assessments, dict):
+            return ToolResult(False, error="参数 assessments 必须是对象")
+        notes = kwargs.get("notes")
+        if notes is not None and not isinstance(notes, dict):
+            return ToolResult(False, error="参数 notes 必须是对象")
+        try:
+            return ToolResult(True, data=check_buffett_rules(assessments, notes))
+        except ValueError as exc:
+            return ToolResult(False, error=str(exc))
+
+
+class AdversarialReview(BaseTool):
+    """Challenge thesis evidence and common financial-quality signals."""
+
+    name = "adversarial_review"
+    description = "从做空者视角检查论点证据、反证缺口、应收/存货增速和现金转化；只提出核验问题"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "claims": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "statement": {"type": "string"},
+                        "evidence_count": {"type": "integer", "minimum": 0},
+                        "primary_source": {"type": "boolean"},
+                        "contrary_evidence": {"type": "string"},
+                    },
+                    "required": ["statement", "evidence_count", "primary_source"],
+                    "additionalProperties": False,
+                },
+            },
+            "financial_signals": {
+                "type": "object",
+                "properties": {
+                    "revenue_growth_pct": {"type": "number"},
+                    "receivables_growth_pct": {"type": "number"},
+                    "inventory_growth_pct": {"type": "number"},
+                    "net_income": {"type": "number"},
+                    "operating_cash_flow": {"type": "number"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "required": ["claims"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        from ..tools.adversarial_review import adversarial_review
+
+        claims = kwargs.get("claims")
+        signals = kwargs.get("financial_signals")
+        if not isinstance(claims, list):
+            return ToolResult(False, error="参数 claims 必须是数组")
+        if signals is not None and not isinstance(signals, dict):
+            return ToolResult(False, error="参数 financial_signals 必须是对象")
+        try:
+            return ToolResult(True, data=adversarial_review(claims, signals))
+        except ValueError as exc:
+            return ToolResult(False, error=str(exc))
+
+
+class RunBacktest(BaseTool):
+    """Run the compact v2 MA backtest path for research agents."""
+
+    name = "run_backtest"
+    description = "运行 MA 双均线回测；A 股默认模拟 T+1、涨跌停和禁做空，仅返回紧凑绩效与稳健性结果"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "ticker": {"type": "string"},
+            "short_window": {"type": "integer", "minimum": 2, "maximum": 120},
+            "long_window": {"type": "integer", "minimum": 3, "maximum": 250},
+            "count": {"type": "integer", "minimum": 60, "maximum": 500},
+        },
+        "required": ["ticker"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        from ..backtest.ma_crossover import run_ma_crossover
+        from ..backtest.significance import validate_ma_strategy
+
+        ticker = str(kwargs.get("ticker") or "").strip()
+        short_window = int(kwargs.get("short_window", 20))
+        long_window = int(kwargs.get("long_window", 50))
+        count = int(kwargs.get("count", 260))
+        if not ticker or not 2 <= short_window < long_window <= 250 or not 60 <= count <= 500:
+            return ToolResult(False, error="ticker、均线窗口或 count 参数无效")
+        market = MarketDataService()
+        try:
+            bars = await market.kline(ticker, "1d", max(count, long_window + 12))
+            result = run_ma_crossover(
+                bars,
+                short_window=short_window,
+                long_window=long_window,
+                initial_capital=100_000,
+                commission_bps=3,
+                slippage_bps=2,
+                symbol=ticker,
+            )
+            validation = validate_ma_strategy(
+                bars, result,
+                short_window=short_window, long_window=long_window,
+                initial_capital=100_000, commission_bps=3, slippage_bps=2,
+                symbol=ticker, period="1d", market_rules="auto",
+                price_limit_ratio=None, samples=200,
+            )
+            return ToolResult(True, data={
+                "ticker": ticker,
+                "metrics": result["metrics"],
+                "execution_rules": result["execution_rules"],
+                "rejected_orders": result["rejected_orders"],
+                "validation": validation,
+                "warnings": result["warnings"],
+                "provenance": {
+                    "providers": list(dict.fromkeys(str(bar.get("source") or "unknown") for bar in bars)),
+                    "from": bars[0]["day"],
+                    "to": bars[-1]["day"],
+                },
+            })
+        except (ValueError, RuntimeError) as exc:
+            return ToolResult(False, error=f"回测失败：{exc}")
+        finally:
+            await market.aclose()
+
+
+class AnalyzeShadowTrades(BaseTool):
+    """Analyze hypothetical or recorded fills without account connectivity."""
+
+    name = "analyze_shadow_trades"
+    description = "分析影子成交相对计划价格的滑点和已实现盈亏；不连接账户、不提交订单"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "trades": {
+                "type": "array", "minItems": 1, "maxItems": 200,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string"},
+                        "side": {"type": "string", "enum": ["buy", "sell"]},
+                        "planned_price": {"type": "number", "exclusiveMinimum": 0},
+                        "executed_price": {"type": "number", "exclusiveMinimum": 0},
+                        "quantity": {"type": "number", "exclusiveMinimum": 0},
+                        "realized_pnl": {"type": "number"},
+                    },
+                    "required": ["side", "planned_price", "executed_price", "quantity"],
+                },
+            },
+        },
+        "required": ["trades"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        try:
+            return ToolResult(True, data=analyze_shadow_trades(kwargs.get("trades") or []))
+        except (TypeError, ValueError) as exc:
+            return ToolResult(False, error=str(exc))
+
+
+class AnalyzePortfolioRisk(BaseTool):
+    """Run the shared pure portfolio risk X-ray on supplied curves."""
+
+    name = "analyze_portfolio_risk"
+    description = "计算组合集中度、回撤、历史 VaR/ES 和分散化；输入必须是已归一化的权益曲线"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "assets": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "object"}},
+            "weights": {"type": "object", "additionalProperties": {"type": "number"}},
+            "equity_curve": {"type": "array", "minItems": 2, "items": {"type": "object"}},
+        },
+        "required": ["assets", "weights", "equity_curve"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        from ..backtest.risk import portfolio_risk_xray
+
+        try:
+            data = portfolio_risk_xray(
+                kwargs.get("assets") or [], kwargs.get("weights") or {}, kwargs.get("equity_curve") or []
+            )
+            return ToolResult(True, data=data)
+        except (TypeError, ValueError, KeyError) as exc:
+            return ToolResult(False, error=str(exc))
+
+
+class AssessTradingConnector(BaseTool):
+    """Return a design-only safety assessment; deliberately has no execution path."""
+
+    name = "assess_trading_connector"
+    description = "评估实盘连接器所需安全控制；只返回设计结论，不访问凭据、账户、资金或订单接口"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "broker": {"type": "string"},
+            "requested_capabilities": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+        },
+        "required": ["broker"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs) -> ToolResult:
+        return ToolResult(True, data=connector_design_assessment(
+            str(kwargs.get("broker") or ""), kwargs.get("requested_capabilities") or []
+        ))
+
+
 # ===================================================================
 # 自动注册
 # ===================================================================
 
-_registry = ToolRegistry()
-_registry.register(GetStockData())
-_registry.register(CalculateIndicators())
-_registry.register(VerifyValuation())
-_registry.register(ScreenStocks())
-_registry.register(SearchNews())
-_registry.register(CalculateByFinancialRigor())
+ToolRegistry()

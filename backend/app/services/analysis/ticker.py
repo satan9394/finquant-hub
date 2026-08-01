@@ -1,12 +1,9 @@
 """股票代码解析：委托 normalize_code 处理标准格式，名称搜索兜底。"""
-import httpx
 
-from ..market_data import EASTMONEY_SEARCH, normalize_code
-
-_HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+from ..market_data import MarketDataService, MarketError, normalize_code
 
 
-def resolve_ticker(symbol: str) -> str:
+async def resolve_ticker(symbol: str, market: MarketDataService) -> str:
     """将用户输入的股票代码/名称解析为标准 ticker 格式。
 
     规则（由 normalize_code 实现）：
@@ -26,31 +23,12 @@ def resolve_ticker(symbol: str) -> str:
     try:
         return normalize_code(raw)
     except ValueError:
-        result = _search_name(raw)
-        if result:
-            return result
-        raise ValueError(f"无法解析股票代码：{symbol}")
+        pass
 
-
-def _search_name(keyword: str) -> str | None:
-    """通过东方财富搜索接口，按名称查找股票代码。"""
     try:
-        resp = httpx.get(
-            EASTMONEY_SEARCH,
-            params={"input": keyword, "count": 5, "type": 14},
-            timeout=_HTTP_TIMEOUT,
-        )
-        data = resp.json()
-    except (httpx.HTTPError, ValueError):
-        return None
-
-    items = (data.get("QuotationCodeTable") or {}).get("Data") or []
-    for it in items:
-        quote_id = str(it.get("QuoteID", ""))
-        classify = it.get("Classify", "")
-        if classify not in ("AStock", "ETF") or "." not in quote_id:
-            continue
-        code = str(it.get("UnifiedCode") or it.get("Code", ""))
-        market = "sh" if quote_id.startswith("1.") else "sz"
-        return f"{market}{code}"
-    return None
+        matches = await market.search(raw)
+    except MarketError as exc:
+        raise ValueError(f"无法解析股票代码：{symbol}") from exc
+    if matches:
+        return matches[0]["code"]
+    raise ValueError(f"无法解析股票代码：{symbol}")

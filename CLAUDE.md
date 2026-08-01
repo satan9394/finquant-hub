@@ -27,17 +27,17 @@ cd backend && .venv\Scripts\python.exe -m ruff check .
 
 ## Architecture
 
-FastAPI lifespan → aiosqlite WAL single connection → 14 routers (see `docs/ROUTER_MAP.md`) → Vite proxy → React 18 + AntD 5 + lightweight-charts. 4 SSE streams, 6 Agent tools (DeepSeek function_calling), 3 data source chains (`docs/DATA_SOURCES.md`). Full detail at `docs/ARCHITECTURE.md`.
+FastAPI lifespan → aiosqlite WAL single connection → 20 routers (see `docs/ROUTER_MAP.md`) → Vite proxy → React 18 + AntD 5 + lightweight-charts. 6 SSE pipelines, 13 local Agent tools (DeepSeek function_calling), configurable market/news/fundamental source chains (`docs/DATA_SOURCES.md`). Full detail at `docs/ARCHITECTURE.md`.
 
 ### Architecture invariants (violations cause regression)
 
 - **No ORM**: all DB via aiosqlite raw SQL, no SQLAlchemy or other ORM layer
 - **No connection pool**: single aiosqlite connection, get_db() asserts global _db
 - **No separate DAL**: routers call database.query_one/query_all/execute directly
-- **No WebSocket**: all real-time comm via SSE (sse-starlette), 4 SSE endpoints total
+- **No WebSocket**: all real-time comm via SSE (sse-starlette), 7 public endpoints across 6 pipelines
 - **No auth/authz**: zero authentication, no login/session/JWT
 - **No SSR**: pure CSR — Vite proxy dev, static build prod
-- **No agent-to-agent comm**: 4 research agents run independently, no debate/cross-ref
+- **Base research agents are independent**: `research_orch` has no debate/cross-ref; Swarm DAG teams may pass prior-node context
 - **No DI container**: MarketDataService injected via request.app.state.market (manual)
 - A single axios instance (api.ts) serves all frontend requests
 - Chinese data sources (Tencent/Sina) use trust_env=False to bypass proxy; Yahoo uses trust_env=True
@@ -54,26 +54,27 @@ Pure-logic services have zero I/O dependencies — unit-testable without mocking
 
 | File | What |
 |------|------|
-| database.py | 15-table SCHEMA, lifespan init, query helpers |
-| market_data.py | Tencent/Sina/EastMoney/Yahoo adapter + fallback chain |
-| backtest/engine.py | Vectorized backtest, 3 strategies |
-| research_orch.py | 4-agent parallel research with tool_use loop |
+| database.py | Centralized 28-table initialization, schema version 7, query helpers |
+| market_data.py | Tencent/Sina/EastMoney/Yahoo adapter + configurable fallback, circuit breaker, completion/prefetch |
+| backtest/engine.py | Legacy close-only vectorized backtest, 3 strategies |
+| backtest/ma_crossover.py | v2 next-open backtest with A-share execution rules and validation |
+| research_orch.py | 4-agent parallel research → team-lead → unified 13-chapter report |
 | llm_client.py | OpenAI-compatible client, 5 chat methods |
-| indicators.py | 7 numpy indicators (A-share SMA conventions) |
-| tools_definitions.py | 6 BaseTool subtypes + ToolRegistry singleton |
+| indicators.py | 7 numpy indicators (A-share SMA conventions, through MA250/VolMA10) |
+| tools_definitions.py | 9 local BaseTool subtypes + ToolRegistry singleton |
 | alpha_service.py | WQ alpha field search (4367 fields) |
 | docs/ARCHITECTURE.md | Full architecture doc (start here) |
-| docs/API_CONTRACT.md | 66-endpoint API catalog (update on endpoint change) |
+| docs/API_CONTRACT.md | 114-endpoint API catalog (update on endpoint change) |
 | docs/HANDOVER.md | Gap analysis, fix priorities |
-| docs/ROUTER_MAP.md | All 14 routes |
+| docs/ROUTER_MAP.md | All 20 routers |
 | docs/DATA_SOURCES.md | Data source matrix |
 
 ## Known technical debt (short term)
 
-1. Three ticker parsers: resolve_ticker() / external_symbol() / normalize_code() — consolidate
-2. Three table-creation paths: database.py + portfolio.py + backtest.py — merge into database.py
-3. Two portfolio table sets: portfolios/positions (active) vs portfolio_groups/portfolio_items (legacy)
-4. All SSE endpoints must use try/finally error guards
+1. Canonical ticker normalization and provider-specific `external_symbol()` still need a sharper boundary
+2. Centralized schema creation still uses hand-written incremental migrations
+3. Two portfolio table sets remain: portfolios/positions (active) vs portfolio_groups/portfolio_items (legacy)
+4. Preserve the enforced SSE `try/finally` cleanup and structured exception logging discipline
 
 ## Doc sync rule (read before any code change)
 

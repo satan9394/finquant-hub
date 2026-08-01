@@ -1,4 +1,4 @@
-"""Lightweight daily post-market research scheduler."""
+"""Lightweight daily post-market alert and research scheduler."""
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +7,12 @@ import logging
 from datetime import datetime, timedelta
 
 from .. import config, database
+from .alerts import scan_enabled_rules
+from .market_data import MarketDataService
+from .market_review import run_scheduled_market_review
+from .notifications import publish_research_status
 from .research_orch import run_research
+from .research_jobs import due_research_jobs, mark_job_finished, mark_job_running
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,20 +66,26 @@ async def _mark_research_failed(report_id: int, message: str, *, record_event: b
         "WHERE id=? AND status='running'",
         (report_id,),
     )
+    await publish_research_status(report_id, "failed", message)
 
 
-async def _run_and_persist_target(ticker: str, company_name: str) -> None:
+async def _run_and_persist_target(
+    ticker: str,
+    company_name: str,
+    model_id: int | None = None,
+) -> None:
     """Run one scheduled research target and persist its full lifecycle."""
     report_id = await database.execute(
         "INSERT INTO research_reports "
         "(ticker, company_name, report_data, agent_results, model_id, status, updated_at) "
-        "VALUES (?, ?, '{}', '{}', NULL, 'running', datetime('now'))",
-        (ticker, company_name),
+        "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'))",
+        (ticker, company_name, model_id),
     )
     terminal = False
+    failure: str | None = None
     research_stream = None
     try:
-        research_stream = run_research(ticker, company_name)
+        research_stream = run_research(ticker, company_name, model_id=model_id)
         async for event, payload in research_stream:
             if event == "done":
                 payload = {**payload, "report_id": report_id}
@@ -84,6 +95,7 @@ async def _run_and_persist_target(ticker: str, company_name: str) -> None:
                 message = payload.get("error") or "研究管线异常"
                 await _mark_research_failed(report_id, message, record_event=False)
                 terminal = True
+                failure = message
                 LOGGER.warning("Post-market analysis failed for %s: %s", ticker, message)
                 break
             if event == "done":
@@ -96,6 +108,7 @@ async def _run_and_persist_target(ticker: str, company_name: str) -> None:
                         report_id,
                     ),
                 )
+                await publish_research_status(report_id, "completed")
                 terminal = True
                 break
     except asyncio.CancelledError:
@@ -115,7 +128,10 @@ async def _run_and_persist_target(ticker: str, company_name: str) -> None:
                 LOGGER.exception("Failed to close post-market stream for %s", ticker)
 
     if not terminal:
-        await _mark_research_failed(report_id, "盘后研究流在完成前中断")
+        failure = "盘后研究流在完成前中断"
+        await _mark_research_failed(report_id, failure)
+    if failure:
+        raise RuntimeError(failure)
 
 
 async def run_post_market_analysis(
@@ -152,15 +168,71 @@ async def run_post_market_analysis(
     await asyncio.gather(*(analyze_target(ticker, company_name) for ticker, company_name in selected_targets))
 
 
-async def scheduler_loop() -> None:
-    """Wait for the configured local time and run post-market analysis indefinitely."""
+async def run_scheduled_cycle(market: MarketDataService) -> None:
+    """运行一次盘后预警扫描和研究；其中一项失败不跳过另一项。"""
+    try:
+        await scan_enabled_rules(
+            market,
+            max_targets=config.SCHEDULER_MAX_TARGETS,
+            concurrency=config.SCHEDULER_CONCURRENCY,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        LOGGER.exception("Scheduled alert scan failed")
+
+    try:
+        await run_scheduled_market_review(market)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        LOGGER.exception("Scheduled market review failed")
+
+    try:
+        await run_post_market_analysis()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        LOGGER.exception("Scheduled post-market analysis failed")
+
+
+async def run_research_job(job_id: int) -> bool:
+    """Claim and execute one persisted research job without overlapping itself."""
+    job = await database.query_one("SELECT * FROM scheduled_research_jobs WHERE id=?", (job_id,))
+    if job is None or not await mark_job_running(job_id):
+        return False
+    try:
+        await _run_and_persist_target(job["ticker"], job["company_name"], job.get("model_id"))
+    except asyncio.CancelledError:
+        await mark_job_finished(job_id, error="定时研究被取消")
+        raise
+    except Exception as exc:
+        await mark_job_finished(job_id, error=str(exc))
+        LOGGER.exception("Scheduled research job %d failed", job_id)
+    else:
+        await mark_job_finished(job_id)
+    return True
+
+
+async def run_due_research_jobs(now: datetime | None = None) -> int:
+    jobs = await due_research_jobs(now)
+    if not jobs:
+        return 0
+    results = await asyncio.gather(*(run_research_job(job["id"]) for job in jobs))
+    return sum(results)
+
+
+async def scheduler_loop(market: MarketDataService) -> None:
+    """Run due cron jobs while retaining the legacy daily post-market cycle."""
     while True:
-        delay = seconds_until_next_run()
-        LOGGER.info("Next post-market analysis runs in %.0f seconds", delay)
+        daily_delay = seconds_until_next_run()
+        delay = min(daily_delay, 30.0)
         await asyncio.sleep(delay)
         try:
-            await run_post_market_analysis()
+            await run_due_research_jobs()
         except asyncio.CancelledError:
             raise
         except Exception:
-            LOGGER.exception("Scheduled post-market analysis failed")
+            LOGGER.exception("Scheduled research job poll failed")
+        if daily_delay <= delay + 0.5:
+            await run_scheduled_cycle(market)

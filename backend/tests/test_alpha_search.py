@@ -43,3 +43,61 @@ async def test_search_endpoint_bounds_empty_query():
 
     assert response.status_code == 200
     assert response.json()["total"] == 7
+
+
+@pytest.mark.asyncio
+async def test_template_and_local_simulation_endpoints():
+    observations = [
+        {"date": "2026-01-02", "symbol": "A", "factor": 1, "forward_return": -0.02},
+        {"date": "2026-01-02", "symbol": "B", "factor": 2, "forward_return": 0.02},
+    ]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        templates = await client.get("/api/wq/templates")
+        simulation = await client.post("/api/wq/simulate/local", json={"observations": observations})
+
+    assert templates.status_code == 200
+    assert templates.json()["total"] == 5
+    assert simulation.status_code == 200
+    assert simulation.json()["period_returns"] == pytest.approx([0.02])
+
+
+@pytest.mark.asyncio
+async def test_brain_endpoints_require_confirmation_and_use_bridge(monkeypatch):
+    calls = []
+
+    class FakeBrainClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def authenticate(self):
+            calls.append("authenticate")
+
+        async def create_simulation(self, expression, settings=None):
+            calls.append((expression, settings))
+            return {"simulation_id": "sim-1", "status": "accepted"}
+
+        async def get_simulation(self, simulation_id):
+            return {"id": simulation_id, "status": "COMPLETE"}
+
+        async def get_alpha(self, alpha_id):
+            return {"id": alpha_id}
+
+    monkeypatch.setattr("app.routers.wq.AlphaBrainClient", FakeBrainClient)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        blocked = await client.post("/api/wq/brain/simulations", json={"expression": "rank(close)"})
+        created = await client.post(
+            "/api/wq/brain/simulations",
+            json={"expression": "rank(close)", "settings": {"region": "USA"}, "confirm": True},
+        )
+        simulation = await client.get("/api/wq/brain/simulations/sim-1")
+        alpha = await client.get("/api/wq/brain/alphas/alpha-1")
+
+    assert blocked.status_code == 409
+    assert created.status_code == 202
+    assert created.json()["simulation_id"] == "sim-1"
+    assert simulation.json()["status"] == "COMPLETE"
+    assert alpha.json()["id"] == "alpha-1"
+    assert calls == ["authenticate", ("rank(close)", {"region": "USA"}), "authenticate", "authenticate"]

@@ -1,16 +1,23 @@
 """Persisted MA-crossover jobs exposed under the v2 /api/backtests contract."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from .. import database
 from ..backtest.ma_crossover import run_ma_crossover
+from ..backtest.loaders import SUPPORTED_PERIODS, default_loader_registry
+from ..backtest.optimizers import SUPPORTED_OPTIMIZERS
+from ..backtest.portfolio import run_portfolio_backtest
+from ..backtest.significance import validate_ma_strategy
 from ..services.instruments import InstrumentService, external_symbol
 from ..services.market_data import MarketDataService, MarketError
+from ..services.notifications import publish_backtest_status
 
 
 router = APIRouter(prefix="/api/backtests", tags=["backtests"])
@@ -32,6 +39,9 @@ class BacktestCreate(BaseModel):
     commission_bps: float = Field(default=3, ge=0, le=1000)
     slippage_bps: float = Field(default=2, ge=0, le=1000)
     benchmark: str = Field(default="buy_and_hold", pattern="^buy_and_hold$")
+    market_rules: Literal["auto", "none"] = "auto"
+    price_limit_ratio: float | None = Field(default=None, gt=0, le=0.5)
+    validation_samples: int = Field(default=500, ge=100, le=5000)
 
     @model_validator(mode="after")
     def validate_relationships(self):
@@ -39,6 +49,43 @@ class BacktestCreate(BaseModel):
             raise ValueError("long_window 必须大于 short_window")
         if self.start_date >= self.end_date:
             raise ValueError("start_date 必须早于 end_date")
+        return self
+
+
+class PortfolioAsset(BaseModel):
+    symbol: str = Field(min_length=1, max_length=30)
+    period: Literal["1d", "60m", "30m", "15m", "5m"] = "1d"
+    short_window: int = Field(default=20, ge=2, le=200)
+    long_window: int = Field(default=50, ge=3, le=250)
+    market_rules: Literal["auto", "none"] = "auto"
+    price_limit_ratio: float | None = Field(default=None, gt=0, le=0.5)
+
+    @model_validator(mode="after")
+    def validate_windows(self):
+        if self.long_window <= self.short_window:
+            raise ValueError("long_window 必须大于 short_window")
+        return self
+
+
+class PortfolioBacktestCreate(BaseModel):
+    assets: list[PortfolioAsset] = Field(min_length=2, max_length=10)
+    optimizer: Literal[
+        "equal_weight", "risk_parity", "mean_variance", "inverse_volatility"
+    ] = "equal_weight"
+    optimization_lookback: int = Field(default=60, ge=20, le=500)
+    count: int = Field(default=800, ge=50, le=2000)
+    initial_capital: float = Field(default=100_000, gt=0, le=1_000_000_000)
+    commission_bps: float = Field(default=3, ge=0, le=1000)
+    slippage_bps: float = Field(default=2, ge=0, le=1000)
+
+    @model_validator(mode="after")
+    def validate_assets(self):
+        identities = [(asset.symbol.strip().upper(), asset.period) for asset in self.assets]
+        if len(set(identities)) != len(identities):
+            raise ValueError("资产与周期组合不能重复")
+        required = self.optimization_lookback + max(asset.long_window for asset in self.assets) + 2
+        if self.count < required:
+            raise ValueError(f"count 至少需要 {required}，以容纳校准窗口和回测窗口")
         return self
 
 
@@ -50,6 +97,8 @@ async def _set_status(run_id: int, state: str, *, error: str | None = None) -> N
         f"UPDATE quant_backtests SET status=?, error_message=?, updated_at=datetime('now'){started}{completed} WHERE id=?",
         (state, error, run_id),
     )
+    if state in TERMINAL_STATES:
+        await publish_backtest_status(run_id, state, error)
 
 
 async def _run_job(run_id: int, market: MarketDataService) -> None:
@@ -76,8 +125,26 @@ async def _run_job(run_id: int, market: MarketDataService) -> None:
             initial_capital=params["initial_capital"],
             commission_bps=params["commission_bps"],
             slippage_bps=params["slippage_bps"],
+            symbol=params["symbol"],
+            period="1d",
+            market_rules=params["market_rules"],
+            price_limit_ratio=params.get("price_limit_ratio"),
         )
         await _set_status(run_id, "calculating_metrics")
+        result["validation"] = validate_ma_strategy(
+            bars,
+            result,
+            short_window=params["short_window"],
+            long_window=params["long_window"],
+            initial_capital=params["initial_capital"],
+            commission_bps=params["commission_bps"],
+            slippage_bps=params["slippage_bps"],
+            symbol=params["symbol"],
+            period="1d",
+            market_rules=params["market_rules"],
+            price_limit_ratio=params.get("price_limit_ratio"),
+            samples=params["validation_samples"],
+        )
         result["warnings"] = list(dict.fromkeys(payload["quality_flags"] + result["warnings"]))
         await database.execute(
             """
@@ -94,6 +161,7 @@ async def _run_job(run_id: int, market: MarketDataService) -> None:
                 json.dumps(payload["quality_flags"], ensure_ascii=False), run_id,
             ),
         )
+        await publish_backtest_status(run_id, "completed")
     except (MarketError, ValueError) as exc:
         await _set_status(run_id, "failed", error=str(exc))
     except Exception as exc:  # persist the failure instead of losing the job
@@ -159,6 +227,63 @@ async def list_backtests(symbol: str | None = None, saved_only: bool = False):
         tuple(values),
     )
     return {"items": [_serialize(item) for item in items], "total": len(items)}
+
+
+@router.post("/portfolio")
+async def create_portfolio_backtest(body: PortfolioBacktestCreate, request: Request):
+    """Run a multi-market portfolio backtest with pre-window weight calibration."""
+    normalized: list[dict] = []
+    try:
+        for asset in body.assets:
+            symbol = external_symbol(asset.symbol)
+            normalized.append({
+                **asset.model_dump(),
+                "symbol": symbol,
+                "asset_id": f"{symbol}@{asset.period}",
+            })
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    asset_ids = [asset["asset_id"] for asset in normalized]
+    if len(set(asset_ids)) != len(asset_ids):
+        raise HTTPException(422, "标准化后的资产与周期组合不能重复")
+
+    registry = default_loader_registry(request.app.state.market)
+
+    async def load_asset(asset: dict) -> dict:
+        payload = await registry.load(asset["symbol"], asset["period"], body.count)
+        return {
+            **asset,
+            "bars": payload["items"],
+            "provenance": {
+                key: payload.get(key)
+                for key in (
+                    "provider", "as_of", "timezone", "currency",
+                    "adjustment", "frequency", "quality_flags",
+                )
+            },
+        }
+
+    try:
+        loaded = await asyncio.gather(*(load_asset(asset) for asset in normalized))
+        result = run_portfolio_backtest(
+            loaded,
+            optimizer=body.optimizer,
+            optimization_lookback=body.optimization_lookback,
+            initial_capital=body.initial_capital,
+            commission_bps=body.commission_bps,
+            slippage_bps=body.slippage_bps,
+        )
+    except MarketError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        **result,
+        "capabilities": {
+            "periods": sorted(SUPPORTED_PERIODS),
+            "optimizers": list(SUPPORTED_OPTIMIZERS),
+        },
+    }
 
 
 @router.get("/{run_id:int}")

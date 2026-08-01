@@ -50,13 +50,13 @@ export interface IndicatorData {
   ticker: string;
   days: string[];
   indicators: {
-    ma?: { ma5: (number | null)[]; ma10: (number | null)[]; ma20: (number | null)[]; ma30: (number | null)[]; ma60: (number | null)[] };
+    ma?: { ma5: (number | null)[]; ma10: (number | null)[]; ma20: (number | null)[]; ma30: (number | null)[]; ma60: (number | null)[]; ma120: (number | null)[]; ma250: (number | null)[] };
     macd?: { dif: (number | null)[]; dea: (number | null)[]; hist: (number | null)[] };
     rsi?: { rsi6: (number | null)[]; rsi12: (number | null)[]; rsi24: (number | null)[] };
     kdj?: { k: (number | null)[]; d: (number | null)[]; j: (number | null)[] };
     boll?: { upper: (number | null)[]; mid: (number | null)[]; lower: (number | null)[] };
     atr?: { atr14: (number | null)[] };
-    volma?: { volma5: (number | null)[]; volma20: (number | null)[] };
+    volma?: { volma5: (number | null)[]; volma10: (number | null)[]; volma20: (number | null)[] };
   };
 }
 

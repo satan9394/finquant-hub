@@ -1,9 +1,19 @@
-import httpx
 import pytest
 
-from app.agent import tools_definitions
 from app.agent.tools import ToolRegistry
-from app.agent.tools_definitions import CalculateIndicators, GetStockData, ScreenStocks, SearchNews, VerifyValuation
+from app.agent.tools_definitions import (
+    AnalyzePortfolioRisk,
+    AnalyzeShadowTrades,
+    AssessTradingConnector,
+    AuditReportData,
+    CalculateByFinancialRigor,
+    CalculateIndicators,
+    GetStockData,
+    ScreenStocks,
+    SearchNews,
+    RunBacktest,
+    VerifyValuation,
+)
 
 
 @pytest.mark.asyncio
@@ -30,26 +40,19 @@ async def test_verify_valuation_accepts_price():
 
 
 @pytest.mark.asyncio
-async def test_screen_stocks_returns_condition_summary():
+async def test_screen_stocks_requires_explicit_universe():
     result = await ScreenStocks().run()
 
-    assert result.success
-    assert {"market", "conditions"} <= result.data.keys()
+    assert result.success is False
+    assert "tickers" in result.error
 
 
 @pytest.mark.asyncio
 async def test_search_news_returns_news_list(monkeypatch):
-    original_client = httpx.AsyncClient
+    async def fake_search(self, keyword, **kwargs):
+        return {"keyword": keyword, "news": [{"title": "茅台资讯", "provider": "sina"}]}
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert "searchapi.sina.com.cn" in str(request.url)
-        return httpx.Response(200, json={"result": [{"title": "\u8305\u53f0\u8d44\u8baf", "source": "\u6d4b\u8bd5"}]})
-
-    monkeypatch.setattr(
-        tools_definitions.httpx,
-        "AsyncClient",
-        lambda *args, **kwargs: original_client(transport=httpx.MockTransport(handler)),
-    )
+    monkeypatch.setattr("app.agent.tools_definitions.NewsSearchService.search", fake_search)
 
     result = await SearchNews().run(keyword="\u8305\u53f0")
 
@@ -57,8 +60,23 @@ async def test_search_news_returns_news_list(monkeypatch):
     assert isinstance(result.data["news"], list)
 
 
-def test_registered_tool_can_be_found():
-    assert ToolRegistry().get("get_stock_data") is not None
+def test_concrete_tools_are_registered_automatically(monkeypatch):
+    expected_tools = {
+        GetStockData.name,
+        CalculateIndicators.name,
+        VerifyValuation.name,
+        ScreenStocks.name,
+        AuditReportData.name,
+        SearchNews.name,
+        CalculateByFinancialRigor.name,
+        RunBacktest.name,
+        AnalyzeShadowTrades.name,
+        AnalyzePortfolioRisk.name,
+        AssessTradingConnector.name,
+    }
+    monkeypatch.setattr(ToolRegistry, "_instance", None)
+
+    assert expected_tools <= {tool.name for tool in ToolRegistry().list_all()}
 
 
 def test_unknown_tool_cannot_be_found():

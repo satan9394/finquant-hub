@@ -170,10 +170,33 @@ body { background: #f3f6fa; }
 .big-screen-overview__footer { align-items: center; color: #759bb6; font-size: 11px; }
 .big-screen-overview__footer button { padding: 0; color: #75ddff; font: inherit; cursor: pointer; border: 0; background: transparent; }
 .big-screen-overview__footer button:hover { color: #fff; }
+.big-screen-live-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 12px; margin-top: 16px; }
+.big-screen-panel { min-width: 0; padding: 14px; border: 1px solid rgba(91, 191, 239, .26); background: rgba(7, 27, 46, .72); }
+.big-screen-panel h3 { margin: 0 0 10px; color: #d9f5ff; font-size: 13px; letter-spacing: .08em; }
+.scrolling-table { max-height: 282px; overflow: auto; scrollbar-color: #285d76 transparent; }
+.scrolling-table table { width: 100%; border-collapse: collapse; color: #c5deeb; font-size: 12px; }
+.scrolling-table th { position: sticky; z-index: 1; top: 0; color: #7fcde8; text-align: left; background: #0a263c; }
+.scrolling-table th, .scrolling-table td { padding: 9px 8px; border-bottom: 1px solid rgba(91, 191, 239, .13); }
+.scrolling-table td:last-child, .scrolling-table th:last-child { text-align: right; }
+.scrolling-table__empty { height: 88px; color: #7698ab; text-align: center !important; }
+.data-marquee { position: relative; z-index: 1; overflow: hidden; margin-top: 12px; padding: 8px 0; color: #a7def0; font-size: 11px; border-block: 1px solid rgba(91, 191, 239, .15); white-space: nowrap; }
+.data-marquee__track { display: flex; width: max-content; animation: finquant-marquee 24s linear infinite; }
+.data-marquee__track span { padding-right: 4rem; }
+.data-marquee:hover .data-marquee__track, .data-marquee:focus-within .data-marquee__track { animation-play-state: paused; }
+.data-marquee--empty { color: #7698ab; text-align: center; }
+.china-map { position: relative; min-height: 330px; }
+.china-map__empty { position: absolute; right: 8px; bottom: 8px; color: #7698ab; font-size: 10px; }
+
+@keyframes finquant-marquee { to { transform: translateX(-50%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .data-marquee__track { animation: none; }
+}
 
 @media (max-width: 1199px) {
   .chart-grid-two { grid-template-columns: 1fr; }
   .big-screen-overview__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .big-screen-live-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 767px) {

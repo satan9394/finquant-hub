@@ -9,6 +9,7 @@ import {
   PlusOutlined, DeleteOutlined, SendOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import apiClient from '../services/api';
+import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
@@ -20,6 +21,14 @@ import { useSearchParams } from 'react-router-dom';
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+
+type ChatStreamData = {
+  error?: string;
+  message?: string;
+  delta?: string;
+  message_id?: number;
+  token_count?: number | null;
+};
 
 export default function Chat() {
   const [searchParams] = useSearchParams();
@@ -173,70 +182,32 @@ export default function Chat() {
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
       let accumulatedContent = '';
-      let currentEvent = 'message';
-
-      const processLine = (line: string) => {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
+      await readSSE<ChatStreamData>(response.body, ({ event, data }) => {
+        if (event === 'error') {
+          message.error(data.error ?? data.message ?? '发送失败');
           return;
         }
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6);
-          try {
-            const data = JSON.parse(jsonStr);
-            if (currentEvent === 'error') {
-              message.error(data.error ?? data.message ?? '发送失败');
-              currentEvent = 'message';
-              return;
-            }
-            if (data.delta !== undefined) {
-              accumulatedContent += data.delta;
-              setStreamingContent(accumulatedContent);
-            }
-            if (data.message_id !== undefined) {
-              // done event
-              const assistantMsg: Message = {
-                id: data.message_id,
-                conversation_id: currentSessionId,
-                role: 'assistant',
-                agent_name: null,
-                content: accumulatedContent,
-                round_number: 0,
-                token_count: data.token_count ?? null,
-                created_at: new Date().toISOString(),
-              };
-              addMessage(currentSessionId, assistantMsg);
-              setStreamingContent('');
-              setIsStreaming(false);
-            }
-            currentEvent = 'message';
-          } catch { /* ignore parse errors for partial data */ }
+        if (data.delta !== undefined) {
+          accumulatedContent += data.delta;
+          setStreamingContent(accumulatedContent);
         }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          processLine(line.trim());
+        if (data.message_id !== undefined) {
+          const assistantMsg: Message = {
+            id: data.message_id,
+            conversation_id: currentSessionId,
+            role: 'assistant',
+            agent_name: null,
+            content: accumulatedContent,
+            round_number: 0,
+            token_count: data.token_count ?? null,
+            created_at: new Date().toISOString(),
+          };
+          addMessage(currentSessionId, assistantMsg);
+          setStreamingContent('');
+          setIsStreaming(false);
         }
-      }
-
-      // Process remaining buffer
-      if (buffer.trim()) {
-        processLine(buffer.trim());
-      }
+      }, '聊天服务未返回事件流');
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         message.error(err.message || '发送失败');

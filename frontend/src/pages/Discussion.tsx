@@ -7,6 +7,7 @@ import {
 } from 'antd';
 import { PlusOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
+import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import DiscussionTimeline from '../components/DiscussionTimeline';
@@ -16,6 +17,19 @@ import { useSearchParams } from 'react-router-dom';
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+
+type DiscussionStreamData = {
+  error?: string;
+  message?: string;
+  agent?: string;
+  name?: string;
+  round?: number;
+  delta?: string;
+  message_id?: number;
+  token_count?: number | null;
+  content?: string;
+  room_id?: number;
+};
 
 export default function Discussion() {
   const [searchParams] = useSearchParams();
@@ -111,97 +125,48 @@ export default function Discussion() {
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let currentAgent = '';
       let accumulatedContent = '';
-      let currentEvent = 'message';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-
-          if (trimmed.startsWith('event: ')) {
-            currentEvent = trimmed.slice(7).trim();
-            if (currentEvent === 'agent_start') {
-              currentAgent = '';
-              accumulatedContent = '';
-            }
-            continue;
-          }
-
-          if (trimmed.startsWith('data: ')) {
-            const jsonStr = trimmed.slice(6);
-            try {
-              const data = JSON.parse(jsonStr);
-
-              if (currentEvent === 'error') {
-                message.error(data.error ?? data.message ?? '讨论请求失败');
-                currentEvent = 'message';
-                continue;
-              }
-
-              if (data.agent && data.name && data.round !== undefined) {
-                // agent_start: set current agent
-                currentAgent = data.agent;
-                accumulatedContent = '';
-                continue;
-              }
-
-              if (data.delta !== undefined) {
-                accumulatedContent += data.delta;
-                continue;
-              }
-
-              if (data.agent && data.message_id !== undefined) {
-                // agent_end: save message
-                if (accumulatedContent) {
-                  const msg: Message = {
-                    id: data.message_id,
-                    conversation_id: currentRoomId,
-                    role: 'agent',
-                    agent_name: data.agent,
-                    content: accumulatedContent,
-                    round_number: 0,
-                    token_count: data.token_count ?? null,
-                    created_at: new Date().toISOString(),
-                  };
-                  addMessage(currentRoomId, msg);
-                }
-                currentAgent = '';
-                accumulatedContent = '';
-                currentEvent = 'message';
-                continue;
-              }
-
-              if (data.content && !data.delta) {
-                // summary event
-                setRoomDetail((prev) => prev ? { ...prev, summary: data.content, current_phase: 'done' } : prev);
-                continue;
-              }
-
-              if (data.room_id !== undefined) {
-                // done event
-                setRoomDetail((prev) => prev ? { ...prev, current_phase: 'done' } : prev);
-                setIsStreaming(false);
-                currentEvent = 'message';
-                continue;
-              }
-              currentEvent = 'message';
-            } catch { /* ignore */ }
-          }
+      await readSSE<DiscussionStreamData>(response.body, ({ event, data }) => {
+        if (event === 'agent_start') accumulatedContent = '';
+        if (event === 'error') {
+          message.error(data.error ?? data.message ?? '讨论请求失败');
+          return;
         }
-      }
+        if (data.agent && data.name && data.round !== undefined) {
+          accumulatedContent = '';
+          return;
+        }
+        if (data.delta !== undefined) {
+          accumulatedContent += data.delta;
+          return;
+        }
+        if (data.agent && data.message_id !== undefined) {
+          if (accumulatedContent) {
+            const msg: Message = {
+              id: data.message_id,
+              conversation_id: currentRoomId,
+              role: 'agent',
+              agent_name: data.agent,
+              content: accumulatedContent,
+              round_number: 0,
+              token_count: data.token_count ?? null,
+              created_at: new Date().toISOString(),
+            };
+            addMessage(currentRoomId, msg);
+          }
+          accumulatedContent = '';
+          return;
+        }
+        if (data.content && data.delta === undefined) {
+          const summary = data.content;
+          setRoomDetail((prev) => prev ? { ...prev, summary, current_phase: 'done' } : prev);
+          return;
+        }
+        if (data.room_id !== undefined) {
+          setRoomDetail((prev) => prev ? { ...prev, current_phase: 'done' } : prev);
+          setIsStreaming(false);
+        }
+      }, '讨论服务未返回事件流');
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         message.error(err.message || '启动讨论失败');

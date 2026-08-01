@@ -7,6 +7,7 @@
 - GET  /api/research/{id}/export?format=md|html|pdf|docx → 导出该版本
 """
 import json
+import logging
 import re
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -14,15 +15,36 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from .. import database
+from ..services.notifications import publish_research_status
+from ..services.llm_usage import reset_usage_context, set_usage_context
 from ..services.research_orch import run_research
 from ..services.report_export import markdown_to_docx, markdown_to_html, markdown_to_pdf, report_to_markdown
+from ..tools.report_audit import extract_data_points, render_verdict, sample_points
 
 router = APIRouter(prefix="/api/research", tags=["research"])
+LOGGER = logging.getLogger(__name__)
 
 
 class ResearchRequest(BaseModel):
     ticker: str = Field(min_length=1, description="股票代码或名称")
     model_id: int | None = Field(default=None, description="LLM 模型 ID")
+
+
+class ReportAuditRequest(BaseModel):
+    markdown: str = Field(min_length=1, description="待审计的 Markdown 报告")
+    verified_results: list[dict] | None = Field(
+        default=None,
+        description="已补充 fetched_value/fetched_source 的核验结果；省略时仅返回抽样点",
+    )
+
+
+@router.post("/audit")
+async def audit_report(body: ReportAuditRequest):
+    """Extract financial points or render a verdict for externally verified values."""
+    points = extract_data_points(body.markdown)
+    if body.verified_results is None:
+        return {"points": points, "sample": sample_points(points) if points else []}
+    return render_verdict(body.verified_results)
 
 
 async def resolve_research_target(raw: str, svc) -> tuple[str, str]:
@@ -69,6 +91,7 @@ async def start_research(body: ResearchRequest, request: Request):
     async def event_stream():
         completed = False
         research_stream = None
+        usage_token = set_usage_context("research", report_id)
 
         try:
             yield {"event": "report_started", "data": json.dumps({"report_id": report_id}, ensure_ascii=False)}
@@ -80,6 +103,7 @@ async def start_research(body: ResearchRequest, request: Request):
                 if event == "error":
                     message = data.get("error") or data.get("message") or "研究管线异常"
                     await _fail_report(report_id, message, record_event=False)
+                    await publish_research_status(report_id, "failed", message)
                     error_data = {"error": message, "message": message}
                     if data.get("role_key"):
                         error_data["role_key"] = data["role_key"]
@@ -88,29 +112,41 @@ async def start_research(body: ResearchRequest, request: Request):
                 if event == "done":
                     await _complete_report(report_id, data.get("report", {}), data.get("agent_results", {}))
                     completed = True
+                    await publish_research_status(report_id, "completed")
 
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as e:
+            LOGGER.exception(
+                "Research SSE pipeline failed",
+                extra={"event": "research.stream.error", "report_id": report_id, "ticker": ticker},
+            )
             if completed:
                 return
             message = f"研究管线异常：{e}"
             await _fail_report(report_id, message)
+            await publish_research_status(report_id, "failed", message)
             yield {
                 "event": "error",
                 "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
             }
             return
         finally:
+            reset_usage_context(usage_token)
             close = getattr(research_stream, "aclose", None)
             if close is not None:
                 try:
                     await close()
                 except Exception:
-                    pass
+                    LOGGER.exception(
+                        "Research SSE cleanup failed",
+                        extra={"event": "research.stream.cleanup_error", "report_id": report_id},
+                    )
             if not completed:
                 report = await database.query_one("SELECT status FROM research_reports WHERE id=?", (report_id,))
                 if report and report["status"] == "running":
-                    await _fail_report(report_id, "研究流在完成前中断")
+                    message = "研究流在完成前中断"
+                    await _fail_report(report_id, message)
+                    await publish_research_status(report_id, "failed", message)
 
     return EventSourceResponse(event_stream())
 

@@ -36,12 +36,12 @@ async def create_backtest(body: BacktestRequest, request: Request):
     if body.strategy_type not in SUPPORTED_STRATEGIES:
         raise HTTPException(400, f"不支持的回测策略：{body.strategy_type}，支持：{SUPPORTED_STRATEGIES}")
 
+    svc: MarketDataService = request.app.state.market
     try:
-        ticker = resolve_ticker(body.ticker)
+        ticker = await resolve_ticker(body.ticker, svc)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
-    svc: MarketDataService = request.app.state.market
     try:
         # 获取足够多的 K 线
         count = max(body.periods, 120)

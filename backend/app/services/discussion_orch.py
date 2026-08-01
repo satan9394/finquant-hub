@@ -8,7 +8,9 @@ import re
 from collections.abc import AsyncIterator
 
 from .. import database
+from ..orchestrator import DAGContext, DAGNode, DAGRuntime
 from ..services import model_router
+from ..services.context import estimate_tokens
 from ..services.llm_client import LLMError
 from ..services.market_data import MarketDataService, MarketError
 
@@ -19,10 +21,6 @@ SUMMARY_PROMPT = """你是投研讨论的主持人。以下是多位分析师围
 3. 风险清单（讨论中提到的所有风险点，合并去重）
 4. 综合倾向（一句话，明确偏多/偏空/中性）
 500 字以内，直接输出总结正文。此内容由 AI 生成，不构成投资建议。"""
-
-
-def _estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 2)
 
 
 async def _market_context(topic: str) -> str:
@@ -58,23 +56,28 @@ async def run_discussion(
         tuple(p["role_key"] for p in participants),
     )
     presets = {r["role_key"]: r for r in preset_rows}
+    missing_role = next((p["role_key"] for p in participants if p["role_key"] not in presets), None)
+    if missing_role is not None:
+        yield "error", {"error": f"角色预设不存在：{missing_role}"}
+        return
 
     client, _ = await model_router.get_client(model_id)
     market_ctx = await _market_context(topic)
-    prior = ""
 
-    for rnd in range(1, total + 1):
-        yield "round_start", {"round": rnd, "total_rounds": total}
-        for p in participants:
-            role_key = p["role_key"]
-            preset = presets.get(role_key)
-            if preset is None:
-                yield "error", {"error": f"角色预设不存在：{role_key}"}
-                return
-            yield "agent_start", {
-                "agent": role_key, "name": preset["name"],
-                "avatar": preset["avatar"], "round": rnd,
-            }
+    def make_node(rnd: int, participant: dict, previous_key: str | None, starts_round: bool) -> DAGNode:
+        role_key = participant["role_key"]
+        preset = presets[role_key]
+
+        async def run_turn(context: DAGContext):
+            if starts_round:
+                context.emit("round_start", {"round": rnd, "total_rounds": total})
+            context.emit("agent_start", {
+                "agent": role_key,
+                "name": preset["name"],
+                "avatar": preset["avatar"],
+                "round": rnd,
+            })
+            prior = "".join(result["prior_line"] for result in context.results.values())[-1200:]
             system = (
                 f"{preset['system_prompt']}\n\n讨论主题：{topic}{market_ctx}\n"
                 f"当前轮次：第 {rnd}/{total} 轮。"
@@ -88,19 +91,40 @@ async def run_discussion(
                 [{"role": "system", "content": system}, {"role": "user", "content": user}]
             ):
                 full += delta
-                yield "token", {"delta": delta, "agent": role_key}
+                context.emit("token", {"delta": delta, "agent": role_key})
 
             msg_id = await database.execute(
                 "INSERT INTO messages (conversation_id, role, agent_name, content, round_number, token_count) "
                 "VALUES (?, 'agent', ?, ?, ?, ?)",
-                (room["conversation_id"], role_key, full, rnd, _estimate_tokens(full)),
+                (room["conversation_id"], role_key, full, rnd, estimate_tokens(full)),
             )
-            yield "agent_end", {
-                "agent": role_key, "message_id": msg_id, "token_count": _estimate_tokens(full),
+            context.emit("agent_end", {
+                "agent": role_key, "message_id": msg_id, "token_count": estimate_tokens(full),
+            })
+            return {
+                "message_id": msg_id,
+                "prior_line": f"【{preset['name']}】{full[:120]}{'…' if len(full) > 120 else ''}\n",
             }
-            prior += f"【{preset['name']}】{full[:120]}{'…' if len(full) > 120 else ''}\n"
-            if len(prior) > 1200:
-                prior = prior[-1200:]
+
+        dependencies = (previous_key,) if previous_key is not None else ()
+        return DAGNode(key=f"round-{rnd}:{role_key}", run=run_turn, dependencies=dependencies)
+
+    nodes = []
+    previous_key = None
+    for rnd in range(1, total + 1):
+        for participant_index, participant in enumerate(participants):
+            node = make_node(rnd, participant, previous_key, starts_round=participant_index == 0)
+            nodes.append(node)
+            previous_key = node.key
+
+    runtime = DAGRuntime(nodes)
+    async for event in runtime.stream():
+        if event.kind in {"round_start", "agent_start", "token", "agent_end"}:
+            yield event.kind, event.data
+        elif event.kind == "node_failed":
+            raise event.error
+        elif event.kind == "node_skipped":
+            raise RuntimeError(f"讨论节点因依赖失败被跳过：{event.node_key}")
 
     # 讨论总结（非流式一次生成）
     all_msgs = await database.query_all(

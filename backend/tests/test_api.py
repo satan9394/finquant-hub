@@ -8,10 +8,13 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app import config, database
+from app import config, database, main as main_module
+from app.routers import analysis as analysis_router
 from app.routers import research as research_router
+from app.routers import swarm as swarm_router
 from app.main import app
 from app.services import model_router
+from app.services.notifications import publish_notification
 
 
 class FakeLLMClient:
@@ -23,6 +26,9 @@ class FakeLLMClient:
     async def chat_stream(self, messages):
         for t in ["这是", "假模型", "的回复。"]:
             yield t
+
+    async def chat_with_tools_loop(self, messages, tools, executor):
+        return "这是假模型的回复。", [], 12
 
 
 async def _fake_get_client(model_id=None):
@@ -67,6 +73,42 @@ class TestHealthAndSeed:
         assert sum(m["is_default"] for m in models) == 1
         agents = (await client.get("/api/agents")).json()["items"]
         assert len(agents) == 6  # MULTI-03 预置角色
+
+
+class TestGlobalExceptionHandlers:
+    @pytest.mark.asyncio
+    async def test_validation_returns_first_field_level_chinese_error(self, client):
+        response = await client.post("/api/research", json={"ticker": ""})
+
+        assert response.status_code == 422
+        assert response.json() == {"detail": "ticker：长度不能少于 1 个字符"}
+
+    @pytest.mark.asyncio
+    async def test_unhandled_exception_is_sanitized_and_structured(self, client, monkeypatch):
+        captured = {}
+
+        async def fail_query(*_args, **_kwargs):
+            raise RuntimeError("database secret")
+
+        def capture_log(message, *args, **kwargs):
+            captured.update({"message": message, "args": args, "kwargs": kwargs})
+
+        monkeypatch.setattr(database, "query_one", fail_query)
+        monkeypatch.setattr(main_module.LOGGER, "exception", capture_log)
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://t") as isolated_client:
+            response = await isolated_client.get("/api/health")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "服务内部错误，请稍后重试"}
+        assert "database secret" not in response.text
+        assert captured["message"] == "Unhandled request exception"
+        assert captured["kwargs"]["extra"] == {
+            "event": "http.request.failed",
+            "http_method": "GET",
+            "http_path": "/api/health",
+            "exception_type": "RuntimeError",
+        }
 
 
 class TestModelCRUD:
@@ -133,7 +175,7 @@ class TestChat:
             events = await _collect_sse(resp)
 
         kinds = [e for e, _ in events]
-        assert kinds == ["token", "token", "token", "done"]
+        assert kinds == ["token", "done"]
         full = "".join(d["delta"] for e, d in events if e == "token")
         assert full == "这是假模型的回复。"
         done = events[-1][1]
@@ -161,6 +203,71 @@ class TestChat:
             await _collect_sse(resp)
         assert (await client.delete(f"/api/chat/sessions/{sid}")).json()["ok"] is True
         assert (await client.get(f"/api/chat/sessions/{sid}/messages")).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_chat_injects_memory_from_other_sessions(self, client, monkeypatch):
+        captured_messages = []
+
+        class CapturingClient:
+            async def chat_with_tools_loop(self, messages, tools, executor):
+                captured_messages.append(messages)
+                return "已读取历史线索", [], 8
+
+        async def get_capturing_client(model_id=None):
+            return CapturingClient(), {"id": 1, "name": "Capture"}
+
+        historical_id = await database.execute(
+            "INSERT INTO conversations (title, mode) VALUES ('Apple moat review', 'single')"
+        )
+        await database.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+            (historical_id, "AAPL moat was discussed as a historical hypothesis."),
+        )
+        current_id = (await client.post("/api/chat/sessions", json={})).json()["id"]
+        monkeypatch.setattr(model_router, "get_client", get_capturing_client)
+
+        async with client.stream(
+            "POST",
+            f"/api/chat/sessions/{current_id}/messages",
+            json={"content": "Revisit AAPL moat"},
+        ) as response:
+            assert response.status_code == 200
+            events = await _collect_sse(response)
+
+        assert events[-1][0] == "done"
+        memory_messages = [
+            message for message in captured_messages[0]
+            if message["role"] == "system" and "其他历史会话" in message["content"]
+        ]
+        assert len(memory_messages) == 1
+        assert "Apple moat review" in memory_messages[0]["content"]
+        assert "historical hypothesis" in memory_messages[0]["content"]
+        assert captured_messages[0][-1] == {"role": "user", "content": "Revisit AAPL moat"}
+
+    @pytest.mark.asyncio
+    async def test_chat_executes_registered_tool_and_emits_tool_event(self, client, monkeypatch):
+        class ToolCallingClient:
+            async def chat_with_tools_loop(self, messages, tools, executor):
+                result = await executor("calculate_by_financial_rigor", '{"expression":"2+2"}')
+                return "精确计算结果为 4。", [{
+                    "name": "calculate_by_financial_rigor",
+                    "arguments": '{"expression":"2+2"}',
+                    "result": result,
+                }], 21
+
+        async def get_tool_client(model_id=None):
+            return ToolCallingClient(), {"id": 1, "name": "ToolModel"}
+
+        monkeypatch.setattr(model_router, "get_client", get_tool_client)
+        session_id = (await client.post("/api/chat/sessions", json={})).json()["id"]
+        async with client.stream(
+            "POST", f"/api/chat/sessions/{session_id}/messages", json={"content": "精确计算 2+2"}
+        ) as response:
+            events = await _collect_sse(response)
+
+        assert [event for event, _ in events] == ["tool_call", "token", "done"]
+        assert events[0][1]["tool_name"] == "calculate_by_financial_rigor"
+        assert events[-1][1]["tool_call_count"] == 1
 
 
 class TestDiscussion:
@@ -247,6 +354,11 @@ class TestResearchHistory:
         assert [event["event_type"] for event in detail["events"]] == ["agent_started", "tool_call", "done"]
         done_event = next(event for event in detail["events"] if event["event_type"] == "done")
         assert done_event["payload"]["report_id"] == report_id
+        notification = await database.query_one(
+            "SELECT event_type, source_id FROM notifications WHERE dedupe_key=?",
+            (f"research:{report_id}:completed",),
+        )
+        assert notification == {"event_type": "research.completed", "source_id": str(report_id)}
 
         async with client.stream("POST", "/api/research", json={"ticker": "600519", "model_id": 1}) as second_response:
             second_events = await _collect_sse(second_response)
@@ -298,6 +410,11 @@ class TestResearchHistory:
         assert detail["status"] == "failed"
         assert len(persisted_errors) == 1
         assert persisted_errors[0]["payload"]["error"] == "API rate limit exceeded"
+        notification = await database.query_one(
+            "SELECT event_type FROM notifications WHERE dedupe_key=?",
+            (f"research:{report_id}:failed",),
+        )
+        assert notification["event_type"] == "research.failed"
 
     @pytest.mark.asyncio
     async def test_research_completion_failure_transitions_to_failed(self, client, monkeypatch):
@@ -319,6 +436,178 @@ class TestResearchHistory:
         assert error["message"] == error["error"]
         report = await database.query_one("SELECT status FROM research_reports WHERE id=?", (report_id,))
         assert report["status"] == "failed"
+
+
+class TestSwarm:
+    @pytest.mark.asyncio
+    async def test_analyze_persists_structured_report_and_sse_contract(self, client, monkeypatch):
+        async def fake_resolve(raw, svc):
+            return "usAAPL", "Apple Inc."
+
+        async def fake_swarm(ticker, company_name, model_id):
+            yield "team_started", {"ticker": ticker, "company_name": company_name}
+            yield "agent_started", {"role_key": "value_investor"}
+            yield "done", {
+                "status": "completed",
+                "agent_results": {
+                    "value_investor": {"content": "价值结论", "token_count": 10},
+                    "tech_analyst": {"content": "技术结论", "token_count": 20},
+                    "macro_strategist": {"content": "宏观结论", "token_count": 30},
+                    "risk_manager": {"content": "风控结论", "token_count": 40},
+                },
+                "failed_agents": [],
+                "skipped_agents": [],
+                "token_count": 100,
+            }
+
+        monkeypatch.setattr(swarm_router, "resolve_research_target", fake_resolve)
+        monkeypatch.setattr(swarm_router, "run_four_masters", fake_swarm)
+
+        metadata = (await client.get("/api/swarm/teams/four-masters")).json()
+        assert metadata["key"] == "four-masters"
+        assert [agent["key"] for agent in metadata["agents"]][-1] == "report_lead"
+        assert "system_prompt" not in metadata["agents"][0]
+
+        async with client.stream(
+            "POST",
+            "/api/swarm/analyze",
+            json={"ticker": "AAPL", "model_id": 1},
+        ) as response:
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers["content-type"]
+            events = await _collect_sse(response)
+
+        assert [event for event, _ in events] == ["report_started", "team_started", "agent_started", "done"]
+        report_id = events[0][1]["report_id"]
+        assert events[1][1] == {"ticker": "usAAPL", "company_name": "Apple Inc."}
+        assert events[-1][1]["report_id"] == report_id
+        assert events[-1][1]["report"]["technical_analysis"] == "技术结论"
+
+        detail = (await client.get(f"/api/research/{report_id}")).json()
+        assert detail["status"] == "completed"
+        assert detail["ticker"] == "usAAPL"
+        assert detail["report_data"]["report_type"] == "four_masters_swarm"
+        assert detail["report_data"]["industry_analysis"] == "宏观结论"
+        assert detail["agent_results"]["risk_manager"]["content"] == "风控结论"
+        assert [event["event_type"] for event in detail["events"]] == [
+            "team_started", "agent_started", "done",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_analyze_failure_is_persisted_once(self, client, monkeypatch):
+        async def fake_resolve(raw, svc):
+            return "usAAPL", "Apple Inc."
+
+        async def fake_swarm(ticker, company_name, model_id):
+            yield "error", {"error": "LLM unavailable", "message": "LLM unavailable"}
+
+        monkeypatch.setattr(swarm_router, "resolve_research_target", fake_resolve)
+        monkeypatch.setattr(swarm_router, "run_four_masters", fake_swarm)
+
+        async with client.stream("POST", "/api/swarm/analyze", json={"ticker": "AAPL"}) as response:
+            events = await _collect_sse(response)
+
+        report_id = events[0][1]["report_id"]
+        assert events[-1] == ("error", {"error": "LLM unavailable", "message": "LLM unavailable"})
+        detail = (await client.get(f"/api/research/{report_id}")).json()
+        assert detail["status"] == "failed"
+        assert [event["event_type"] for event in detail["events"]].count("error") == 1
+
+
+class TestNotifications:
+    @pytest.mark.asyncio
+    async def test_list_and_mark_read(self, client):
+        notification = await publish_notification(
+            "test.completed",
+            "测试完成",
+            "测试任务已完成",
+            payload={"url": "/"},
+        )
+
+        response = await client.get("/api/notifications")
+        assert response.status_code == 200
+        assert response.json()["unread_count"] == 1
+        assert response.json()["items"][0]["payload"] == {"url": "/"}
+
+        marked = await client.post(f"/api/notifications/{notification['id']}/read")
+        assert marked.json() == {"id": notification["id"], "is_read": True}
+        assert (await client.get("/api/notifications?unread_only=true")).json()["items"] == []
+        assert (await client.post("/api/notifications/999/read")).status_code == 404
+
+
+class TestAlerts:
+    @pytest.mark.asyncio
+    async def test_rule_api_evaluates_latest_signal_idempotently(self, client, monkeypatch):
+        created = await client.post("/api/alerts/rules", json={
+            "name": "Apple 金叉",
+            "ticker": "AAPL",
+            "signal_type": "golden_cross",
+            "direction": "bullish",
+        })
+        assert created.status_code == 201
+        rule = created.json()
+        assert rule["ticker"] == "usAAPL"
+        assert "golden_cross" in (await client.get("/api/alerts/signal-types")).json()["items"]
+
+        duplicate = await client.post("/api/alerts/rules", json={
+            "name": "重复规则",
+            "ticker": "usAAPL",
+            "signal_type": "golden_cross",
+            "direction": "bullish",
+        })
+        assert duplicate.status_code == 409
+
+        async def fake_kline(ticker, period, count):
+            return [
+                {
+                    "day": f"2026-07-{index + 1:02d}",
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "volume": 1000.0,
+                }
+                for index in range(30)
+            ]
+
+        monkeypatch.setattr(app.state.market, "kline", fake_kline)
+        monkeypatch.setattr(analysis_router.indicators, "compute", lambda bars: {})
+        monkeypatch.setattr(
+            analysis_router.sig_mod,
+            "detect_all",
+            lambda ind, close, high, low, volume: [{
+                "type": "golden_cross",
+                "index": len(close) - 1,
+                "direction": "bullish",
+                "confidence": "high",
+                "description": "MACD 金叉",
+            }],
+        )
+        monkeypatch.setattr(
+            analysis_router.score_mod,
+            "composite_score",
+            lambda *args: {"composite_score": 50, "components": {}},
+        )
+
+        first = await client.get("/api/analysis/AAPL/indicators?count=30")
+        second = await client.get("/api/analysis/AAPL/indicators?count=30")
+        assert first.status_code == 200
+        assert len(first.json()["alert_triggers"]) == 1
+        assert second.json()["alert_triggers"] == []
+
+        triggers = (await client.get("/api/alerts/triggers?ticker=AAPL")).json()["items"]
+        assert len(triggers) == 1
+        assert triggers[0]["notification_id"] is not None
+
+        updated = await client.put(f"/api/alerts/rules/{rule['id']}", json={"is_enabled": False})
+        assert updated.json()["is_enabled"] is False
+        assert (
+            await client.put(f"/api/alerts/rules/{rule['id']}", json={"is_enabled": None})
+        ).status_code == 400
+        assert (await client.get("/api/alerts/rules?enabled_only=true")).json()["items"] == []
+        assert (await client.delete(f"/api/alerts/rules/{rule['id']}")).json() == {"ok": True}
+        assert (await client.delete(f"/api/alerts/rules/{rule['id']}")).status_code == 404
+        assert (await client.get("/api/alerts/triggers")).json()["items"][0]["rule_id"] is None
 
 
 class TestQuantResearchV2:
@@ -409,3 +698,405 @@ class TestQuantResearchV2:
 
         invalid = await client.post("/api/backtests", json={**body, "short_window": 20, "long_window": 20})
         assert invalid.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_multi_market_portfolio_backtest_contract(self, client, monkeypatch):
+        from datetime import date, timedelta
+
+        requested: list[tuple[str, str, int]] = []
+        start = date(2026, 1, 1)
+
+        async def fake_kline(ticker, period, count):
+            requested.append((ticker, period, count))
+            scale = 0.4 if ticker == "usAAPL" else 1.4
+            return [
+                {
+                    "day": (start + timedelta(days=index)).isoformat(),
+                    "open": 100 + (index % 12) * scale,
+                    "high": 102 + (index % 12) * scale,
+                    "low": 99 + (index % 12) * scale,
+                    "close": 101 + (index % 12) * scale,
+                    "volume": 1000,
+                    "source": "test_provider",
+                    "adjustment": "split_adjusted",
+                }
+                for index in range(90)
+            ]
+
+        monkeypatch.setattr(app.state.market, "kline", fake_kline)
+        response = await client.post("/api/backtests/portfolio", json={
+            "assets": [
+                {"symbol": "AAPL", "period": "60m", "short_window": 3, "long_window": 8},
+                {"symbol": "0700.HK", "period": "1d", "short_window": 3, "long_window": 8},
+            ],
+            "optimizer": "inverse_volatility",
+            "optimization_lookback": 20,
+            "count": 80,
+            "initial_capital": 100_000,
+        })
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert {item["symbol"] for item in payload["assets"]} == {"AAPL", "00700.HK"}
+        assert {period for _, period, _ in requested} == {"60m", "1d"}
+        assert sum(payload["weights"].values()) == pytest.approx(1.0)
+        assert payload["metrics"]["annualized_return"] is None
+        assert "cross_currency_returns_normalized_without_fx" in payload["warnings"]
+        assert payload["capabilities"]["optimizers"] == [
+            "equal_weight", "risk_parity", "mean_variance", "inverse_volatility",
+        ]
+
+        duplicate = await client.post("/api/backtests/portfolio", json={
+            "assets": [
+                {"symbol": "AAPL", "period": "1d"},
+                {"symbol": "usAAPL", "period": "1d"},
+            ],
+            "count": 120,
+            "optimization_lookback": 20,
+        })
+        assert duplicate.status_code == 422
+
+
+class TestCoverageCriticalRoutes:
+    @pytest.mark.asyncio
+    async def test_portfolio_full_lifecycle_and_not_found_contracts(self, client, monkeypatch):
+        from app.routers import portfolio as portfolio_router
+
+        created = await client.post("/api/portfolio", json={
+            "name": "Global", "description": "multi-market", "currency": "USD",
+        })
+        assert created.status_code == 201
+        portfolio_id = created.json()["id"]
+        assert (await client.get("/api/portfolio")).json()["items"][0]["position_count"] == 0
+        assert (await client.get(f"/api/portfolio/{portfolio_id}")).json()["name"] == "Global"
+
+        assert (await client.put(f"/api/portfolio/{portfolio_id}", json={})).json()["name"] == "Global"
+        updated = await client.put(f"/api/portfolio/{portfolio_id}", json={
+            "name": "Global Core", "description": "updated", "currency": "HKD",
+        })
+        assert updated.json()["currency"] == "HKD"
+
+        position = await client.post(f"/api/portfolio/{portfolio_id}/positions", json={
+            "ticker": "0700.HK", "shares": 10, "avg_cost": 300, "name": "Tencent",
+        })
+        assert position.status_code == 201
+        position_id = position.json()["id"]
+        assert position.json()["currency"] == "HKD"
+        assert len((await client.get(f"/api/portfolio/{portfolio_id}/positions")).json()["items"]) == 1
+        assert (await client.put(f"/api/portfolio/positions/{position_id}", json={})).json()["shares"] == 10
+        changed = await client.put(f"/api/portfolio/positions/{position_id}", json={"shares": 12, "avg_cost": 310})
+        assert changed.json()["avg_cost"] == 310
+
+        async def fake_pnl(requested_id):
+            assert requested_id == portfolio_id
+            return {"total_cost": 3720, "total_market_value": 4000, "total_pnl": 280, "total_pnl_pct": 7.53, "positions": []}
+
+        monkeypatch.setattr(portfolio_router.svc, "calc_pnl", fake_pnl)
+        assert (await client.get(f"/api/portfolio/{portfolio_id}/pnl")).json()["total_pnl"] == 280
+
+        assert (await client.delete(f"/api/portfolio/positions/{position_id}")).json() == {"ok": True}
+        assert (await client.delete(f"/api/portfolio/positions/{position_id}")).status_code == 404
+        assert (await client.put(f"/api/portfolio/positions/{position_id}", json={"shares": 1})).status_code == 404
+        assert (await client.delete(f"/api/portfolio/{portfolio_id}")).json() == {"ok": True}
+        assert (await client.get(f"/api/portfolio/{portfolio_id}")).status_code == 404
+        assert (await client.put(f"/api/portfolio/{portfolio_id}", json={"name": "missing"})).status_code == 404
+        assert (await client.delete(f"/api/portfolio/{portfolio_id}")).status_code == 404
+        assert (await client.post("/api/portfolio/999/positions", json={
+            "ticker": "AAPL", "shares": 1, "avg_cost": 100,
+        })).status_code == 404
+        assert (await client.get("/api/portfolio/999/positions")).status_code == 404
+        assert (await client.get("/api/portfolio/999/pnl")).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_market_routes_map_success_and_provider_errors(self, client, monkeypatch):
+        from app.routers import market as market_router
+        from app.services.market_data import MarketError
+
+        bars = [{"day": "2026-01-01", "open": 9, "high": 11, "low": 8, "close": 10, "volume": 100}]
+
+        async def search(query):
+            return [{"code": "usAAPL", "name": "Apple"}]
+
+        async def quote(ticker):
+            return {"code": "usAAPL", "name": "Apple", "price": 200}
+
+        async def kline(ticker, period, count):
+            return bars
+
+        monkeypatch.setattr(app.state.market, "search", search)
+        monkeypatch.setattr(app.state.market, "quote", quote)
+        monkeypatch.setattr(app.state.market, "kline", kline)
+        monkeypatch.setattr(market_router.indicators, "compute", lambda rows, names=None: {"requested": names})
+        calendar = (await client.get("/api/market/calendar?date=2026-02-23")).json()
+        assert calendar["is_trading_day"] is False
+        assert calendar["reason"] == "exchange_holiday"
+        assert (await client.get("/api/market/search?q=Apple")).json()["items"][0]["code"] == "usAAPL"
+        assert (await client.get("/api/market/quote?ticker=AAPL")).json()["price"] == 200
+        assert len((await client.get("/api/market/kline?ticker=AAPL&count=1")).json()["items"]) == 1
+        indicators = (await client.get("/api/market/indicators?ticker=AAPL&count=30&indicators=ma,rsi")).json()
+        assert indicators["indicators"] == {"requested": ["ma", "rsi"]}
+
+        async def market_failure(*args, **kwargs):
+            raise MarketError("provider down")
+
+        async def invalid_input(*args, **kwargs):
+            raise ValueError("invalid ticker")
+
+        monkeypatch.setattr(app.state.market, "search", market_failure)
+        assert (await client.get("/api/market/search?q=AAPL")).status_code == 502
+        for method, path in (
+            ("quote", "/api/market/quote?ticker=AAPL"),
+            ("kline", "/api/market/kline?ticker=AAPL"),
+        ):
+            monkeypatch.setattr(app.state.market, method, invalid_input)
+            assert (await client.get(path)).status_code == 400
+            monkeypatch.setattr(app.state.market, method, market_failure)
+            assert (await client.get(path)).status_code == 502
+
+        monkeypatch.setattr(app.state.market, "kline", kline)
+        monkeypatch.setattr(
+            market_router.indicators,
+            "compute",
+            lambda rows, names=None: (_ for _ in ()).throw(ValueError("bad indicator")),
+        )
+        assert (await client.get("/api/market/indicators?ticker=AAPL&count=30")).status_code == 400
+        monkeypatch.setattr(app.state.market, "kline", invalid_input)
+        assert (await client.get("/api/market/indicators?ticker=AAPL&count=30")).status_code == 400
+        monkeypatch.setattr(app.state.market, "kline", market_failure)
+        assert (await client.get("/api/market/indicators?ticker=AAPL&count=30")).status_code == 502
+
+    @pytest.mark.asyncio
+    async def test_market_foundation_and_review_routes(self, client, monkeypatch):
+        from app.routers import market as market_router
+        from app.services.market_overview import MarketOverviewService
+
+        async def overview(self, market):
+            return {"market": market, "indices": [], "breadth": {"status": "ok"}}
+
+        async def sectors(self, kind, limit):
+            return {"kind": kind, "items": [{"name": "AI"}]}
+
+        async def popular(self, limit):
+            return {"items": [{"rank": 1, "code": "sh600519"}]}
+
+        async def limit_up(self, trading_date):
+            return {"date": trading_date.isoformat(), "items": []}
+
+        async def prefetch(tickers, *, enriched, concurrency):
+            return {"items": [{"code": tickers[0]}], "errors": {}}
+
+        async def create_review(market, markets, trading_date, model_id):
+            return {"id": 8, "markets": markets, "trading_date": trading_date.isoformat()}
+
+        async def list_reviews(limit):
+            return [{"id": 8, "limit": limit}]
+
+        async def get_review(review_id):
+            return {"id": review_id} if review_id == 8 else None
+
+        monkeypatch.setattr(MarketOverviewService, "overview", overview)
+        monkeypatch.setattr(MarketOverviewService, "sectors", sectors)
+        monkeypatch.setattr(MarketOverviewService, "popular", popular)
+        monkeypatch.setattr(MarketOverviewService, "limit_up", limit_up)
+        monkeypatch.setattr(app.state.market, "prefetch_quotes", prefetch)
+        monkeypatch.setattr(market_router, "create_market_review", create_review)
+        monkeypatch.setattr(market_router, "list_market_reviews", list_reviews)
+        monkeypatch.setattr(market_router, "get_market_review", get_review)
+
+        assert (await client.get("/api/market/overview?market=us")).json()["market"] == "us"
+        assert (await client.get("/api/market/sectors?kind=concept&limit=3")).json()["kind"] == "concept"
+        assert (await client.get("/api/market/popular?limit=3")).json()["items"][0]["rank"] == 1
+        assert (await client.get("/api/market/limit-up?date=2026-07-31")).json()["date"] == "2026-07-31"
+        assert (await client.post("/api/market/prefetch", json={"tickers": ["AAPL"]})).status_code == 200
+
+        sources = await client.patch("/api/market/sources", json={
+            "quote": ["sina", "tencent", "yahoo"],
+        })
+        assert sources.json()["priorities"]["quote"][0] == "sina"
+        assert (await client.get("/api/market/sources")).status_code == 200
+        assert (await client.patch("/api/market/sources", json={})).status_code == 422
+        assert (await client.patch("/api/market/sources", json={"quote": ["sina"]})).status_code == 400
+
+        created = await client.post("/api/market/reviews", json={
+            "markets": ["cn", "us"], "trading_date": "2026-07-31", "model_id": 1,
+        })
+        assert created.json()["id"] == 8
+        assert (await client.get("/api/market/reviews?limit=5")).json()["items"][0]["limit"] == 5
+        assert (await client.get("/api/market/reviews/8")).json()["id"] == 8
+        assert (await client.get("/api/market/reviews/999")).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_screening_sorts_valid_items_and_preserves_errors(self, client, monkeypatch):
+        from app.services.market_data import MarketError
+
+        async def quote(ticker):
+            if ticker == "BAD":
+                raise MarketError("unknown")
+            return {"code": ticker, "name": ticker, "price": 120, "change_percent": 1.5}
+
+        async def kline(ticker, period="1d", count=60):
+            start, end = ((100, 120) if ticker == "AAPL" else (100, 90))
+            return [{"close": start}, {"close": end}]
+
+        monkeypatch.setattr(app.state.market, "quote", quote)
+        monkeypatch.setattr(app.state.market, "kline", kline)
+        response = await client.post("/api/screening", json={"tickers": [" AAPL ", "MSFT", "BAD", " "]})
+        assert response.status_code == 200
+        body = response.json()
+        assert [item["ticker"] for item in body["items"]] == ["AAPL", "MSFT"]
+        assert body["items"][0]["signal"] == "动量偏强"
+        assert body["items"][1]["signal"] == "动量偏弱"
+        assert body["errors"] == [{"ok": False, "ticker": "BAD", "error": "unknown"}]
+
+
+class TestSettingsAndMCPConfiguration:
+    @pytest.mark.asyncio
+    async def test_system_settings_are_allowlisted_persisted_and_applied(self, client, monkeypatch):
+        tracked = (
+            "SCHEDULER_ENABLED", "SCHEDULER_CONCURRENCY", "SCHEDULER_MAX_TARGETS",
+            "SCHEDULER_HOUR", "SCHEDULER_MINUTE",
+        )
+        for attribute in tracked:
+            monkeypatch.setattr(config, attribute, getattr(config, attribute))
+
+        initial = await client.get("/api/settings/system")
+        assert initial.status_code == 200
+        assert initial.json()["metadata"]["secrets_exposed"] is False
+        assert "DEEPSEEK_API_KEY" not in initial.text
+
+        updated = await client.patch("/api/settings/system", json={
+            "scheduler_enabled": False,
+            "scheduler_concurrency": 4,
+            "scheduler_max_targets": 50,
+            "scheduler_hour": 19,
+            "scheduler_minute": 30,
+        })
+        assert updated.status_code == 200
+        assert updated.json()["settings"] == {
+            "scheduler_enabled": False,
+            "scheduler_concurrency": 4,
+            "scheduler_max_targets": 50,
+            "scheduler_hour": 19,
+            "scheduler_minute": 30,
+        }
+        assert config.SCHEDULER_CONCURRENCY == 4
+        stored = await database.query_all("SELECT key, value_json FROM system_settings")
+        assert {row["key"] for row in stored} == {
+            "scheduler_enabled", "scheduler_concurrency", "scheduler_max_targets",
+            "scheduler_hour", "scheduler_minute",
+        }
+        config.SCHEDULER_CONCURRENCY = 2
+        from app.services.system_settings import load_system_settings
+        assert (await load_system_settings())["scheduler_concurrency"] == 4
+        assert (await client.patch("/api/settings/system", json={})).status_code == 422
+        assert (await client.patch(
+            "/api/settings/system", json={"scheduler_concurrency": 21},
+        )).status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_scheduled_research_job_crud(self, client):
+        created = await client.post("/api/settings/research-jobs", json={
+            "name": "茅台晨报",
+            "ticker": "600519",
+            "company_name": "贵州茅台",
+            "cron_expr": "30 8 * * 1-5",
+        })
+        assert created.status_code == 201
+        job = created.json()
+        assert job["ticker"] == "sh600519"
+        assert job["next_run_at"] is not None
+
+        listed = (await client.get("/api/settings/research-jobs")).json()["items"]
+        assert [item["id"] for item in listed] == [job["id"]]
+        disabled = await client.patch(
+            f"/api/settings/research-jobs/{job['id']}", json={"is_enabled": False}
+        )
+        assert disabled.json()["next_run_at"] is None
+        assert (await client.delete(f"/api/settings/research-jobs/{job['id']}")).json() == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_scheduled_research_job_rejects_invalid_cron(self, client):
+        response = await client.post("/api/settings/research-jobs", json={
+            "name": "坏任务", "ticker": "AAPL", "cron_expr": "60 8 * * *",
+        })
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_mcp_http_server_configuration_lifecycle(self, client, monkeypatch):
+        from app.routers import mcp as mcp_router
+
+        connected: set[str] = set()
+
+        async def connect(name: str, url: str) -> int:
+            assert url.startswith("https://")
+            connected.add(name)
+            return 3
+
+        def remove(name: str) -> None:
+            connected.discard(name)
+
+        monkeypatch.setattr(mcp_router, "connect_http_mcp_server", connect)
+        monkeypatch.setattr(mcp_router, "remove_mcp_server", remove)
+        monkeypatch.setattr(mcp_router, "is_mcp_server_connected", connected.__contains__)
+
+        invalid = await client.post("/api/mcp/configs", json={
+            "name": "files", "url": "file:///tmp/server",
+        })
+        assert invalid.status_code == 422
+
+        created = await client.post("/api/mcp/configs", json={
+            "name": "research", "url": "https://mcp.example.test/api",
+        })
+        assert created.status_code == 201
+        config_id = created.json()["id"]
+        assert created.json()["connected"] is False
+        assert (await client.post("/api/mcp/configs", json={
+            "name": "research", "url": "https://other.example.test/api",
+        })).status_code == 409
+
+        connected_response = await client.post(f"/api/mcp/configs/{config_id}/connect")
+        assert connected_response.json()["connected"] is True
+        assert connected_response.json()["tool_count"] == 3
+        assert (await client.get("/api/mcp/configs")).json()["total"] == 1
+
+        updated = await client.put(f"/api/mcp/configs/{config_id}", json={
+            "name": "research-v2", "url": "https://mcp2.example.test/api",
+        })
+        assert updated.json()["is_enabled"] is False
+        assert connected == set()
+        assert (await client.post(f"/api/mcp/configs/{config_id}/connect")).json()["connected"] is True
+        assert (await client.post(f"/api/mcp/configs/{config_id}/disconnect")).json()["connected"] is False
+        assert (await client.delete(f"/api/mcp/configs/{config_id}")).json() == {"ok": True}
+        assert (await client.get("/api/mcp/configs")).json()["total"] == 0
+        assert (await client.delete("/api/mcp/configs/999")).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_enabled_mcp_servers_restore_and_record_failures(self, client, monkeypatch):
+        from app.services import mcp_runtime
+
+        await database.execute(
+            "INSERT INTO mcp_server_configs (name, url, is_enabled) VALUES (?, ?, 1)",
+            ("working", "https://working.example.test/mcp"),
+        )
+        failed_id = await database.execute(
+            "INSERT INTO mcp_server_configs (name, url, is_enabled) VALUES (?, ?, 1)",
+            ("broken", "https://broken.example.test/mcp"),
+        )
+        restored: list[str] = []
+
+        async def connect(name: str, url: str) -> int:
+            if name == "broken":
+                raise TimeoutError("deadline")
+            restored.append(f"{name}:{url}")
+            return 2
+
+        monkeypatch.setattr(mcp_runtime, "connect_http_mcp_server", connect)
+        await mcp_runtime.restore_enabled_mcp_servers()
+
+        assert restored == ["working:https://working.example.test/mcp"]
+        failed = await database.query_one(
+            "SELECT is_enabled, last_error FROM mcp_server_configs WHERE id=?",
+            (failed_id,),
+        )
+        assert failed["is_enabled"] == 1
+        assert failed["last_error"] == "TimeoutError: deadline"

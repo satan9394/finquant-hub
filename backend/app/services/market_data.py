@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from .source_health import CircuitBreaker
+
 EASTMONEY_SEARCH = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_TOKEN = "D43BF722C8E33BDC906FB84D85E326E8"
 TENCENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
@@ -134,6 +136,9 @@ class MarketDataService:
 
     http: httpx.AsyncClient = field(default=None)
     yahoo_http: httpx.AsyncClient = field(default=None)
+    quote_priority: tuple[str, ...] = ("tencent", "sina", "yahoo")
+    kline_priority: tuple[str, ...] = ("sina", "tencent", "yahoo")
+    breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
 
     def __post_init__(self):
         injected_http = self.http is not None
@@ -153,6 +158,29 @@ class MarketDataService:
         await self.http.aclose()
         if self.yahoo_http is not self.http:
             await self.yahoo_http.aclose()
+
+    def _breaker(self, provider: str) -> CircuitBreaker:
+        return self.breakers.setdefault(provider, CircuitBreaker())
+
+    def configure_source_priority(self, kind: str, providers: list[str]) -> None:
+        """Reorder installed providers without silently disabling fallbacks."""
+        if kind not in {"quote", "kline"}:
+            raise ValueError("kind 必须是 quote 或 kline")
+        if len(providers) != 3 or set(providers) != {"tencent", "sina", "yahoo"}:
+            raise ValueError("源优先级必须且只能包含 tencent、sina、yahoo 各一次")
+        setattr(self, f"{kind}_priority", tuple(providers))
+
+    def source_status(self) -> dict:
+        return {
+            "priorities": {
+                "quote": list(self.quote_priority),
+                "kline": list(self.kline_priority),
+            },
+            "providers": {
+                provider: self._breaker(provider).snapshot()
+                for provider in ("tencent", "sina", "yahoo", "eastmoney")
+            },
+        }
 
     # ------------------------------------------------------------------
     # 搜索 — 东方财富
@@ -270,32 +298,98 @@ class MarketDataService:
 
     async def quote(self, ticker: str) -> dict:
         code = normalize_code(ticker)
-        if _market(code) in {"hk", "us"}:
+        providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.quote_priority
+        last_error: Exception | None = None
+        for provider in providers:
+            breaker = self._breaker(provider)
+            if not breaker.allow_request():
+                continue
             try:
-                return await self._quote_yahoo(code)
+                quote = await self._quote_from(provider, code)
+                if not _is_usable_quote(quote):
+                    raise ValueError("行情响应缺少名称或价格")
+                breaker.record_success()
+                return quote
             except (httpx.HTTPError, ValueError, MarketError) as exc:
-                raise MarketError(f"无法获取 {ticker} 的行情") from exc
+                breaker.record_failure(exc)
+                last_error = exc
+        raise MarketError(f"无法获取 {ticker} 的行情") from last_error
 
-        try:
+    async def _quote_from(self, provider: str, code: str) -> dict | None:
+        if provider == "tencent":
             quotes = await self._quotes_tencent([code])
-            if _is_usable_quote(quotes[0] if quotes else None):
-                return quotes[0]
-        except (httpx.HTTPError, ValueError):
-            pass
-        try:
+            return quotes[0] if quotes else None
+        if provider == "sina":
             quotes = await self._quotes_sina([code])
-            if _is_usable_quote(quotes[0] if quotes else None):
-                return quotes[0]
-        except (httpx.HTTPError, ValueError):
-            pass
-        try:
+            return quotes[0] if quotes else None
+        if provider == "yahoo":
             return await self._quote_yahoo(code)
-        except (httpx.HTTPError, ValueError, MarketError) as exc:
-            raise MarketError(f"无法获取 {ticker} 的行情") from exc
+        raise ValueError(f"未知行情源：{provider}")
 
     async def quotes(self, tickers: list[str]) -> list[dict]:
         responses = await asyncio.gather(*(self.quote(ticker) for ticker in tickers), return_exceptions=True)
         return [result for result in responses if isinstance(result, dict)]
+
+    async def quote_enriched(self, ticker: str) -> dict:
+        """Fill missing quote fields from lower-priority sources, never overwrite facts."""
+        quote = await self.quote(ticker)
+        code = normalize_code(ticker)
+        fields = ("name", "price", "pe", "pb", "market_cap", "turnover_rate")
+        missing = {key for key in fields if quote.get(key) in (None, 0, "")}
+        sources = [str(quote.get("source") or "unknown")]
+        if missing and _market(code) not in {"hk", "us"}:
+            for provider in self.quote_priority:
+                if provider in sources:
+                    continue
+                breaker = self._breaker(provider)
+                if not breaker.allow_request():
+                    continue
+                try:
+                    candidate = await self._quote_from(provider, code)
+                    if not _is_usable_quote(candidate):
+                        raise ValueError("行情响应缺少名称或价格")
+                    breaker.record_success()
+                except (httpx.HTTPError, ValueError, MarketError) as exc:
+                    breaker.record_failure(exc)
+                    continue
+                sources.append(provider)
+                for key in tuple(missing):
+                    if candidate.get(key) not in (None, 0, ""):
+                        quote[key] = candidate[key]
+                        missing.remove(key)
+                if not missing:
+                    break
+        quote["sources"] = sources
+        quote["missing_fields"] = sorted(missing)
+        return quote
+
+    async def prefetch_quotes(
+        self,
+        tickers: list[str],
+        *,
+        enriched: bool = True,
+        concurrency: int = 8,
+    ) -> dict:
+        """Bounded concurrent batch fetch with per-ticker errors preserved."""
+        semaphore = asyncio.Semaphore(max(1, min(concurrency, 32)))
+
+        async def fetch(ticker: str) -> tuple[str, dict | Exception]:
+            async with semaphore:
+                try:
+                    method = self.quote_enriched if enriched else self.quote
+                    return ticker, await method(ticker)
+                except (MarketError, ValueError) as exc:
+                    return ticker, exc
+
+        results = await asyncio.gather(*(fetch(ticker) for ticker in tickers))
+        return {
+            "items": [result for _, result in results if isinstance(result, dict)],
+            "errors": {
+                ticker: str(result)
+                for ticker, result in results
+                if isinstance(result, Exception)
+            },
+        }
 
     async def _quotes_tencent(self, codes: list[str]) -> list[dict]:
         resp = await self.http.get(TENCENT_QUOTE.format(codes=",".join(codes)))
@@ -342,6 +436,46 @@ class MarketDataService:
             "timezone": meta.get("exchangeTimezoneName"),
         }
 
+    async def index_quote(
+        self,
+        provider_symbol: str,
+        *,
+        code: str,
+        name: str,
+        market: str,
+    ) -> dict:
+        """Return a normalized index quote for mainland or Yahoo index symbols."""
+        if provider_symbol.startswith(("sh", "sz")):
+            quote = await self.quote(provider_symbol)
+            return {
+                "code": code,
+                "name": name,
+                "market": market,
+                "price": quote.get("price"),
+                "change": quote.get("change"),
+                "change_percent": quote.get("change_percent"),
+                "timestamp": quote.get("timestamp"),
+                "source": quote.get("source"),
+            }
+
+        payload = await self._yahoo_chart(provider_symbol, "5d", "1d")
+        meta = payload.get("meta") or {}
+        price = meta.get("regularMarketPrice")
+        previous = meta.get("previousClose") or meta.get("chartPreviousClose")
+        if price in (None, 0) or previous in (None, 0):
+            raise MarketError(f"指数行情不可用：{provider_symbol}")
+        change = float(price) - float(previous)
+        return {
+            "code": code,
+            "name": name,
+            "market": market,
+            "price": float(price),
+            "change": round(change, 4),
+            "change_percent": round(change / float(previous) * 100, 2),
+            "timestamp": int(meta.get("regularMarketTime") or 0),
+            "source": "yahoo",
+        }
+
     # ------------------------------------------------------------------
     # K 线 — 新浪主源 / 腾讯备源
     # ------------------------------------------------------------------
@@ -350,24 +484,29 @@ class MarketDataService:
         code = normalize_code(ticker)
         scale = PERIOD_TO_SCALE.get(period, 240)
         count = max(1, min(count, 800))
-        if _market(code) in {"hk", "us"}:
-            return await self._kline_yahoo(code, period, count)
-        try:
-            items = await self._kline_sina(code, scale, count)
-            if items:
+        providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.kline_priority
+        last_error: Exception | None = None
+        for provider in providers:
+            breaker = self._breaker(provider)
+            if not breaker.allow_request():
+                continue
+            try:
+                if provider == "sina":
+                    items = await self._kline_sina(code, scale, count)
+                elif provider == "tencent":
+                    items = await self._kline_tencent(code, count)
+                elif provider == "yahoo":
+                    items = await self._kline_yahoo(code, period, count)
+                else:
+                    raise ValueError(f"未知 K 线源：{provider}")
+                if not items:
+                    raise ValueError("K 线响应为空")
+                breaker.record_success()
                 return items
-        except (httpx.HTTPError, ValueError):
-            pass  # 降级到腾讯（仅日线）
-        try:
-            items = await self._kline_tencent(code, count)
-            if items:
-                return items
-        except (httpx.HTTPError, ValueError):
-            pass
-        try:
-            return await self._kline_yahoo(code, period, count)
-        except (httpx.HTTPError, ValueError, MarketError) as exc:
-            raise MarketError(f"无法获取 {ticker} 的 K 线") from exc
+            except (httpx.HTTPError, ValueError, MarketError) as exc:
+                breaker.record_failure(exc)
+                last_error = exc
+        raise MarketError(f"无法获取 {ticker} 的 K 线") from last_error
 
     async def _kline_sina(self, code: str, scale: int, count: int) -> list[dict]:
         resp = await self.http.get(
@@ -465,6 +604,15 @@ class MarketDataService:
         currency. Missing metrics stay missing rather than being coerced to 0.
         """
         code = normalize_code(ticker)
+        if code.startswith(("sh", "sz")):
+            from .fundamentals import fetch_cn_fundamentals
+
+            try:
+                domestic = await fetch_cn_fundamentals(code)
+            except RuntimeError:
+                domestic = []
+            if domestic:
+                return domestic
         symbol = _yahoo_symbol(code)
         metric_types = [
             "trailingMarketCap",
@@ -473,8 +621,12 @@ class MarketDataService:
             "trailingEps",
             "trailingTotalRevenue",
             "trailingNetIncome",
+            "trailingGrossProfit",
             "trailingOperatingCashFlow",
             "trailingFreeCashFlow",
+            "quarterlyTotalAssets",
+            "quarterlyTotalLiabilitiesNetMinorityInterest",
+            "quarterlyStockholdersEquity",
         ]
         now = int(datetime.now(tz=UTC).timestamp())
         response = await self.yahoo_http.get(
@@ -512,6 +664,29 @@ class MarketDataService:
                 "as_of": latest.get("asOfDate"),
                 "currency": latest.get("currencyCode"),
                 "period_type": latest.get("periodType"),
+                "provider": "yahoo_fundamentals_timeseries",
+            })
+        by_metric = {item["metric"]: item for item in items}
+        derived_specs = {
+            "gross_margin": ("trailingGrossProfit", "trailingTotalRevenue"),
+            "net_profit_margin": ("trailingNetIncome", "trailingTotalRevenue"),
+            "debt_to_assets": (
+                "quarterlyTotalLiabilitiesNetMinorityInterest", "quarterlyTotalAssets",
+            ),
+        }
+        for metric, (numerator_key, denominator_key) in derived_specs.items():
+            numerator = by_metric.get(numerator_key)
+            denominator = by_metric.get(denominator_key)
+            if not numerator or not denominator or denominator["value"] == 0:
+                continue
+            items.append({
+                "metric": metric,
+                "value": numerator["value"] / denominator["value"] * 100,
+                "as_of": max(str(numerator.get("as_of") or ""), str(denominator.get("as_of") or "")) or None,
+                "currency": None,
+                "period_type": "derived",
+                "provider": "yahoo_fundamentals_timeseries",
+                "components": [numerator_key, denominator_key],
             })
         return items
 

@@ -52,10 +52,17 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         f"> 生成时间：{created_at}  ",
         f"> 生成模型：{model}",
     ]
-    for title, key in SECTIONS:
-        value = data.get(key)
-        if value:
-            lines.extend(["", f"## {title}", "", str(value).strip()])
+    chapters = data.get("chapters")
+    if isinstance(chapters, list):
+        for chapter in chapters:
+            if not isinstance(chapter, dict) or not chapter.get("content"):
+                continue
+            lines.extend(["", f"## {chapter.get('title') or chapter.get('key')}", "", str(chapter["content"]).strip()])
+    else:
+        for title, key in SECTIONS:
+            value = data.get(key)
+            if value:
+                lines.extend(["", f"## {title}", "", str(value).strip()])
 
     urls = _source_urls(report.get("agent_results") or {})
     if urls:

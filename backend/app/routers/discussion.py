@@ -1,5 +1,6 @@
 """多 Agent 讨论：房间管理 + SSE 讨论流。"""
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
@@ -7,8 +8,10 @@ from sse_starlette.sse import EventSourceResponse
 from .. import database
 from ..models import RoomCreate
 from ..services.discussion_orch import stream_discussion
+from ..services.llm_usage import reset_usage_context, set_usage_context
 
 router = APIRouter(prefix="/api/discussion", tags=["discussion"])
+LOGGER = logging.getLogger(__name__)
 
 
 def _parse_room(room: dict) -> dict:
@@ -73,6 +76,7 @@ async def start_room(room_id: int):
 
     async def event_stream():
         discussion_stream = None
+        usage_token = set_usage_context("discussion", room["conversation_id"])
         try:
             discussion_stream = stream_discussion(_parse_room(room), (conv or {}).get("model_id"))
             async for event in discussion_stream:
@@ -86,6 +90,10 @@ async def start_room(room_id: int):
                     break
                 yield event
         except Exception as e:
+            LOGGER.exception(
+                "Discussion SSE pipeline failed",
+                extra={"event": "discussion.stream.error", "room_id": room_id},
+            )
             message = f"讨论编排错误：{e}"
             yield {
                 "event": "error",
@@ -93,6 +101,7 @@ async def start_room(room_id: int):
             }
             return
         finally:
+            reset_usage_context(usage_token)
             close = getattr(discussion_stream, "aclose", None)
             if close is not None:
                 await close()

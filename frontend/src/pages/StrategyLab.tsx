@@ -30,6 +30,8 @@ const warningLabels: Record<string, string> = {
   no_trades_in_period: '当前参数在区间内没有触发完整交易',
   profit_factor_undefined_without_losses: '区间内没有亏损交易，盈亏比不可定义',
   unadjusted_prices: '行情序列未复权，公司行动可能影响结果',
+  position_open_at_end_due_to_t_plus_one: '期末买入仓位受 T+1 约束，按市值保留未实现收益',
+  position_open_at_end_due_to_limit_down: '期末跌停无法成交，按市值保留未实现收益',
 };
 
 const initialValues = (symbol: string): BacktestFormValues => ({
@@ -267,6 +269,8 @@ export default function StrategyLab() {
               ['最大回撤', pct(run.metrics.max_drawdown), 'metric-max-drawdown'],
               ['Sharpe', run.metrics.sharpe_ratio?.toFixed(3) ?? '—', 'metric-sharpe'],
               ['Sortino', run.metrics.sortino_ratio?.toFixed(3) ?? '—', 'metric-sortino'],
+              ['Calmar', run.metrics.calmar_ratio?.toFixed(3) ?? '—', 'metric-calmar'],
+              ['信息比率', run.metrics.information_ratio?.toFixed(3) ?? '—', 'metric-information'],
               ['胜率', pct(run.metrics.win_rate), 'metric-win-rate'],
               ['盈亏比', run.metrics.profit_factor?.toFixed(3) ?? '—', 'metric-profit-factor'],
               ['换手', `${run.metrics.turnover.toFixed(2)}×`, 'metric-turnover'],
@@ -281,6 +285,33 @@ export default function StrategyLab() {
           <Card title="曲线与成交点" className="surface-card" style={{ marginTop: 18 }}>
             <BacktestCharts run={run} bars={bars} />
           </Card>
+
+          {run.validation && (
+            <Card title="统计显著性与稳健性" className="surface-card" style={{ marginTop: 18 }}>
+              <Descriptions column={{ xs: 1, md: 3 }} size="small">
+                <Descriptions.Item label="Bootstrap 置信区间">
+                  {pct(run.validation.bootstrap.confidence_interval[0])} ～ {pct(run.validation.bootstrap.confidence_interval[1])}
+                </Descriptions.Item>
+                <Descriptions.Item label="Bootstrap 正收益概率">
+                  {pct(run.validation.bootstrap.probability_positive)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Monte Carlo 中位收益">
+                  {pct(run.validation.monte_carlo.terminal_return.median)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Monte Carlo 亏损概率">
+                  {pct(run.validation.monte_carlo.probability_loss)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Walk-forward 正收益折数">
+                  {run.validation.walk_forward.status === 'ok'
+                    ? pct(run.validation.walk_forward.positive_fold_ratio)
+                    : '样本不足'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Walk-forward 折数">
+                  {run.validation.walk_forward.fold_count ?? '—'}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          )}
 
           <Row gutter={[18, 18]} style={{ marginTop: 18 }}>
             <Col xs={24} xl={15}>
@@ -303,6 +334,12 @@ export default function StrategyLab() {
                   <Descriptions.Item label="区间">{run.params.start_date} 至 {run.params.end_date}</Descriptions.Item>
                   <Descriptions.Item label="均线">MA{run.params.short_window} / MA{run.params.long_window}</Descriptions.Item>
                   <Descriptions.Item label="费用">佣金 {run.params.commission_bps} bps + 滑点 {run.params.slippage_bps} bps</Descriptions.Item>
+                  <Descriptions.Item label="交易规则">
+                    {run.execution_rules?.market === 'CN'
+                      ? `A股 T+1 · 禁做空 · 涨跌停 ${pct(run.execution_rules.price_limit_ratio)}`
+                      : '通用长仓规则'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="拒单数">{run.rejected_orders?.length ?? 0}</Descriptions.Item>
                   <Descriptions.Item label="提供方">{run.provenance?.provider ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="截止时间">{run.provenance?.as_of ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="时区">{run.provenance?.timezone ?? '—'}</Descriptions.Item>

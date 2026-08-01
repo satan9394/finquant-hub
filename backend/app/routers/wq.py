@@ -1,8 +1,13 @@
-"""WorldQuant Alpha 因子搜索 API。"""
-from fastapi import APIRouter, Query
+"""WorldQuant Alpha factor research and optional BRAIN bridge API."""
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..services import alpha_service
+from ..services.alpha_simulator import simulate_factor
+from ..services.alpha_templates import generate_factor_templates
+from ..services.alpha_brain import AlphaBrainClient, AlphaBrainError
 
 router = APIRouter(prefix="/api/wq", tags=["wq"])
 
@@ -10,6 +15,34 @@ router = APIRouter(prefix="/api/wq", tags=["wq"])
 class CorrelationIn(BaseModel):
     series_a: list[float] = Field(min_length=3, description="序列A")
     series_b: list[float] = Field(min_length=3, description="序列B")
+
+
+class FactorObservation(BaseModel):
+    date: str
+    symbol: str
+    factor: float
+    forward_return: float
+
+
+class FactorSimulationIn(BaseModel):
+    observations: list[FactorObservation] = Field(min_length=2)
+    quantile: float = Field(default=0.2, gt=0, le=0.5)
+    periods_per_year: int = Field(default=252, ge=1, le=366)
+
+
+class BrainSimulationIn(BaseModel):
+    expression: str = Field(min_length=1, max_length=10_000)
+    settings: dict[str, Any] | None = None
+    confirm: bool = Field(default=False, description="显式确认向 WorldQuant BRAIN 提交模拟")
+
+
+async def _run_brain(operation):
+    try:
+        async with AlphaBrainClient() as client:
+            await client.authenticate()
+            return await operation(client)
+    except AlphaBrainError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.get("/search")
@@ -33,6 +66,51 @@ async def list_custom_fields():
     """返回项目实际打包的 WorldQuant 字段目录。"""
     items = alpha_service.list_fields()
     return {"items": items, "total": len(items)}
+
+
+@router.get("/templates")
+async def list_factor_templates():
+    """Generate usable templates from fields that exist in the bundled catalogue."""
+    items = generate_factor_templates()
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/simulate/local")
+async def simulate_factor_locally(body: FactorSimulationIn):
+    """Run a deterministic, API-free long/short factor simulation."""
+    return simulate_factor(
+        [item.model_dump() for item in body.observations],
+        quantile=body.quantile,
+        periods_per_year=body.periods_per_year,
+    )
+
+
+@router.post("/brain/simulations", status_code=202)
+async def create_brain_simulation(body: BrainSimulationIn):
+    """Submit a remote BRAIN simulation only after explicit confirmation."""
+    if not body.confirm:
+        raise HTTPException(409, "提交远端模拟前必须显式设置 confirm=true")
+
+    async def create(client: AlphaBrainClient):
+        return await client.create_simulation(body.expression, settings=body.settings)
+
+    return await _run_brain(create)
+
+
+@router.get("/brain/simulations/{simulation_id}")
+async def get_brain_simulation(simulation_id: str):
+    async def get(client: AlphaBrainClient):
+        return await client.get_simulation(simulation_id)
+
+    return await _run_brain(get)
+
+
+@router.get("/brain/alphas/{alpha_id}")
+async def get_brain_alpha(alpha_id: str):
+    async def get(client: AlphaBrainClient):
+        return await client.get_alpha(alpha_id)
+
+    return await _run_brain(get)
 
 
 @router.post("/correlation")

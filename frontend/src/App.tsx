@@ -19,10 +19,13 @@ import {
   ExperimentOutlined,
   SunOutlined,
   MoonOutlined,
+  ApiOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
 import ModelSelector from './components/ModelSelector';
+import NotificationCenter from './components/NotificationCenter';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Chat = lazy(() => import('./pages/Chat'));
@@ -37,6 +40,8 @@ const StrategyLab = lazy(() => import('./pages/StrategyLab'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Screening = lazy(() => import('./pages/Screening'));
 const AlphaResearch = lazy(() => import('./pages/AlphaResearch'));
+const McpMarket = lazy(() => import('./pages/McpMarket'));
+const Alerts = lazy(() => import('./pages/Alerts'));
 
 const menuItems = [
   { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
@@ -49,6 +54,8 @@ const menuItems = [
   { path: '/alpha', name: 'Alpha 因子', icon: <ExperimentOutlined /> },
   { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
   { path: '/models', name: '模型', icon: <RobotOutlined /> },
+  { path: '/mcp-market', name: 'MCP 工具', icon: <ApiOutlined /> },
+  { path: '/alerts', name: '预警中心', icon: <AlertOutlined /> },
   { path: '/settings', name: '设置', icon: <SettingOutlined /> },
 ];
 
@@ -90,6 +97,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       navTheme={isDark ? 'realDark' : 'light'}
       contentStyle={{ background: isDark ? '#141414' : '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
       actionsRender={() => [
+        <NotificationCenter key="notification-center" />,
         <Space.Compact key="model-selector">
           <span style={{ fontSize: 12, color: '#888', alignSelf: 'center', marginRight: 8 }}>当前模型:</span>
           <ModelSelector />
@@ -121,6 +129,8 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
         <Route path="/discussion" element={<Discussion />} />
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/models" element={<Models />} />
+        <Route path="/mcp-market" element={<McpMarket />} />
+        <Route path="/alerts" element={<Alerts />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/analysis/:ticker" element={<StockAnalysis />} />
         <Route path="/research" element={<ResearchWorkspace />} />

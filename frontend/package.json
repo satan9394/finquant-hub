@@ -7,14 +7,18 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "bun test"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@datapool/china.geojson": "1.2.0",
     "@ant-design/icons": "^5.5.2",
     "@ant-design/pro-components": "^2.8.5",
     "antd": "^5.24.6",
     "axios": "^1.7.9",
     "dayjs": "^1.11.13",
+    "echarts": "6.1.0",
+    "echarts-for-react": "3.0.6",
     "lightweight-charts": "^4.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -22,10 +26,15 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^30.0.1",
     "typescript": "~5.6.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "^4.1.10"
   }
 }

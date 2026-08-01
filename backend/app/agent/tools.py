@@ -4,7 +4,9 @@
 ToolRegistry 统一管理注册、查找、转为 OpenAI function_calling 格式。
 """
 from abc import ABC, abstractmethod
-from typing import Any
+import inspect
+from collections.abc import Callable
+from typing import Any, cast
 
 
 class ToolResult:
@@ -24,18 +26,19 @@ class BaseTool(ABC):
 
     name: str = ""
     description: str = ""
-    parameters: dict = {}  # JSON Schema
+    parameters: dict[str, Any] = {}  # JSON Schema
+    auto_register: bool = True
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if not cls.name:
             raise TypeError(f"{cls.__name__} 必须定义 name 类属性")
 
     @abstractmethod
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         """执行工具逻辑，返回 ToolResult。"""
 
-    def to_openai_tool(self) -> dict:
+    def to_openai_tool(self) -> dict[str, Any]:
         """转为 OpenAI function_calling 格式。"""
         return {
             "type": "function",
@@ -51,11 +54,18 @@ class ToolRegistry:
     """全局工具注册表（单例）。"""
 
     _instance: "ToolRegistry | None" = None
+    _tools: dict[str, BaseTool]
 
     def __new__(cls) -> "ToolRegistry":
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._tools: dict[str, BaseTool] = {}
+            instance = super().__new__(cls)
+            instance._tools = {}
+            # ponytail: 本地工具统一无参构造，直接发现子类即可，避免维护手动清单。
+            for tool_class in BaseTool.__subclasses__():
+                if tool_class.auto_register and not inspect.isabstract(tool_class):
+                    factory = cast(Callable[[], BaseTool], tool_class)
+                    instance.register(factory())
+            cls._instance = instance
         return cls._instance
 
     def register(self, tool: BaseTool) -> None:
@@ -70,7 +80,7 @@ class ToolRegistry:
         """返回所有已注册工具。"""
         return list(self._tools.values())
 
-    def to_openai_tools(self) -> list[dict]:
+    def to_openai_tools(self) -> list[dict[str, Any]]:
         """全部工具转为 OpenAI function_calling 格式列表。"""
         return [t.to_openai_tool() for t in self._tools.values()]
 

@@ -17,7 +17,18 @@ class TestMA:
 
     def test_all_windows_present(self):
         result = indicators.calc_ma(closes(100))
-        assert set(result.keys()) == {"ma5", "ma10", "ma20", "ma30", "ma60"}
+        assert set(result.keys()) == {
+            "ma5", "ma10", "ma20", "ma30", "ma60", "ma120", "ma250",
+        }
+        assert result["ma120"] == [None] * 100
+        assert result["ma250"] == [None] * 100
+
+    def test_long_windows_and_volma10(self):
+        ma = indicators.calc_ma(closes(260))
+        volma = indicators.calc_volma(closes(20))
+        assert ma["ma120"][119] == pytest.approx(sum(closes(120)) / 120)
+        assert ma["ma250"][249] == pytest.approx(sum(closes(250)) / 250)
+        assert volma["volma10"][9] == 6.0
 
 
 class TestMACD:
