@@ -2,11 +2,11 @@
  * Dashboard — 系统总览页
  * ============================================================ */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Card, Row, Col, Statistic, List, Typography, Input, Button, message, Tag } from 'antd';
+import { Alert, Card, Row, Col, Statistic, List, Typography, Input, Button, message, Modal, Space, Tag } from 'antd';
 import {
   RobotOutlined, MessageOutlined, TeamOutlined, CommentOutlined,
   PlusOutlined, ReloadOutlined, RiseOutlined, FallOutlined, SearchOutlined, FundOutlined,
-  GlobalOutlined, ExperimentOutlined,
+  GlobalOutlined, ExperimentOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
@@ -28,6 +28,15 @@ const WATCHLIST_KEY = 'finquant_watchlist';
 interface WatchItem {
   code: string;
   name: string;
+}
+
+interface WatchlistImportResult {
+  total: number;
+  success: number;
+  failed: number;
+  duplicate: number;
+  items: WatchItem[];
+  failures: Array<{ input: string; reason: string }>;
 }
 
 function loadWatchlist(): WatchItem[] {
@@ -54,6 +63,11 @@ export default function Dashboard() {
   const [quotes, setQuotes] = useState<Record<string, RealTimeQuote>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<WatchlistImportResult | null>(null);
 
   // 投资组合摘要（仪表盘概览）
   const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
@@ -159,6 +173,38 @@ export default function Dashboard() {
     const newList = watchlist.filter((w) => w.code !== code);
     setWatchlist(newList);
     saveWatchlist(newList);
+  };
+
+  const openWatchlistImport = () => {
+    setImportText('');
+    setImportFile(null);
+    setImportResult(null);
+    setImportOpen(true);
+  };
+
+  const importWatchlist = async () => {
+    if (!importText.trim() && !importFile) {
+      message.warning('请粘贴自选股文本或选择文件');
+      return;
+    }
+    const payload = new FormData();
+    payload.append('text', importText);
+    payload.append('existing', JSON.stringify(watchlist.map((item) => item.code)));
+    if (importFile) payload.append('file', importFile);
+    setImportLoading(true);
+    try {
+      const response = await apiClient.post<WatchlistImportResult>('/dashboard/watchlist/import', payload);
+      const result = response.data;
+      const next = [...watchlist, ...result.items];
+      setWatchlist(next);
+      saveWatchlist(next);
+      setImportResult(result);
+      if (result.success > 0) message.success(`成功导入 ${result.success} 个标的`);
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '导入失败');
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const statsCards = [
@@ -518,9 +564,10 @@ export default function Dashboard() {
             title="自选股行情"
             size="small"
             extra={
-              <Button size="small" icon={<ReloadOutlined />} onClick={refreshQuotes}>
-                刷新
-              </Button>
+              <Space>
+                <Button size="small" icon={<UploadOutlined />} onClick={openWatchlistImport}>导入</Button>
+                <Button size="small" icon={<ReloadOutlined />} onClick={refreshQuotes}>刷新</Button>
+              </Space>
             }
           >
             {/* 搜索添加 */}
@@ -599,6 +646,43 @@ export default function Dashboard() {
           </Card>
         </Col>
       </Row>
+
+      <Modal
+        title="批量导入自选股"
+        open={importOpen}
+        okText="开始导入"
+        cancelText="关闭"
+        confirmLoading={importLoading}
+        onOk={importWatchlist}
+        onCancel={() => setImportOpen(false)}
+      >
+        <Typography.Paragraph type="secondary">
+          粘贴逗号或换行分隔的代码、中文名称或拼音，也可上传 CSV、TXT、XLSX（最大 5MB）。图片 OCR 暂列 P3。
+        </Typography.Paragraph>
+        <Input.TextArea
+          rows={6}
+          value={importText}
+          onChange={(event) => setImportText(event.target.value)}
+          placeholder={'例如：\n600519, 腾讯控股\nAAPL\nmaotai'}
+        />
+        <div style={{ marginTop: 12 }}>
+          <input
+            type="file"
+            aria-label="选择自选股导入文件"
+            accept=".csv,.txt,.xlsx"
+            onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+          />
+        </div>
+        {importResult && (
+          <Alert
+            style={{ marginTop: 12 }}
+            type={importResult.failed > 0 ? 'warning' : 'success'}
+            showIcon
+            message={`成功 ${importResult.success} · 重复 ${importResult.duplicate} · 失败 ${importResult.failed}`}
+            description={importResult.failures.slice(0, 5).map((item) => `${item.input}：${item.reason}`).join('；') || undefined}
+          />
+        )}
+      </Modal>
 
       {/* AI 免责声明 */}
       <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 24 }}>

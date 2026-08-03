@@ -41,6 +41,10 @@ async def test_legacy_research_and_backtest_tickers_are_normalized(tmp_path, mon
             {"version": 5, "name": "install_market_reviews"},
             {"version": 6, "name": "install_scheduled_research_jobs"},
             {"version": 7, "name": "install_llm_usage"},
+            {"version": 8, "name": "install_investment_theses"},
+            {"version": 9, "name": "install_passwordless_auth"},
+            {"version": 10, "name": "install_user_data_isolation"},
+            {"version": 11, "name": "install_user_credentials"},
         ]
         notification_table = await database.query_one(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'"
@@ -62,6 +66,16 @@ async def test_legacy_research_and_backtest_tickers_are_normalized(tmp_path, mon
             "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_usage'"
         )
         assert usage_table["name"] == "llm_usage"
+        thesis_tables = await database.query_all(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('thesis', 'thesis_claims') ORDER BY name"
+        )
+        assert [table["name"] for table in thesis_tables] == ["thesis", "thesis_claims"]
+        auth_tables = await database.query_all(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users', 'login_codes', 'sessions') ORDER BY name"
+        )
+        assert [table["name"] for table in auth_tables] == ["login_codes", "sessions", "users"]
+        owner_columns = await database.query_all("PRAGMA table_info(research_reports)")
+        assert "user_id" in {column["name"] for column in owner_columns}
     finally:
         await database.close_db()
 

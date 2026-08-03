@@ -4,6 +4,7 @@
 工具按领域分：行情、技术指标、估值验算、选股、新闻搜索、精确计算。
 """
 from decimal import Decimal, Context, ROUND_HALF_EVEN
+from typing import Any
 
 from ..agent.tools import BaseTool, ToolResult, ToolRegistry
 from ..services.market_data import MarketDataService
@@ -43,7 +44,7 @@ class GetStockData(BaseTool):
     description = "获取股票实时行情，含现价、涨跌幅、PE、PB、总市值等"
     parameters = _STOCK_QUERY_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         ticker = kwargs.get("ticker", "")
         if not ticker:
             return ToolResult(False, error="参数 ticker 不能为空")
@@ -60,7 +61,7 @@ class GetStockData(BaseTool):
         return ToolResult(True, data=quote)
 
 
-def _parse_tencent(raw: str) -> list[dict]:
+def _parse_tencent(raw: str) -> list[dict[str, Any]]:
     import re
     results = []
     pattern = re.compile(r'^v_(sh|sz|hk|us)(\w+)="(.*)";?\s*$', re.M)
@@ -70,7 +71,7 @@ def _parse_tencent(raw: str) -> list[dict]:
         if len(f) < 50:
             continue
 
-        def num(i: int, default=0.0) -> float:
+        def num(i: int, default: float = 0.0) -> float:
             try:
                 v = float(f[i])
                 return v if v == v else default
@@ -125,7 +126,7 @@ class CalculateIndicators(BaseTool):
     description = "基于日K线计算常用技术指标，返回各指标最新值"
     parameters = _INDICATOR_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         from ..services import indicators
 
         ticker = kwargs.get("ticker", "")
@@ -183,7 +184,7 @@ class VerifyValuation(BaseTool):
     description = "根据输入的股价和财务数据，精确计算PE、PB、P/FCF、股息率、盈利收益率等估值指标"
     parameters = _VAL_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         price = kwargs.get("price")
         if price is None:
             return ToolResult(False, error="参数 price 不能为空")
@@ -230,7 +231,7 @@ class ScreenStocks(BaseTool):
     description = "对用户给定的 A股、港股或美股代码执行动量发现与价值评分"
     parameters = _SCREEN_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         tickers = [str(item).strip() for item in kwargs.get("tickers", []) if str(item).strip()]
         if not tickers or len(tickers) > 30:
             return ToolResult(False, error="tickers 必须包含 1-30 个股票代码")
@@ -265,7 +266,7 @@ class AuditReportData(BaseTool):
     description = "抽取研究报告财务数据点，并对已核验数值生成准出或打回结论"
     parameters = _REPORT_AUDIT_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         markdown = str(kwargs.get("markdown", ""))
         if not markdown.strip():
             return ToolResult(False, error="markdown 不能为空")
@@ -299,14 +300,26 @@ class SearchNews(BaseTool):
     description = "搜索指定关键词的财经新闻，返回新闻标题、来源与摘要"
     parameters = _NEWS_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         keyword = kwargs.get("keyword", "")
         max_results = min(int(kwargs.get("max_results", 5)), 10)
 
         if not keyword:
             return ToolResult(False, error="参数 keyword 不能为空")
 
-        service = NewsSearchService()
+        from ..services.auth import current_user_id
+        from ..services.credential_store import get_credentials
+
+        try:
+            user_id = current_user_id()
+        except RuntimeError:
+            credentials = {}
+        else:
+            credentials = await get_credentials(
+                user_id,
+                ("tavily", "serpapi", "bocha", "brave", "searxng"),
+            )
+        service = NewsSearchService(credentials=credentials)
         try:
             return ToolResult(True, data=await service.search(keyword, max_results=max_results))
         except (ValueError, RuntimeError) as e:
@@ -338,7 +351,7 @@ class CalculateByFinancialRigor(BaseTool):
     description = "精确计算金融表达式，支持科学计数法，返回人类可读格式"
     parameters = _CALC_PARAMS
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         expr = kwargs.get("expression", "")
         if not expr:
             return ToolResult(False, error="参数 expression 不能为空")
@@ -396,7 +409,7 @@ class CheckBuffettRules(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         from ..tools.investment_checklist import check_buffett_rules
 
         assessments = kwargs.get("assessments")
@@ -450,7 +463,7 @@ class AdversarialReview(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         from ..tools.adversarial_review import adversarial_review
 
         claims = kwargs.get("claims")
@@ -482,7 +495,7 @@ class RunBacktest(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         from ..backtest.ma_crossover import run_ma_crossover
         from ..backtest.significance import validate_ma_strategy
 
@@ -558,7 +571,7 @@ class AnalyzeShadowTrades(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         try:
             return ToolResult(True, data=analyze_shadow_trades(kwargs.get("trades") or []))
         except (TypeError, ValueError) as exc:
@@ -581,7 +594,7 @@ class AnalyzePortfolioRisk(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         from ..backtest.risk import portfolio_risk_xray
 
         try:
@@ -608,7 +621,7 @@ class AssessTradingConnector(BaseTool):
         "additionalProperties": False,
     }
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         return ToolResult(True, data=connector_design_assessment(
             str(kwargs.get("broker") or ""), kwargs.get("requested_capabilities") or []
         ))

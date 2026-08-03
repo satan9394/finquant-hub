@@ -6,21 +6,23 @@
 - GET  /api/backtest/runs/{id}                                     → 单次回测详情
 """
 import json
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import database
 from ..backtest.engine import SUPPORTED_STRATEGIES, run_backtest
+from .auth import CurrentUser, authenticated_context
 
-router = APIRouter(prefix="/api/backtest", tags=["backtest"])
+router = APIRouter(prefix="/api/backtest", tags=["backtest"], dependencies=[Depends(authenticated_context)])
 
 
 class BacktestRequest(BaseModel):
     ticker: str = Field(min_length=1, description="股票代码")
     strategy_type: str = Field(description=f"策略类型：{'/'.join(SUPPORTED_STRATEGIES)}")
     periods: int = Field(default=252, ge=50, le=1000, description="回测周期数（交易日）")
-    params: dict | None = Field(default=None, description="策略参数，如 {\"fast\": 10, \"slow\": 30}")
+    params: dict[str, Any] | None = Field(default=None, description="策略参数，如 {\"fast\": 10, \"slow\": 30}")
 
 
 # ------------------------------------------------------------------
@@ -28,7 +30,7 @@ class BacktestRequest(BaseModel):
 # ------------------------------------------------------------------
 
 @router.post("/runs", status_code=201)
-async def create_backtest(body: BacktestRequest, request: Request):
+async def create_backtest(body: BacktestRequest, request: Request, user: CurrentUser) -> dict[str, Any]:
     """执行向量化回测，返回绩效指标与权益曲线。"""
     from ..services.analysis.ticker import resolve_ticker
     from ..services.market_data import MarketDataService, MarketError
@@ -59,19 +61,19 @@ async def create_backtest(body: BacktestRequest, request: Request):
 
     # 保存回测结果到数据库
     run_id = await _save_run(body.ticker, body.strategy_type, body.periods,
-                             body.params or {}, result)
+                             body.params or {}, result, int(user["id"]))
 
     return {"id": run_id, **result}
 
 
 async def _save_run(ticker: str, strategy_type: str, periods: int,
-                    params: dict, result: dict) -> int:
+                    params: dict[str, Any], result: dict[str, Any], user_id: int) -> int:
     """持久化回测结果，返回新记录 ID。"""
     new_id = await database.execute(
-        "INSERT INTO backtest_runs (ticker, strategy_type, periods, params, result) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO backtest_runs (ticker, strategy_type, periods, params, result, user_id) VALUES (?, ?, ?, ?, ?, ?)",
         (ticker, strategy_type, periods,
          json.dumps(params, ensure_ascii=False),
-         json.dumps(result, ensure_ascii=False)),
+         json.dumps(result, ensure_ascii=False), user_id),
     )
     return new_id
 
@@ -81,15 +83,15 @@ async def _save_run(ticker: str, strategy_type: str, periods: int,
 # ------------------------------------------------------------------
 
 @router.get("/runs")
-async def list_backtest_runs(page: int = 1, page_size: int = 20):
+async def list_backtest_runs(user: CurrentUser, page: int = 1, page_size: int = 20) -> dict[str, Any]:
     """列出历史回测运行记录。"""
     offset = (page - 1) * page_size
     items = await database.query_all(
         "SELECT id, ticker, strategy_type, periods, status, created_at "
-        "FROM backtest_runs ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        (page_size, offset),
+        "FROM backtest_runs WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (user["id"], page_size, offset),
     )
-    total = await database.query_one("SELECT COUNT(*) AS n FROM backtest_runs")
+    total = await database.query_one("SELECT COUNT(*) AS n FROM backtest_runs WHERE user_id=?", (user["id"],))
     return {"items": items, "total": (total or {}).get("n", 0), "page": page, "page_size": page_size}
 
 
@@ -98,9 +100,9 @@ async def list_backtest_runs(page: int = 1, page_size: int = 20):
 # ------------------------------------------------------------------
 
 @router.get("/runs/{run_id:int}")
-async def get_backtest_run(run_id: int):
+async def get_backtest_run(run_id: int, user: CurrentUser) -> dict[str, Any]:
     """获取单次回测的完整结果。"""
-    row = await database.query_one("SELECT * FROM backtest_runs WHERE id=?", (run_id,))
+    row = await database.query_one("SELECT * FROM backtest_runs WHERE id=? AND user_id=?", (run_id, user["id"]))
     if not row:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
 

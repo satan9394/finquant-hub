@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from ...services.market_data import normalize_code
 from .base import BaseLoader, LoaderUnavailableError, SUPPORTED_PERIODS
@@ -87,7 +87,7 @@ class LoaderRegistry:
         period: str,
         count: int,
         source: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         if period not in SUPPORTED_PERIODS:
             raise ValueError(f"不支持的周期：{period}")
         if count <= 0:

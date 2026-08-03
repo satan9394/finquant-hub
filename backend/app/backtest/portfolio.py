@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from .ma_crossover import run_ma_crossover
 from .metrics import calculate_performance, calculate_trade_metrics
@@ -16,14 +17,15 @@ PERIODS_PER_YEAR = {
     "15m": 252 * 26,
     "5m": 252 * 78,
 }
+JSONDict = dict[str, Any]
 
 
 def _combine_curves(
-    results: Mapping[str, dict],
+    results: Mapping[str, JSONDict],
     weights: Mapping[str, float],
     initial_capital: float,
     curve_name: str,
-) -> list[dict]:
+) -> list[JSONDict]:
     series = {
         asset_id: {point["time"]: float(point["value"]) / (initial_capital * weights[asset_id])
                    for point in result[curve_name]}
@@ -31,7 +33,7 @@ def _combine_curves(
     }
     times = sorted({time for points in series.values() for time in points})
     latest = {asset_id: 1.0 for asset_id in series}
-    combined: list[dict] = []
+    combined: list[JSONDict] = []
     for time in times:
         for asset_id, points in series.items():
             if time in points:
@@ -42,12 +44,12 @@ def _combine_curves(
 
 
 def _portfolio_metrics(
-    equity_curve: list[dict],
-    benchmark_curve: list[dict],
+    equity_curve: list[JSONDict],
+    benchmark_curve: list[JSONDict],
     initial_capital: float,
     periods: set[str],
-    results: Mapping[str, dict],
-) -> dict:
+    results: Mapping[str, JSONDict],
+) -> JSONDict:
     del initial_capital
     periods_per_year = PERIODS_PER_YEAR[next(iter(periods))] if len(periods) == 1 else None
     performance = calculate_performance(
@@ -74,14 +76,14 @@ def _portfolio_metrics(
 
 
 def run_portfolio_backtest(
-    assets: list[dict],
+    assets: list[JSONDict],
     *,
     optimizer: str,
     optimization_lookback: int,
     initial_capital: float,
     commission_bps: float,
     slippage_bps: float,
-) -> dict:
+) -> JSONDict:
     """Calibrate weights first, then run each strategy out of sample."""
     closes_by_asset: dict[str, list[float]] = {}
     for asset in assets:
@@ -96,8 +98,8 @@ def run_portfolio_backtest(
         ]
 
     weights = optimize_weights(closes_by_asset, optimizer)
-    results: dict[str, dict] = {}
-    asset_results: list[dict] = []
+    results: dict[str, JSONDict] = {}
+    asset_results: list[JSONDict] = []
     for asset in assets:
         asset_id = asset["asset_id"]
         result = run_ma_crossover(

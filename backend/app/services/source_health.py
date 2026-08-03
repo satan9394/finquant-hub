@@ -47,7 +47,7 @@ class CircuitBreaker:
             self.opened_at = self.clock()
         self.half_open_probe = False
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, object]:
         retry_after = None
         if self.state == "open" and self.opened_at is not None:
             retry_after = max(0.0, self.recovery_seconds - (self.clock() - self.opened_at))

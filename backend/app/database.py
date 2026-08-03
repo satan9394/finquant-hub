@@ -1,5 +1,8 @@
 """SQLite 数据层：aiosqlite 单例连接 + 建表 + 种子数据（WAL 模式）。"""
 import json
+from pathlib import Path
+import sqlite3
+from typing import Any, cast
 
 import aiosqlite
 
@@ -266,7 +269,7 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 """
 
-_db: aiosqlite.Connection | None = None
+_db: aiosqlite.Connection = cast(aiosqlite.Connection, None)
 _TICKER_NORMALIZATION_VERSION = 1
 _MEMORY_FTS_VERSION = 2
 _NOTIFICATIONS_VERSION = 3
@@ -274,7 +277,19 @@ _ALERTS_VERSION = 4
 _MARKET_REVIEWS_VERSION = 5
 _SCHEDULED_RESEARCH_VERSION = 6
 _LLM_USAGE_VERSION = 7
-_SCHEMA_VERSION = _LLM_USAGE_VERSION
+_THESIS_VERSION = 8
+_AUTH_VERSION = 9
+_OWNER_ISOLATION_VERSION = 10
+_CREDENTIALS_VERSION = 11
+_SCHEMA_VERSION = _CREDENTIALS_VERSION
+_OWNER_TABLES = (
+    "model_configs", "conversations", "messages", "discussion_rooms",
+    "research_reports", "research_events", "research_workspaces",
+    "backtest_runs", "quant_backtests", "analysis_reports", "analysis_signals", "agent_runs",
+    "portfolio_groups", "portfolio_items", "portfolio_trades",
+    "portfolios", "positions", "notifications", "alert_rules", "alert_triggers",
+    "market_reviews", "scheduled_research_jobs", "llm_usage", "thesis", "thesis_claims",
+)
 _MIGRATION_NAMES = {
     _TICKER_NORMALIZATION_VERSION: "normalize_legacy_tickers",
     _MEMORY_FTS_VERSION: "install_memory_fts",
@@ -283,6 +298,10 @@ _MIGRATION_NAMES = {
     _MARKET_REVIEWS_VERSION: "install_market_reviews",
     _SCHEDULED_RESEARCH_VERSION: "install_scheduled_research_jobs",
     _LLM_USAGE_VERSION: "install_llm_usage",
+    _THESIS_VERSION: "install_investment_theses",
+    _AUTH_VERSION: "install_passwordless_auth",
+    _OWNER_ISOLATION_VERSION: "install_user_data_isolation",
+    _CREDENTIALS_VERSION: "install_user_credentials",
 }
 
 
@@ -290,6 +309,7 @@ async def init_db() -> None:
     """FastAPI lifespan 启动钩子：建库建表 + WAL + 种子数据。"""
     global _db
     config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    existing_database = config.DB_PATH.exists() and config.DB_PATH.stat().st_size > 0
     _db = await aiosqlite.connect(config.DB_PATH)
     _db.row_factory = aiosqlite.Row
     from .services.memory import normalize_for_search
@@ -297,6 +317,9 @@ async def init_db() -> None:
     await _db.create_function("memory_normalize", 1, normalize_for_search, deterministic=True)
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA foreign_keys=ON")
+    current_version = int(cast(sqlite3.Row, await (await _db.execute("PRAGMA user_version")).fetchone())[0])
+    if existing_database and current_version < _OWNER_ISOLATION_VERSION:
+        await _backup_database_before_owner_migration(config.DB_PATH)
     await _db.executescript(SCHEMA)
     await _migrate_schema()
     await _seed_models()
@@ -308,8 +331,8 @@ async def _migrate_schema() -> None:
     """Keep existing local databases compatible without destructive resets."""
     await _ensure_column("research_reports", "model_id", "model_id INTEGER")
     await _ensure_column("research_reports", "updated_at", "updated_at TEXT")
-    row = await (await _db.execute("PRAGMA user_version")).fetchone()
-    version = row[0]
+    row = cast(sqlite3.Row, await (await _db.execute("PRAGMA user_version")).fetchone())
+    version = int(row[0])
 
     if version < _TICKER_NORMALIZATION_VERSION:
         await _db.execute("SAVEPOINT normalize_legacy_tickers")
@@ -401,6 +424,58 @@ async def _migrate_schema() -> None:
             await _db.execute("RELEASE SAVEPOINT install_llm_usage")
             raise
         version = _LLM_USAGE_VERSION
+
+    if version < _THESIS_VERSION:
+        await _db.execute("SAVEPOINT install_investment_theses")
+        try:
+            await _install_investment_theses()
+            await _db.execute(f"PRAGMA user_version={_THESIS_VERSION}")
+            await _record_schema_version(_THESIS_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_investment_theses")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_investment_theses")
+            await _db.execute("RELEASE SAVEPOINT install_investment_theses")
+            raise
+        version = _THESIS_VERSION
+
+    if version < _AUTH_VERSION:
+        await _db.execute("SAVEPOINT install_passwordless_auth")
+        try:
+            await _install_passwordless_auth()
+            await _db.execute(f"PRAGMA user_version={_AUTH_VERSION}")
+            await _record_schema_version(_AUTH_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_passwordless_auth")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_passwordless_auth")
+            await _db.execute("RELEASE SAVEPOINT install_passwordless_auth")
+            raise
+        version = _AUTH_VERSION
+
+    if version < _OWNER_ISOLATION_VERSION:
+        await _db.execute("SAVEPOINT install_user_data_isolation")
+        try:
+            await _install_user_data_isolation()
+            await _db.execute(f"PRAGMA user_version={_OWNER_ISOLATION_VERSION}")
+            await _record_schema_version(_OWNER_ISOLATION_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_user_data_isolation")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_user_data_isolation")
+            await _db.execute("RELEASE SAVEPOINT install_user_data_isolation")
+            raise
+        version = _OWNER_ISOLATION_VERSION
+
+    if version < _CREDENTIALS_VERSION:
+        await _db.execute("SAVEPOINT install_user_credentials")
+        try:
+            await _install_user_credentials()
+            await _db.execute(f"PRAGMA user_version={_CREDENTIALS_VERSION}")
+            await _record_schema_version(_CREDENTIALS_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_user_credentials")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_user_credentials")
+            await _db.execute("RELEASE SAVEPOINT install_user_credentials")
+            raise
+        version = _CREDENTIALS_VERSION
 
     # Existing databases already tracked only PRAGMA user_version; backfill their audit trail.
     for applied_version in range(1, min(version, _SCHEMA_VERSION) + 1):
@@ -641,6 +716,282 @@ async def _install_llm_usage() -> None:
     )
 
 
+async def _install_investment_theses() -> None:
+    """Persist investment theses and separately checkable claims."""
+    await _db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS thesis (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker            TEXT NOT NULL,
+            title             TEXT NOT NULL,
+            thesis            TEXT NOT NULL,
+            assumptions       TEXT NOT NULL DEFAULT '[]',
+            status            TEXT NOT NULL DEFAULT 'open'
+                              CHECK (status IN ('open', 'closed', 'invalidated')),
+            source_report_id  INTEGER UNIQUE,
+            baseline_json     TEXT NOT NULL DEFAULT '{}',
+            last_check_json   TEXT NOT NULL DEFAULT '{}',
+            drift_status      TEXT NOT NULL DEFAULT 'unknown'
+                              CHECK (drift_status IN ('unknown', 'stable', 'drifted')),
+            drift_score       REAL,
+            last_checked_at   TEXT,
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (source_report_id) REFERENCES research_reports(id) ON DELETE SET NULL
+        )
+        """
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_thesis_status_updated "
+        "ON thesis(status, updated_at DESC)"
+    )
+    await _db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS thesis_claims (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            thesis_id     INTEGER NOT NULL,
+            claim         TEXT NOT NULL,
+            kind          TEXT NOT NULL DEFAULT 'manual'
+                          CHECK (kind IN ('manual', 'price', 'position', 'fundamental', 'report')),
+            status        TEXT NOT NULL DEFAULT 'unknown'
+                          CHECK (status IN ('holding', 'confirmed', 'violated', 'unknown')),
+            baseline_json TEXT NOT NULL DEFAULT '{}',
+            checked_at    TEXT,
+            note          TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (thesis_id) REFERENCES thesis(id) ON DELETE CASCADE
+        )
+        """
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_thesis_claims_thesis "
+        "ON thesis_claims(thesis_id, id)"
+    )
+
+
+async def _install_passwordless_auth() -> None:
+    """Install passwordless-email users, one-time codes, and revocable sessions."""
+    statements = (
+        """CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            is_admin      INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0, 1)),
+            is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            last_login_at TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS login_codes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            email       TEXT NOT NULL COLLATE NOCASE,
+            code_hash   TEXT NOT NULL,
+            request_ip  TEXT NOT NULL,
+            expires_at  TEXT NOT NULL,
+            used_at     TEXT,
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_login_codes_email_created ON login_codes(email, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_login_codes_ip_created ON login_codes(request_ip, created_at DESC)",
+        """CREATE TABLE IF NOT EXISTS sessions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            token_hash  TEXT NOT NULL UNIQUE,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at  TEXT NOT NULL,
+            revoked_at  TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, expires_at, revoked_at)",
+    )
+    # ponytail: execute statements individually so migration savepoint semantics remain intact.
+    for statement in statements:
+        await _db.execute(statement)
+
+
+async def _install_user_credentials() -> None:
+    """Install encrypted per-user service credentials without plaintext columns."""
+    await _db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            service         TEXT NOT NULL,
+            encrypted_value BLOB NOT NULL,
+            provider        TEXT NOT NULL DEFAULT '',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, service)
+        )
+        """
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_credentials_user_id ON user_credentials(user_id)"
+    )
+
+
+async def _backup_database_before_owner_migration(path: Path) -> None:
+    """Create one recoverable SQLite snapshot before the ownership migration."""
+    backup_path = path.with_suffix(f"{path.suffix}.pre-v10.bak")
+    if backup_path.exists():
+        return
+    target = sqlite3.connect(backup_path)
+    try:
+        await _db.backup(target)
+    finally:
+        target.close()
+
+
+async def _install_user_data_isolation() -> None:
+    """Add explicit ownership columns and indexes to every user-data table."""
+    for table in _OWNER_TABLES:
+        await _ensure_column(table, "user_id", "user_id INTEGER REFERENCES users(id)")
+        await _db.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user_id ON {table}(user_id)")
+    await _rebuild_research_workspaces_for_owner_unique()
+    await _rebuild_notification_tables_for_owner_unique()
+    await _db.execute("DROP INDEX IF EXISTS idx_alert_rules_match")
+    await _db.execute(
+        "CREATE UNIQUE INDEX idx_alert_rules_match "
+        "ON alert_rules(user_id, ticker, signal_type, COALESCE(direction, ''))"
+    )
+
+
+async def _rebuild_research_workspaces_for_owner_unique() -> None:
+    """Replace the legacy global symbol uniqueness with per-owner uniqueness."""
+    await _db.execute(
+        """
+        CREATE TABLE research_workspaces_v10 (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol          TEXT NOT NULL,
+            name            TEXT NOT NULL,
+            instrument_json TEXT NOT NULL,
+            notes           TEXT NOT NULL DEFAULT '',
+            evidence_json   TEXT NOT NULL DEFAULT '[]',
+            snapshot_json   TEXT,
+            created_at      TEXT DEFAULT (datetime('now')),
+            updated_at      TEXT DEFAULT (datetime('now')),
+            user_id         INTEGER REFERENCES users(id),
+            UNIQUE(user_id, symbol)
+        )
+        """
+    )
+    await _db.execute(
+        "INSERT INTO research_workspaces_v10 "
+        "(id, symbol, name, instrument_json, notes, evidence_json, snapshot_json, created_at, updated_at, user_id) "
+        "SELECT id, symbol, name, instrument_json, notes, evidence_json, snapshot_json, created_at, updated_at, user_id "
+        "FROM research_workspaces"
+    )
+    await _db.execute("DROP TABLE research_workspaces")
+    await _db.execute("ALTER TABLE research_workspaces_v10 RENAME TO research_workspaces")
+    await _db.execute(
+        "CREATE INDEX idx_research_workspaces_updated ON research_workspaces(user_id, updated_at DESC)"
+    )
+    await _db.execute("CREATE INDEX idx_research_workspaces_user_id ON research_workspaces(user_id)")
+
+
+async def _rebuild_notification_tables_for_owner_unique() -> None:
+    """Scope notification and trigger idempotency keys to one owner."""
+    await _db.execute("ALTER TABLE alert_triggers RENAME TO alert_triggers_v10_legacy")
+    await _db.execute("ALTER TABLE notifications RENAME TO notifications_v10_legacy")
+    await _db.execute(
+        """
+        CREATE TABLE notifications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type  TEXT NOT NULL,
+            title       TEXT NOT NULL,
+            body        TEXT NOT NULL,
+            severity    TEXT NOT NULL DEFAULT 'info'
+                        CHECK (severity IN ('info', 'success', 'warning', 'error')),
+            source_type TEXT,
+            source_id   TEXT,
+            payload     TEXT NOT NULL DEFAULT '{}',
+            dedupe_key  TEXT,
+            is_read     INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id     INTEGER REFERENCES users(id),
+            UNIQUE(user_id, dedupe_key)
+        )
+        """
+    )
+    await _db.execute(
+        "INSERT INTO notifications "
+        "(id, event_type, title, body, severity, source_type, source_id, payload, dedupe_key, "
+        "is_read, created_at, user_id) "
+        "SELECT id, event_type, title, body, severity, source_type, source_id, payload, dedupe_key, "
+        "is_read, created_at, user_id FROM notifications_v10_legacy"
+    )
+    await _db.execute(
+        """
+        CREATE TABLE alert_triggers (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_id         INTEGER,
+            rule_name       TEXT NOT NULL,
+            ticker          TEXT NOT NULL,
+            signal_type     TEXT NOT NULL,
+            direction       TEXT NOT NULL CHECK (direction IN ('bullish', 'bearish', 'neutral')),
+            confidence      TEXT CHECK (confidence IS NULL OR confidence IN ('high', 'medium', 'low')),
+            signal_date     TEXT NOT NULL,
+            description     TEXT NOT NULL,
+            notification_id INTEGER,
+            dedupe_key      TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id         INTEGER REFERENCES users(id),
+            UNIQUE(user_id, dedupe_key),
+            FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE SET NULL,
+            FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE SET NULL
+        )
+        """
+    )
+    await _db.execute(
+        "INSERT INTO alert_triggers "
+        "(id, rule_id, rule_name, ticker, signal_type, direction, confidence, signal_date, "
+        "description, notification_id, dedupe_key, created_at, user_id) "
+        "SELECT id, rule_id, rule_name, ticker, signal_type, direction, confidence, signal_date, "
+        "description, notification_id, dedupe_key, created_at, user_id FROM alert_triggers_v10_legacy"
+    )
+    await _db.execute("DROP TABLE alert_triggers_v10_legacy")
+    await _db.execute("DROP TABLE notifications_v10_legacy")
+    await _db.execute(
+        "CREATE INDEX idx_notifications_unread_id ON notifications(user_id, is_read, id DESC)"
+    )
+    await _db.execute("CREATE INDEX idx_notifications_user_id ON notifications(user_id)")
+    await _db.execute(
+        "CREATE INDEX idx_alert_triggers_rule_created ON alert_triggers(user_id, rule_id, id DESC)"
+    )
+    await _db.execute("CREATE INDEX idx_alert_triggers_user_id ON alert_triggers(user_id)")
+
+
+async def claim_unowned_data(user_id: int) -> None:
+    """Assign legacy rows to the first admin, then reject future ownerless writes."""
+    for table in _OWNER_TABLES:
+        await _db.execute(f"UPDATE {table} SET user_id=? WHERE user_id IS NULL", (user_id,))
+        await _db.execute(
+            f"CREATE TRIGGER IF NOT EXISTS require_{table}_owner_insert "
+            f"BEFORE INSERT ON {table} WHEN NEW.user_id IS NULL "
+            f"BEGIN SELECT RAISE(ABORT, '{table}.user_id is required'); END"
+        )
+        await _db.execute(
+            f"CREATE TRIGGER IF NOT EXISTS require_{table}_owner_update "
+            f"BEFORE UPDATE OF user_id ON {table} WHEN NEW.user_id IS NULL "
+            f"BEGIN SELECT RAISE(ABORT, '{table}.user_id is required'); END"
+        )
+    await _db.commit()
+
+
+async def seed_models_for_user(user_id: int) -> None:
+    existing = await query_one("SELECT id FROM model_configs WHERE user_id=? LIMIT 1", (user_id,))
+    if existing:
+        return
+    await get_db().executemany(
+        "INSERT INTO model_configs "
+        "(name, provider, base_url, model_name, api_key_env, is_default, user_id) "
+        "VALUES (?, 'openai', ?, ?, 'DEEPSEEK_API_KEY', ?, ?)",
+        [
+            ("DeepSeek Flash", config.DEEPSEEK_BASE_URL, "deepseek-v4-flash", 1, user_id),
+            ("DeepSeek Pro", config.DEEPSEEK_BASE_URL, "deepseek-v4-pro", 0, user_id),
+        ],
+    )
+    await get_db().commit()
+
+
 async def _ensure_column(table: str, column: str, definition: str) -> None:
     rows = await (await _db.execute(f"PRAGMA table_info({table})")).fetchall()
     if column not in {row["name"] for row in rows}:
@@ -651,7 +1002,7 @@ async def close_db() -> None:
     global _db
     if _db is not None:
         await _db.close()
-        _db = None
+        _db = cast(aiosqlite.Connection, None)
 
 
 def get_db() -> aiosqlite.Connection:
@@ -662,7 +1013,7 @@ def get_db() -> aiosqlite.Connection:
 async def _seed_models() -> None:
     """首次启动预置 DeepSeek 双模型（api_key 取环境变量名，不存值）。"""
     cur = await _db.execute("SELECT COUNT(*) AS n FROM model_configs")
-    if (await cur.fetchone())["n"] > 0:
+    if cast(sqlite3.Row, await cur.fetchone())["n"] > 0:
         return
     await _db.executemany(
         "INSERT INTO model_configs (name, provider, base_url, model_name, api_key_env, is_default) "
@@ -677,7 +1028,7 @@ async def _seed_models() -> None:
 async def _seed_agents() -> None:
     """首次启动播种 6 个预置角色。"""
     cur = await _db.execute("SELECT COUNT(*) AS n FROM agent_presets")
-    if (await cur.fetchone())["n"] > 0:
+    if cast(sqlite3.Row, await cur.fetchone())["n"] > 0:
         return
     await _db.executemany(
         "INSERT INTO agent_presets (name, role_key, avatar, system_prompt, is_preset) "
@@ -690,23 +1041,23 @@ async def _seed_agents() -> None:
 # 通用查询辅助
 # ------------------------------------------------------------------
 
-async def query_all(sql: str, params: tuple = ()) -> list[dict]:
+async def query_all(sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     cur = await get_db().execute(sql, params)
     return [dict(r) for r in await cur.fetchall()]
 
 
-async def query_one(sql: str, params: tuple = ()) -> dict | None:
+async def query_one(sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
     cur = await get_db().execute(sql, params)
     row = await cur.fetchone()
     return dict(row) if row else None
 
 
-async def execute(sql: str, params: tuple = ()) -> int:
+async def execute(sql: str, params: tuple[Any, ...] = ()) -> int:
     """执行写操作并提交，返回 lastrowid。"""
     cur = await get_db().execute(sql, params)
     await get_db().commit()
-    return cur.lastrowid
+    return cast(int, cur.lastrowid)
 
 
-def dumps_participants(items: list[dict]) -> str:
+def dumps_participants(items: list[dict[str, Any]]) -> str:
     return json.dumps(items, ensure_ascii=False)

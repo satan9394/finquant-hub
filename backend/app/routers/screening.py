@@ -1,5 +1,7 @@
 """User-supplied, two-stage multi-market stock screener."""
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
@@ -14,7 +16,7 @@ class ScreeningRequest(BaseModel):
 
 
 @router.post("")
-async def screen(body: ScreeningRequest, request: Request):
+async def screen(body: ScreeningRequest, request: Request) -> dict[str, Any]:
     service: MarketDataService = request.app.state.market
     result = await run_screen(
         [{"ticker": ticker.strip()} for ticker in body.tickers if ticker.strip()],

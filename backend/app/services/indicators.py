@@ -5,7 +5,15 @@
 - RSI / KDJ / ATR 使用 SMA(X,N,1) 递推（Wilder 平滑）：Y = (X + (N-1)·Y') / N
 - 所有输出与输入等长，warmup 期为 None（JSON 序列化为 null）
 """
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
+
+
+IndicatorSeries = list[float | None]
+IndicatorResult = dict[str, IndicatorSeries]
+OHLCV = dict[str, list[float]]
 
 
 def _to_float_list(arr: np.ndarray, digits: int = 4) -> list[float | None]:
@@ -71,12 +79,12 @@ def _rolling_min(x: np.ndarray, n: int) -> np.ndarray:
 # 输出 {指标名: {子序列: [float|None]}}
 # ----------------------------------------------------------------------
 
-def calc_ma(close: list[float], windows=(5, 10, 20, 30, 60, 120, 250)) -> dict:
+def calc_ma(close: list[float], windows: tuple[int, ...] = (5, 10, 20, 30, 60, 120, 250)) -> IndicatorResult:
     c = np.asarray(close, dtype=float)
     return {f"ma{w}": _to_float_list(sma(c, w)) for w in windows}
 
 
-def calc_macd(close: list[float], fast=12, slow=26, signal=9) -> dict:
+def calc_macd(close: list[float], fast: int = 12, slow: int = 26, signal: int = 9) -> IndicatorResult:
     c = np.asarray(close, dtype=float)
     dif = ema(c, fast) - ema(c, slow)
     dea = ema(dif, signal)
@@ -84,12 +92,12 @@ def calc_macd(close: list[float], fast=12, slow=26, signal=9) -> dict:
     return {"dif": _to_float_list(dif), "dea": _to_float_list(dea), "hist": _to_float_list(hist)}
 
 
-def calc_rsi(close: list[float], windows=(6, 12, 24)) -> dict:
+def calc_rsi(close: list[float], windows: tuple[int, ...] = (6, 12, 24)) -> IndicatorResult:
     c = np.asarray(close, dtype=float)
     diff = np.diff(c, prepend=c[0])
     up = np.maximum(diff, 0.0)
     absdiff = np.abs(diff)
-    result = {}
+    result: IndicatorResult = {}
     for w in windows:
         denom = sma_cn(absdiff, w, 1)
         numer = sma_cn(up, w, 1)
@@ -100,7 +108,9 @@ def calc_rsi(close: list[float], windows=(6, 12, 24)) -> dict:
     return result
 
 
-def calc_kdj(high: list[float], low: list[float], close: list[float], n=9, m1=3, m2=3) -> dict:
+def calc_kdj(
+    high: list[float], low: list[float], close: list[float], n: int = 9, m1: int = 3, m2: int = 3,
+) -> IndicatorResult:
     h, l, c = (np.asarray(a, dtype=float) for a in (high, low, close))
     hh = _rolling_max(h, n)
     ll = _rolling_min(l, n)
@@ -113,7 +123,7 @@ def calc_kdj(high: list[float], low: list[float], close: list[float], n=9, m1=3,
     return {"k": _to_float_list(k), "d": _to_float_list(d), "j": _to_float_list(j)}
 
 
-def calc_boll(close: list[float], n=20, k=2.0) -> dict:
+def calc_boll(close: list[float], n: int = 20, k: float = 2.0) -> IndicatorResult:
     c = np.asarray(close, dtype=float)
     mid = sma(c, n)
     std = _rolling_std(c, n)
@@ -124,7 +134,7 @@ def calc_boll(close: list[float], n=20, k=2.0) -> dict:
     }
 
 
-def calc_atr(high: list[float], low: list[float], close: list[float], n=14) -> dict:
+def calc_atr(high: list[float], low: list[float], close: list[float], n: int = 14) -> IndicatorResult:
     h, l, c = (np.asarray(a, dtype=float) for a in (high, low, close))
     prev_c = np.roll(c, 1)
     prev_c[0] = c[0]
@@ -132,12 +142,12 @@ def calc_atr(high: list[float], low: list[float], close: list[float], n=14) -> d
     return {f"atr{n}": _to_float_list(sma_cn(tr, n, 1))}
 
 
-def calc_volma(volume: list[float], windows=(5, 10, 20)) -> dict:
+def calc_volma(volume: list[float], windows: tuple[int, ...] = (5, 10, 20)) -> IndicatorResult:
     v = np.asarray(volume, dtype=float)
     return {f"volma{w}": _to_float_list(sma(v, w), 0) for w in windows}
 
 
-CALCULATORS = {
+CALCULATORS: dict[str, Callable[[OHLCV], IndicatorResult]] = {
     "ma": lambda o: calc_ma(o["close"]),
     "macd": lambda o: calc_macd(o["close"]),
     "rsi": lambda o: calc_rsi(o["close"]),
@@ -150,7 +160,7 @@ CALCULATORS = {
 ALL_INDICATORS = list(CALCULATORS.keys())
 
 
-def compute(kline: list[dict], names: list[str] | None = None) -> dict:
+def compute(kline: list[dict[str, Any]], names: list[str] | None = None) -> dict[str, IndicatorResult]:
     """输入 K 线列表（含 day/open/high/low/close/volume），输出各指标序列。"""
     ohlcv = {
         "open": [k["open"] for k in kline],

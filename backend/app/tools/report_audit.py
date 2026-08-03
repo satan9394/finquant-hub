@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from random import Random
-from typing import Any
+from typing import Any, cast
 
 _TOLERANCE = 0.01
 _SIGN = r"[+\-−–－＋]?"
@@ -73,7 +73,7 @@ def _parse_md_tables(lines: list[str]) -> list[tuple[str, str, float, str, int, 
                     match = _TABLE_VALUE.search(cell)
                     value = _clean_num(match.group(1)) if match else None
                     if value is not None and value != 0 and abs(value) < 1e15:
-                        unit = (match.group(2) or "").strip()
+                        unit = (cast(re.Match[str], match).group(2) or "").strip()
                         column_name = headers[column] if column < len(headers) else f"列{column}"
                         rows.append((cells[0], column_name, value, unit, index + 1, raw))
             index += 1
@@ -194,7 +194,7 @@ def render_verdict(results: list[dict[str, Any]], report_name: str = "") -> dict
         }
         source_detail = f"{source}: {primary:.2f} (偏差 {primary_diff * 100:.2f}%)"
         if secondary_diff is not None:
-            source_detail += f" | {source2}: {float(secondary):.2f} (偏差 {secondary_diff * 100:.2f}%)"
+            source_detail += f" | {source2}: {float(cast(Any, secondary)):.2f} (偏差 {secondary_diff * 100:.2f}%)"
 
         if primary_ok and secondary_ok:
             status = "✅ 通过"

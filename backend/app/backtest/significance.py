@@ -1,13 +1,17 @@
 """Reproducible bootstrap, Monte Carlo, and walk-forward validation."""
 
+from typing import Any, cast
+
 import numpy as np
+
+JSONDict = dict[str, Any]
 
 
 def _equity_returns(equity_values: list[float]) -> np.ndarray:
     equity = np.asarray(equity_values, dtype=float)
     if len(equity) < 3 or not np.isfinite(equity).all() or np.any(equity <= 0):
         raise ValueError("显著性验证需要至少 3 个有效正权益点")
-    return np.diff(equity) / equity[:-1]
+    return cast(np.ndarray, np.diff(equity) / equity[:-1])
 
 
 def _validate_sampling(samples: int, confidence: float) -> None:
@@ -24,7 +28,7 @@ def bootstrap_validation(
     confidence: float = 0.95,
     block_size: int = 5,
     seed: int = 42,
-) -> dict:
+) -> JSONDict:
     """Moving-block bootstrap of compounded return to retain short autocorrelation."""
     _validate_sampling(samples, confidence)
     returns = _equity_returns(equity_values)
@@ -61,7 +65,7 @@ def monte_carlo_validation(
     confidence: float = 0.95,
     bust_threshold: float = -0.20,
     seed: int = 43,
-) -> dict:
+) -> JSONDict:
     """Empirical-return Monte Carlo paths with terminal and drawdown distributions."""
     _validate_sampling(samples, confidence)
     returns = _equity_returns(equity_values)
@@ -93,7 +97,7 @@ def monte_carlo_validation(
 
 
 def walk_forward_ma_validation(
-    bars: list[dict],
+    bars: list[JSONDict],
     *,
     short_window: int,
     long_window: int,
@@ -104,7 +108,7 @@ def walk_forward_ma_validation(
     period: str,
     market_rules: str,
     price_limit_ratio: float | None,
-) -> dict:
+) -> JSONDict:
     """Expanding-window stability check for the fixed, predeclared MA parameters."""
     from .ma_crossover import run_ma_crossover
 
@@ -158,8 +162,8 @@ def walk_forward_ma_validation(
 
 
 def validate_ma_strategy(
-    bars: list[dict],
-    result: dict,
+    bars: list[JSONDict],
+    result: JSONDict,
     *,
     short_window: int,
     long_window: int,
@@ -171,7 +175,7 @@ def validate_ma_strategy(
     market_rules: str,
     price_limit_ratio: float | None,
     samples: int = 500,
-) -> dict:
+) -> JSONDict:
     equity = [float(point["value"]) for point in result["equity_curve"]]
     return {
         "bootstrap": bootstrap_validation(equity, samples=samples),

@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date
-from typing import Literal
+from typing import Any, Literal, Self
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from .. import database
@@ -18,9 +18,10 @@ from ..backtest.significance import validate_ma_strategy
 from ..services.instruments import InstrumentService, external_symbol
 from ..services.market_data import MarketDataService, MarketError
 from ..services.notifications import publish_backtest_status
+from .auth import CurrentUser, authenticated_context
 
 
-router = APIRouter(prefix="/api/backtests", tags=["backtests"])
+router = APIRouter(prefix="/api/backtests", tags=["backtests"], dependencies=[Depends(authenticated_context)])
 
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 VALID_STATES = {
@@ -44,7 +45,7 @@ class BacktestCreate(BaseModel):
     validation_samples: int = Field(default=500, ge=100, le=5000)
 
     @model_validator(mode="after")
-    def validate_relationships(self):
+    def validate_relationships(self) -> Self:
         if self.long_window <= self.short_window:
             raise ValueError("long_window 必须大于 short_window")
         if self.start_date >= self.end_date:
@@ -61,7 +62,7 @@ class PortfolioAsset(BaseModel):
     price_limit_ratio: float | None = Field(default=None, gt=0, le=0.5)
 
     @model_validator(mode="after")
-    def validate_windows(self):
+    def validate_windows(self) -> Self:
         if self.long_window <= self.short_window:
             raise ValueError("long_window 必须大于 short_window")
         return self
@@ -79,7 +80,7 @@ class PortfolioBacktestCreate(BaseModel):
     slippage_bps: float = Field(default=2, ge=0, le=1000)
 
     @model_validator(mode="after")
-    def validate_assets(self):
+    def validate_assets(self) -> Self:
         identities = [(asset.symbol.strip().upper(), asset.period) for asset in self.assets]
         if len(set(identities)) != len(identities):
             raise ValueError("资产与周期组合不能重复")
@@ -89,35 +90,36 @@ class PortfolioBacktestCreate(BaseModel):
         return self
 
 
-async def _set_status(run_id: int, state: str, *, error: str | None = None) -> None:
+async def _set_status(run_id: int, state: str, user_id: int, *, error: str | None = None) -> None:
     assert state in VALID_STATES
     started = ", started_at=COALESCE(started_at, datetime('now'))" if state == "loading_data" else ""
     completed = ", completed_at=datetime('now')" if state in TERMINAL_STATES else ""
     await database.execute(
-        f"UPDATE quant_backtests SET status=?, error_message=?, updated_at=datetime('now'){started}{completed} WHERE id=?",
-        (state, error, run_id),
+        f"UPDATE quant_backtests SET status=?, error_message=?, updated_at=datetime('now'){started}{completed} "
+        "WHERE id=? AND user_id=?",
+        (state, error, run_id, user_id),
     )
     if state in TERMINAL_STATES:
-        await publish_backtest_status(run_id, state, error)
+        await publish_backtest_status(run_id, state, error, user_id=user_id)
 
 
-async def _run_job(run_id: int, market: MarketDataService) -> None:
-    row = await database.query_one("SELECT * FROM quant_backtests WHERE id=?", (run_id,))
+async def _run_job(run_id: int, market: MarketDataService, user_id: int) -> None:
+    row = await database.query_one("SELECT * FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user_id))
     if not row or row["status"] == "cancelled":
         return
     params = json.loads(row["params_json"])
     try:
-        await _set_status(run_id, "loading_data")
+        await _set_status(run_id, "loading_data", user_id)
         payload = await InstrumentService(market).bars(params["symbol"], "1d", 800)
         bars = [
             bar for bar in payload["items"]
             if params["start_date"] <= str(bar["day"])[:10] <= params["end_date"]
         ]
-        current = await database.query_one("SELECT status FROM quant_backtests WHERE id=?", (run_id,))
+        current = await database.query_one("SELECT status FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user_id))
         if current and current["status"] == "cancelled":
             return
 
-        await _set_status(run_id, "running")
+        await _set_status(run_id, "running", user_id)
         result = run_ma_crossover(
             bars,
             short_window=params["short_window"],
@@ -130,7 +132,7 @@ async def _run_job(run_id: int, market: MarketDataService) -> None:
             market_rules=params["market_rules"],
             price_limit_ratio=params.get("price_limit_ratio"),
         )
-        await _set_status(run_id, "calculating_metrics")
+        await _set_status(run_id, "calculating_metrics", user_id)
         result["validation"] = validate_ma_strategy(
             bars,
             result,
@@ -152,23 +154,23 @@ async def _run_job(run_id: int, market: MarketDataService) -> None:
                 status='completed', result_json=?, provider=?, data_as_of=?, timezone=?,
                 currency=?, adjustment=?, frequency=?, quality_flags=?,
                 completed_at=datetime('now'), updated_at=datetime('now')
-            WHERE id=?
+            WHERE id=? AND user_id=?
             """,
             (
                 json.dumps(result, ensure_ascii=False),
                 payload["provider"], payload["as_of"], payload["timezone"],
                 payload["currency"], payload["adjustment"], payload["frequency"],
-                json.dumps(payload["quality_flags"], ensure_ascii=False), run_id,
+                json.dumps(payload["quality_flags"], ensure_ascii=False), run_id, user_id,
             ),
         )
-        await publish_backtest_status(run_id, "completed")
+        await publish_backtest_status(run_id, "completed", user_id=user_id)
     except (MarketError, ValueError) as exc:
-        await _set_status(run_id, "failed", error=str(exc))
+        await _set_status(run_id, "failed", user_id, error=str(exc))
     except Exception as exc:  # persist the failure instead of losing the job
-        await _set_status(run_id, "failed", error=f"回测执行失败：{type(exc).__name__}")
+        await _set_status(run_id, "failed", user_id, error=f"回测执行失败：{type(exc).__name__}")
 
 
-def _serialize(row: dict) -> dict:
+def _serialize(row: dict[str, Any]) -> dict[str, Any]:
     params = json.loads(row.pop("params_json"))
     result = json.loads(row.pop("result_json")) if row.get("result_json") else None
     quality_flags = json.loads(row.get("quality_flags") or "[]")
@@ -193,7 +195,12 @@ def _serialize(row: dict) -> dict:
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
-async def create_backtest(body: BacktestCreate, request: Request, background_tasks: BackgroundTasks):
+async def create_backtest(
+    body: BacktestCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: CurrentUser,
+) -> dict[str, Any]:
     try:
         symbol = external_symbol(body.symbol)
     except ValueError as exc:
@@ -201,17 +208,21 @@ async def create_backtest(body: BacktestCreate, request: Request, background_tas
     params = body.model_dump(mode="json")
     params["symbol"] = symbol
     run_id = await database.execute(
-        "INSERT INTO quant_backtests (symbol, params_json, status) VALUES (?, ?, 'queued')",
-        (symbol, json.dumps(params, ensure_ascii=False)),
+        "INSERT INTO quant_backtests (symbol, params_json, status, user_id) VALUES (?, ?, 'queued', ?)",
+        (symbol, json.dumps(params, ensure_ascii=False), user["id"]),
     )
-    background_tasks.add_task(_run_job, run_id, request.app.state.market)
+    background_tasks.add_task(_run_job, run_id, request.app.state.market, int(user["id"]))
     return {"id": run_id, "symbol": symbol, "status": "queued", "params": params}
 
 
 @router.get("")
-async def list_backtests(symbol: str | None = None, saved_only: bool = False):
-    clauses: list[str] = []
-    values: list[object] = []
+async def list_backtests(
+    user: CurrentUser,
+    symbol: str | None = None,
+    saved_only: bool = False,
+) -> dict[str, Any]:
+    clauses: list[str] = ["user_id=?"]
+    values: list[object] = [user["id"]]
     if symbol:
         try:
             normalized = external_symbol(symbol)
@@ -230,9 +241,13 @@ async def list_backtests(symbol: str | None = None, saved_only: bool = False):
 
 
 @router.post("/portfolio")
-async def create_portfolio_backtest(body: PortfolioBacktestCreate, request: Request):
+async def create_portfolio_backtest(
+    body: PortfolioBacktestCreate,
+    request: Request,
+    _user: CurrentUser,
+) -> dict[str, Any]:
     """Run a multi-market portfolio backtest with pre-window weight calibration."""
-    normalized: list[dict] = []
+    normalized: list[dict[str, Any]] = []
     try:
         for asset in body.assets:
             symbol = external_symbol(asset.symbol)
@@ -249,7 +264,7 @@ async def create_portfolio_backtest(body: PortfolioBacktestCreate, request: Requ
 
     registry = default_loader_registry(request.app.state.market)
 
-    async def load_asset(asset: dict) -> dict:
+    async def load_asset(asset: dict[str, Any]) -> dict[str, Any]:
         payload = await registry.load(asset["symbol"], asset["period"], body.count)
         return {
             **asset,
@@ -287,17 +302,17 @@ async def create_portfolio_backtest(body: PortfolioBacktestCreate, request: Requ
 
 
 @router.get("/{run_id:int}")
-async def get_backtest(run_id: int):
-    row = await database.query_one("SELECT * FROM quant_backtests WHERE id=?", (run_id,))
+async def get_backtest(run_id: int, user: CurrentUser) -> dict[str, Any]:
+    row = await database.query_one("SELECT * FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user["id"]))
     if not row:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
     return _serialize(row)
 
 
 @router.get("/{run_id:int}/trades")
-async def get_backtest_trades(run_id: int):
+async def get_backtest_trades(run_id: int, user: CurrentUser) -> dict[str, Any]:
     row = await database.query_one(
-        "SELECT status, result_json FROM quant_backtests WHERE id=?", (run_id,)
+        "SELECT status, result_json FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user["id"])
     )
     if not row:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
@@ -306,24 +321,26 @@ async def get_backtest_trades(run_id: int):
 
 
 @router.post("/{run_id:int}/save")
-async def save_backtest(run_id: int):
-    row = await database.query_one("SELECT status FROM quant_backtests WHERE id=?", (run_id,))
+async def save_backtest(run_id: int, user: CurrentUser) -> dict[str, Any]:
+    row = await database.query_one("SELECT status FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user["id"]))
     if not row:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
     if row["status"] != "completed":
         raise HTTPException(409, "只有已完成的回测可以保存")
     await database.execute(
-        "UPDATE quant_backtests SET is_saved=1, updated_at=datetime('now') WHERE id=?", (run_id,)
+        "UPDATE quant_backtests SET is_saved=1, updated_at=datetime('now') WHERE id=? AND user_id=?",
+        (run_id, user["id"]),
     )
     return {"id": run_id, "is_saved": True}
 
 
 @router.post("/{run_id:int}/cancel")
-async def cancel_backtest(run_id: int):
-    row = await database.query_one("SELECT status FROM quant_backtests WHERE id=?", (run_id,))
+async def cancel_backtest(run_id: int, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    row = await database.query_one("SELECT status FROM quant_backtests WHERE id=? AND user_id=?", (run_id, user_id))
     if not row:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
     if row["status"] in TERMINAL_STATES:
         raise HTTPException(409, f"当前状态不可取消：{row['status']}")
-    await _set_status(run_id, "cancelled")
+    await _set_status(run_id, "cancelled", user_id)
     return {"id": run_id, "status": "cancelled"}

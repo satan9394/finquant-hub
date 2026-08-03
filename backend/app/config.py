@@ -42,4 +42,14 @@ SMTP_FROM = os.getenv("SMTP_FROM", "")
 SMTP_TO = tuple(address.strip() for address in os.getenv("SMTP_TO", "").split(",") if address.strip())
 SMTP_USE_SSL = _env_flag("SMTP_USE_SSL", True)
 
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+MASTER_KEY = os.getenv("MASTER_KEY", "").strip()
+AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "finquant_session")
+AUTH_COOKIE_SECURE = _env_flag("AUTH_COOKIE_SECURE", APP_ENV == "production")
+AUTH_CODE_TTL_SECONDS = _bounded_int("AUTH_CODE_TTL_SECONDS", 600, 60, 3600)
+AUTH_CODE_COOLDOWN_SECONDS = _bounded_int("AUTH_CODE_COOLDOWN_SECONDS", 60, 1, 3600)
+AUTH_CODE_MAX_ATTEMPTS = _bounded_int("AUTH_CODE_MAX_ATTEMPTS", 5, 1, 20)
+AUTH_IP_HOURLY_LIMIT = _bounded_int("AUTH_IP_HOURLY_LIMIT", 5, 1, 1000)
+AUTH_SESSION_DAYS = _bounded_int("AUTH_SESSION_DAYS", 30, 1, 365)
+
 APP_VERSION = "1.0.0"

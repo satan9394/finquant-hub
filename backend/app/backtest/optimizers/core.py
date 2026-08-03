@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 import numpy as np
 
@@ -101,7 +102,7 @@ def optimize_weights(
             if method == "risk_parity":
                 weights = _risk_parity(covariance)
             elif method == "mean_variance":
-                weights = _mean_variance(returns, covariance)
+                weights = _mean_variance(cast(np.ndarray, returns), covariance)
             else:  # Backward-compatible alias retained for saved API payloads.
                 weights = _inverse_volatility(covariance)
 

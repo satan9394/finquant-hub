@@ -15,6 +15,7 @@ from app.services.memory import (
 async def memory_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "memory.db")
     await database.init_db()
+    await database.execute("INSERT INTO users (id, email, is_admin) VALUES (1, 'memory@test.local', 1)")
     try:
         yield
     finally:
@@ -23,15 +24,15 @@ async def memory_db(tmp_path, monkeypatch):
 
 async def _conversation(title: str, mode: str = "single") -> int:
     return await database.execute(
-        "INSERT INTO conversations (title, mode) VALUES (?, ?)",
-        (title, mode),
+        "INSERT INTO conversations (title, mode, user_id) VALUES (?, ?, ?)",
+        (title, mode, 1),
     )
 
 
 async def _message(conversation_id: int, content: str, role: str = "user") -> int:
     return await database.execute(
-        "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)",
-        (conversation_id, role, content),
+        "INSERT INTO messages (conversation_id, role, content, user_id) VALUES (?, ?, ?, ?)",
+        (conversation_id, role, content, 1),
     )
 
 
@@ -54,6 +55,7 @@ async def test_cross_session_search_excludes_current_conversation(memory_db):
 
     hits = await search_cross_session_memory(
         "茅台怎么看",
+        user_id=1,
         exclude_conversation_id=current,
         limit=5,
     )
@@ -75,23 +77,23 @@ async def test_message_update_and_delete_stay_in_sync(memory_db):
     conversation_id = await _conversation("同步测试")
     message_id = await _message(conversation_id, "ALPHA_UNIQUE investment note")
 
-    assert len(await search_cross_session_memory("ALPHA_UNIQUE")) == 1
+    assert len(await search_cross_session_memory("ALPHA_UNIQUE", user_id=1)) == 1
 
     await database.execute(
         "UPDATE messages SET content=? WHERE id=?",
         ("BETA_UNIQUE investment note", message_id),
     )
-    assert await search_cross_session_memory("ALPHA_UNIQUE") == []
-    assert len(await search_cross_session_memory("BETA_UNIQUE")) == 1
+    assert await search_cross_session_memory("ALPHA_UNIQUE", user_id=1) == []
+    assert len(await search_cross_session_memory("BETA_UNIQUE", user_id=1)) == 1
 
     await database.execute("DELETE FROM messages WHERE id=?", (message_id,))
-    assert await search_cross_session_memory("BETA_UNIQUE") == []
+    assert await search_cross_session_memory("BETA_UNIQUE", user_id=1) == []
 
 
 @pytest.mark.asyncio
 async def test_memory_limits_are_bounded(memory_db):
     with pytest.raises(ValueError, match="limit"):
-        await search_cross_session_memory("AAPL", limit=11)
+        await search_cross_session_memory("AAPL", user_id=1, limit=11)
     with pytest.raises(ValueError, match="char_budget"):
         render_memory_context([{"conversation_id": 1}], char_budget=100)
 
@@ -111,11 +113,11 @@ async def test_research_injects_relevant_memory_and_requires_fresh_verification(
 
     client = MemoryProbeClient()
 
-    async def fake_get_client(model_id=None):
+    async def fake_get_client(model_id=None, **_kwargs):
         return client, {"id": model_id}
 
     monkeypatch.setattr(model_router, "get_client", fake_get_client)
-    events = [event async for event in research_orch.run_research("usAAPL", "Apple Inc.")]
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple Inc.", user_id=1)]
 
     assert events[-1][0] == "done"
     assert len(client.requests) == 5

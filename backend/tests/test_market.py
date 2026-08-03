@@ -5,7 +5,8 @@ import pytest
 from app.services import market_data
 from app.services.analysis.ticker import resolve_ticker
 from app.services.market_data import (
-    MarketDataService, MarketError, normalize_code, parse_sina_quotes, parse_tencent_quotes,
+    MarketDataService, MarketError, _name_matches_pinyin, _pinyin_initial_candidates, normalize_code,
+    parse_sina_quotes, parse_tencent_quotes,
 )
 
 
@@ -48,6 +49,14 @@ class TestNormalize:
     ])
     def test_normalize(self, raw, expected):
         assert normalize_code(raw) == expected
+
+    def test_full_pinyin_generates_provider_initials(self):
+        assert "MT" in _pinyin_initial_candidates("maotai")
+        assert "WLY" in _pinyin_initial_candidates("wu-liang-ye")
+
+    def test_pinyin_filters_initial_search_false_positives(self):
+        assert _name_matches_pinyin("maotai", "贵州茅台") is True
+        assert _name_matches_pinyin("maotai", "明泰铝业") is False
 
 
 class TestParsers:

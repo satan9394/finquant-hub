@@ -110,7 +110,7 @@ def parse_lead_review(content: str) -> dict[str, Any]:
 
 def _scorecard(raw: object, dimensions: dict[str, str]) -> dict[str, Any]:
     values = raw if isinstance(raw, dict) else {}
-    items = []
+    items: list[dict[str, Any]] = []
     for key, label in dimensions.items():
         value = values.get(key)
         score = (
@@ -119,7 +119,7 @@ def _scorecard(raw: object, dimensions: dict[str, str]) -> dict[str, Any]:
             else None
         )
         items.append({"key": key, "label": label, "score": score, "status": "scored" if score is not None else "unknown"})
-    scored = [item["score"] for item in items if item["score"] is not None]
+    scored = [float(item["score"]) for item in items if item["score"] is not None]
     return {
         "score": round(sum(scored) / len(scored), 2) if len(scored) == len(items) else None,
         "dimensions": items,
@@ -294,8 +294,10 @@ def build_unified_report(
 ) -> dict[str, Any]:
     """Return the canonical report while retaining legacy top-level fields."""
     lead = parse_lead_review(lead_content)
-    lead_chapters = lead.get("chapters") if isinstance(lead.get("chapters"), dict) else {}
-    chapters = [
+    lead_chapters: dict[str, Any] = (
+        lead["chapters"] if isinstance(lead.get("chapters"), dict) else {}
+    )
+    chapters: list[dict[str, Any]] = [
         {
             "order": order,
             "key": key,
@@ -304,7 +306,10 @@ def build_unified_report(
         }
         for order, (key, title) in enumerate(REPORT_CHAPTERS, start=1)
     ]
-    chapter_map = {chapter["key"]: chapter["content"] for chapter in chapters}
+    chapter_map: dict[str, str] = {
+        str(chapter["key"]): str(chapter["content"])
+        for chapter in chapters
+    }
     for key, facts in _fundamental_chapter_facts(fundamentals).items():
         chapter_map[key] = _merge_fundamental_facts(chapter_map[key], facts)
     long_term = _scorecard(lead.get("long_term_scores"), LONG_TERM_DIMENSIONS)
@@ -312,7 +317,7 @@ def build_unified_report(
     scarcity = _scarcity(lead.get("scarcity_scores"))
     checklist = _checklist(lead.get("checklist"))
     adversarial = _adversarial(agent_results)
-    team_lead_review = {
+    team_lead_review: dict[str, Any] = {
         "dimension_scores": _scorecard(lead.get("dimension_scores"), {
             "business": "商业质量",
             "financial": "财务质量",

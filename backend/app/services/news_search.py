@@ -6,11 +6,13 @@ import html
 import os
 import re
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
 _PROVIDERS = ("tavily", "serpapi", "bocha", "brave", "searxng", "sina")
 _TIMEOUT = httpx.Timeout(12.0, connect=5.0)
+NewsItem = dict[str, Any]
 
 
 def _text(value: object) -> str:
@@ -24,6 +26,7 @@ class NewsSearchService:
         self,
         http: httpx.AsyncClient | None = None,
         providers: tuple[str, ...] | None = None,
+        credentials: dict[str, str] | None = None,
     ) -> None:
         configured = providers or tuple(
             item.strip().lower()
@@ -34,6 +37,7 @@ class NewsSearchService:
         if unknown:
             raise ValueError(f"未知新闻源：{', '.join(sorted(unknown))}")
         self.providers = configured
+        self.credentials = credentials or {}
         self.http = http or httpx.AsyncClient(timeout=_TIMEOUT, trust_env=False)
         self._owns_http = http is None
 
@@ -50,7 +54,10 @@ class NewsSearchService:
             "searxng": "SEARXNG_BASE_URL",
         }
         key = requirements.get(provider)
-        return key is None or bool(os.getenv(key, "").strip())
+        return key is None or bool(self._secret(provider, key))
+
+    def _secret(self, provider: str, env_name: str) -> str:
+        return self.credentials.get(provider, "") or os.getenv(env_name, "").strip()
 
     async def search(
         self,
@@ -58,7 +65,7 @@ class NewsSearchService:
         *,
         max_results: int = 5,
         strategy: str = "fallback",
-    ) -> dict:
+    ) -> dict[str, Any]:
         keyword = keyword.strip()
         if not keyword:
             raise ValueError("keyword 不能为空")
@@ -69,7 +76,7 @@ class NewsSearchService:
         if not available:
             raise ValueError("没有可用的新闻搜索源")
 
-        results: list[dict] = []
+        results: list[NewsItem] = []
         errors: dict[str, str] = {}
         attempted: list[str] = []
         used: list[str] = []
@@ -81,7 +88,7 @@ class NewsSearchService:
             for provider, response in zip(available, responses):
                 attempted.append(provider)
                 if isinstance(response, BaseException):
-                    errors[provider] = str(response)
+                    errors[provider] = type(response).__name__
                 elif response:
                     used.append(provider)
                     results.extend(response)
@@ -91,14 +98,14 @@ class NewsSearchService:
                 try:
                     response = await self._call(provider, keyword, limit)
                 except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-                    errors[provider] = str(exc)
+                    errors[provider] = type(exc).__name__
                     continue
                 if response:
                     used.append(provider)
                     results.extend(response)
                     break
 
-        deduped: list[dict] = []
+        deduped: list[NewsItem] = []
         seen: set[str] = set()
         for item in results:
             key = (item.get("url") or item.get("title") or "").strip().lower()
@@ -117,8 +124,8 @@ class NewsSearchService:
             "errors": errors,
         }
 
-    async def _call(self, provider: str, keyword: str, limit: int) -> list[dict]:
-        handlers: dict[str, Callable[[str, int], Awaitable[list[dict]]]] = {
+    async def _call(self, provider: str, keyword: str, limit: int) -> list[NewsItem]:
+        handlers: dict[str, Callable[[str, int], Awaitable[list[NewsItem]]]] = {
             "tavily": self._tavily,
             "serpapi": self._serpapi,
             "bocha": self._bocha,
@@ -128,50 +135,50 @@ class NewsSearchService:
         }
         return await handlers[provider](keyword, limit)
 
-    async def _tavily(self, keyword: str, limit: int) -> list[dict]:
+    async def _tavily(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.post(
             "https://api.tavily.com/search",
-            json={"api_key": os.environ["TAVILY_API_KEY"], "query": keyword, "topic": "news", "max_results": limit},
+            json={"api_key": self._secret("tavily", "TAVILY_API_KEY"), "query": keyword, "topic": "news", "max_results": limit},
         )
         response.raise_for_status()
         return self._normalize("tavily", response.json().get("results", []))
 
-    async def _serpapi(self, keyword: str, limit: int) -> list[dict]:
+    async def _serpapi(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.get(
             "https://serpapi.com/search.json",
-            params={"api_key": os.environ["SERPAPI_API_KEY"], "engine": "google", "tbm": "nws", "q": keyword, "num": limit},
+            params={"api_key": self._secret("serpapi", "SERPAPI_API_KEY"), "engine": "google", "tbm": "nws", "q": keyword, "num": limit},
         )
         response.raise_for_status()
         return self._normalize("serpapi", response.json().get("news_results", []))
 
-    async def _bocha(self, keyword: str, limit: int) -> list[dict]:
+    async def _bocha(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.post(
             "https://api.bochaai.com/v1/web-search",
-            headers={"Authorization": f"Bearer {os.environ['BOCHA_API_KEY']}"},
+            headers={"Authorization": f"Bearer {self._secret('bocha', 'BOCHA_API_KEY')}"},
             json={"query": keyword, "freshness": "oneMonth", "summary": True, "count": limit},
         )
         response.raise_for_status()
         items = ((response.json().get("data") or {}).get("webPages") or {}).get("value", [])
         return self._normalize("bocha", items)
 
-    async def _brave(self, keyword: str, limit: int) -> list[dict]:
+    async def _brave(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.get(
             "https://api.search.brave.com/res/v1/news/search",
-            headers={"X-Subscription-Token": os.environ["BRAVE_SEARCH_API_KEY"], "Accept": "application/json"},
+            headers={"X-Subscription-Token": self._secret("brave", "BRAVE_SEARCH_API_KEY"), "Accept": "application/json"},
             params={"q": keyword, "count": limit},
         )
         response.raise_for_status()
         return self._normalize("brave", response.json().get("results", []))
 
-    async def _searxng(self, keyword: str, limit: int) -> list[dict]:
+    async def _searxng(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.get(
-            f"{os.environ['SEARXNG_BASE_URL'].rstrip('/')}/search",
+            f"{self._secret('searxng', 'SEARXNG_BASE_URL').rstrip('/')}/search",
             params={"q": keyword, "format": "json", "categories": "news"},
         )
         response.raise_for_status()
         return self._normalize("searxng", response.json().get("results", [])[:limit])
 
-    async def _sina(self, keyword: str, limit: int) -> list[dict]:
+    async def _sina(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.get(
             "https://searchapi.sina.com.cn/",
             headers={"Referer": "https://finance.sina.com.cn"},
@@ -183,8 +190,8 @@ class NewsSearchService:
         return self._normalize("sina", items if isinstance(items, list) else [])
 
     @staticmethod
-    def _normalize(provider: str, items: list[dict]) -> list[dict]:
-        normalized = []
+    def _normalize(provider: str, items: list[NewsItem]) -> list[NewsItem]:
+        normalized: list[NewsItem] = []
         for item in items:
             title = _text(item.get("title") or item.get("name"))
             if not title:

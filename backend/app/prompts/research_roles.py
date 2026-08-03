@@ -3,7 +3,7 @@
 用于 research_orch 多 Agent 并行研究管线。
 每个 Agent 聚焦单一领域，配备工具使用能力。
 """
-from ..agent.tools_definitions import ToolRegistry
+from ..agent.tools import ToolRegistry
 
 # 全局工具列表描述（注入 System Prompt 尾部让 Agent 知道能调用什么）
 _TOOL_DESC = "\n\n你可以调用以下工具获取实时数据：\n"

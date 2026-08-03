@@ -5,7 +5,7 @@ import logging
 import smtplib
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -107,7 +107,7 @@ async def dispatch_message(
     *,
     senders: list[Sender] | None = None,
     enabled: bool | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Dispatch independently; one channel failure never hides another result."""
     is_enabled = config.EXTERNAL_SENDERS_ENABLED if enabled is None else enabled
     channels = configured_senders() if senders is None else senders

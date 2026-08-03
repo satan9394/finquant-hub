@@ -2,6 +2,7 @@
 
 import json
 import re
+from typing import Any
 
 from .. import database
 
@@ -17,7 +18,7 @@ _MAX_RESULT_LIMIT = 10
 def normalize_for_search(value: str | None) -> str:
     """把连续中文拆成单字 token，同时保留英文/数字词形。"""
     text = value or ""
-    rendered = []
+    rendered: list[str] = []
     for char in text:
         if _CJK_RUN.fullmatch(char):
             rendered.extend((" ", char, " "))
@@ -50,9 +51,10 @@ def build_fts_query(query: str) -> str:
 async def search_cross_session_memory(
     query: str,
     *,
+    user_id: int,
     exclude_conversation_id: int | None = None,
     limit: int = 4,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """检索历史单聊与讨论消息，并可排除当前会话。"""
     if not 1 <= limit <= _MAX_RESULT_LIMIT:
         raise ValueError(f"limit 必须在 1 到 {_MAX_RESULT_LIMIT} 之间")
@@ -61,7 +63,7 @@ async def search_cross_session_memory(
         return []
 
     exclusion = "AND m.conversation_id<>?" if exclude_conversation_id is not None else ""
-    params: tuple = (fts_query,)
+    params: tuple[object, ...] = (fts_query, user_id, user_id)
     if exclude_conversation_id is not None:
         params += (exclude_conversation_id,)
     params += (limit,)
@@ -81,6 +83,7 @@ async def search_cross_session_memory(
         JOIN messages m ON m.id=CAST(memory_fts.message_id AS INTEGER)
         JOIN conversations c ON c.id=m.conversation_id
         WHERE memory_fts MATCH ?
+          AND m.user_id=? AND c.user_id=?
           {exclusion}
         ORDER BY rank, m.created_at DESC, m.id DESC
         LIMIT ?
@@ -90,7 +93,11 @@ async def search_cross_session_memory(
     return rows
 
 
-def render_memory_context(hits: list[dict], *, char_budget: int = 2400) -> str:
+def render_memory_context(
+    hits: list[dict[str, Any]],
+    *,
+    char_budget: int = 2400,
+) -> str:
     """把命中项渲染成带明确不信任边界的 system context。"""
     if char_budget < 256:
         raise ValueError("char_budget 不能小于 256")

@@ -6,6 +6,7 @@
 import json
 import re
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from .. import database
 from ..orchestrator import DAGContext, DAGNode, DAGRuntime
@@ -43,10 +44,11 @@ async def _market_context(topic: str) -> str:
 
 
 async def run_discussion(
-    room: dict, model_id: int | None = None
-) -> AsyncIterator[tuple[str, dict]]:
+    room: dict[str, Any], model_id: int | None = None
+) -> AsyncIterator[tuple[str, dict[str, Any]]]:
     """异步生成器：yield (event_name, data_dict)。"""
     room_id = room["id"]
+    user_id = int(room["user_id"])
     topic = room["topic"]
     total = room["total_rounds"]
     participants = sorted(room["participants"], key=lambda p: p["role_key"])
@@ -61,14 +63,19 @@ async def run_discussion(
         yield "error", {"error": f"角色预设不存在：{missing_role}"}
         return
 
-    client, _ = await model_router.get_client(model_id)
+    client, _ = await model_router.get_client(model_id, user_id=user_id)
     market_ctx = await _market_context(topic)
 
-    def make_node(rnd: int, participant: dict, previous_key: str | None, starts_round: bool) -> DAGNode:
+    def make_node(
+        rnd: int,
+        participant: dict[str, Any],
+        previous_key: str | None,
+        starts_round: bool,
+    ) -> DAGNode:
         role_key = participant["role_key"]
         preset = presets[role_key]
 
-        async def run_turn(context: DAGContext):
+        async def run_turn(context: DAGContext) -> dict[str, Any]:
             if starts_round:
                 context.emit("round_start", {"round": rnd, "total_rounds": total})
             context.emit("agent_start", {
@@ -94,9 +101,9 @@ async def run_discussion(
                 context.emit("token", {"delta": delta, "agent": role_key})
 
             msg_id = await database.execute(
-                "INSERT INTO messages (conversation_id, role, agent_name, content, round_number, token_count) "
-                "VALUES (?, 'agent', ?, ?, ?, ?)",
-                (room["conversation_id"], role_key, full, rnd, estimate_tokens(full)),
+                "INSERT INTO messages (conversation_id, role, agent_name, content, round_number, token_count, user_id) "
+                "VALUES (?, 'agent', ?, ?, ?, ?, ?)",
+                (room["conversation_id"], role_key, full, rnd, estimate_tokens(full), user_id),
             )
             context.emit("agent_end", {
                 "agent": role_key, "message_id": msg_id, "token_count": estimate_tokens(full),
@@ -122,14 +129,14 @@ async def run_discussion(
         if event.kind in {"round_start", "agent_start", "token", "agent_end"}:
             yield event.kind, event.data
         elif event.kind == "node_failed":
-            raise event.error
+            raise cast(BaseException, event.error)
         elif event.kind == "node_skipped":
             raise RuntimeError(f"讨论节点因依赖失败被跳过：{event.node_key}")
 
     # 讨论总结（非流式一次生成）
     all_msgs = await database.query_all(
-        "SELECT agent_name, content FROM messages WHERE conversation_id=? AND role='agent' ORDER BY id",
-        (room["conversation_id"],),
+        "SELECT agent_name, content FROM messages WHERE conversation_id=? AND user_id=? AND role='agent' ORDER BY id",
+        (room["conversation_id"], user_id),
     )
     transcript = "\n\n".join(f"【{m['agent_name']}】{m['content'][:600]}" for m in all_msgs)
     summary, _ = await client.chat([
@@ -137,14 +144,17 @@ async def run_discussion(
         {"role": "user", "content": transcript[-6000:]},
     ])
     await database.execute(
-        "UPDATE discussion_rooms SET current_phase='done', summary=? WHERE id=?",
-        (summary, room_id),
+        "UPDATE discussion_rooms SET current_phase='done', summary=? WHERE id=? AND user_id=?",
+        (summary, room_id, user_id),
     )
     yield "summary", {"content": summary}
     yield "done", {"room_id": room_id}
 
 
-async def stream_discussion(room: dict, model_id: int | None = None):
+async def stream_discussion(
+    room: dict[str, Any],
+    model_id: int | None = None,
+) -> AsyncIterator[dict[str, str]]:
     """包装为 sse-starlette 事件流，统一错误收尾。"""
     try:
         async for event, data in run_discussion(room, model_id):

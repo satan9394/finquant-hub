@@ -2,9 +2,10 @@
 
 import json
 import logging
-from typing import Annotated
+from collections.abc import AsyncIterator
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
 from ..services.notifications import (
@@ -16,8 +17,9 @@ from ..services.notifications import (
     unread_count,
     wait_for_notifications,
 )
+from .auth import CurrentUser, authenticated_context
 
-router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+router = APIRouter(prefix="/api/notifications", tags=["notifications"], dependencies=[Depends(authenticated_context)])
 LOGGER = logging.getLogger(__name__)
 
 
@@ -35,28 +37,31 @@ def replay_cursor(after_id: int, last_event_id: str | None) -> int:
 
 @router.get("")
 async def get_notifications(
+    user: CurrentUser,
     limit: int = Query(default=50, ge=1, le=100),
     unread_only: bool = False,
-):
+) -> dict[str, Any]:
     return {
-        "items": await recent_notifications(limit=limit, unread_only=unread_only),
-        "unread_count": await unread_count(),
+        "items": await recent_notifications(user_id=int(user["id"]), limit=limit, unread_only=unread_only),
+        "unread_count": await unread_count(int(user["id"])),
     }
 
 
 @router.get("/stream")
 async def stream_notifications(
+    user: CurrentUser,
     after_id: int = Query(default=0, ge=0),
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
-):
+) -> EventSourceResponse:
     cursor = replay_cursor(after_id, last_event_id)
+    user_id = int(user["id"])
 
-    async def event_stream():
+    async def event_stream() -> AsyncIterator[dict[str, str]]:
         nonlocal cursor
         revision = notification_revision()
         try:
             while True:
-                items = await list_notification_events(after_id=cursor, limit=100)
+                items = await list_notification_events(user_id=user_id, after_id=cursor, limit=100)
                 if items:
                     for item in items:
                         cursor = item["id"]
@@ -77,15 +82,18 @@ async def stream_notifications(
 
 
 @router.post("/read-all")
-async def read_all_notifications():
-    return {"updated": await mark_all_notifications_read()}
+async def read_all_notifications(user: CurrentUser) -> dict[str, int]:
+    return {"updated": await mark_all_notifications_read(int(user["id"]))}
 
 
 @router.post("/{notification_id:int}/read")
-async def read_notification(notification_id: int):
-    updated = await mark_notification_read(notification_id)
+async def read_notification(notification_id: int, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    updated = await mark_notification_read(notification_id, user_id)
     if not updated:
-        existing = await list_notification_events(after_id=max(0, notification_id - 1), limit=1)
+        existing = await list_notification_events(
+            user_id=user_id, after_id=max(0, notification_id - 1), limit=1
+        )
         if not existing or existing[0]["id"] != notification_id:
             raise HTTPException(404, f"通知不存在：id={notification_id}")
     return {"id": notification_id, "is_read": True}

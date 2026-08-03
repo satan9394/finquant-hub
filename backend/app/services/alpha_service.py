@@ -137,7 +137,7 @@ WorldQuant Alpha 是量化金融中最著名的因子表达式体系。
 """
 
 
-def search_alpha(keyword: str | None = "", max_results: int = 10) -> list[dict]:
+def search_alpha(keyword: str | None = "", max_results: int = 10) -> list[dict[str, Any]]:
     """搜索 Alpha 因子库，支持中英文关键词。
 
     返回匹配的 Alpha 列表，按相关度排序。
@@ -211,7 +211,7 @@ def search_alpha(keyword: str | None = "", max_results: int = 10) -> list[dict]:
     return (results + custom_results)[:result_limit]
 
 
-def list_categories() -> list[dict]:
+def list_categories() -> list[dict[str, Any]]:
     """按类别返回 Alpha 因子概览。"""
     field_categories: dict[str, dict[str, Any]] = {}
     for item in _load_wq_fields():
@@ -233,7 +233,7 @@ def list_categories() -> list[dict]:
     ]
 
 
-def calc_correlation(series_a: list[float], series_b: list[float]) -> dict:
+def calc_correlation(series_a: list[float], series_b: list[float]) -> dict[str, Any]:
     """计算两个序列的 Pearson 相关系数及相关统计。"""
     n = min(len(series_a), len(series_b))
     if n < 3:

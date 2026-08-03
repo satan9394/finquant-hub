@@ -12,6 +12,7 @@ from app.services import scheduler
 async def scheduler_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "scheduler.db")
     await database.init_db()
+    await database.execute("INSERT INTO users (id, email, is_admin) VALUES (1, 'scheduler@test.local', 1)")
     try:
         yield
     finally:
@@ -49,10 +50,10 @@ async def test_post_market_analysis_reloads_targets_and_consumes_research(monkey
     calls = []
 
     async def fake_targets():
-        return [("sh600519", "贵州茅台"), ("usAAPL", "Apple Inc.")]
+        return [(1, "sh600519", "贵州茅台"), (1, "usAAPL", "Apple Inc.")]
 
-    async def fake_research(ticker, company_name, model_id=None):
-        calls.append((ticker, company_name, model_id))
+    async def fake_research(ticker, company_name, model_id=None, *, user_id):
+        calls.append((ticker, company_name, model_id, user_id))
         yield "agent_started", {}
         yield "done", {"ticker": ticker}
 
@@ -62,8 +63,8 @@ async def test_post_market_analysis_reloads_targets_and_consumes_research(monkey
     await scheduler.run_post_market_analysis()
 
     assert calls == [
-        ("sh600519", "贵州茅台", None),
-        ("usAAPL", "Apple Inc.", None),
+        ("sh600519", "贵州茅台", None, 1),
+        ("usAAPL", "Apple Inc.", None, 1),
     ]
     reports = await database.query_all(
         "SELECT id, ticker, status, report_data FROM research_reports ORDER BY id"
@@ -94,11 +95,11 @@ async def test_post_market_analysis_limits_targets_and_concurrency(monkeypatch):
     calls = []
 
     async def fake_targets():
-        return [(f"ticker-{index}", f"Company {index}") for index in range(5)]
+        return [(1, f"ticker-{index}", f"Company {index}") for index in range(5)]
 
-    async def fake_research(ticker, company_name, model_id=None):
+    async def fake_research(ticker, company_name, model_id=None, *, user_id):
         nonlocal active, peak
-        calls.append((ticker, company_name, model_id))
+        calls.append((ticker, company_name, model_id, user_id))
         active += 1
         peak = max(peak, active)
         try:
@@ -112,16 +113,16 @@ async def test_post_market_analysis_limits_targets_and_concurrency(monkeypatch):
 
     await scheduler.run_post_market_analysis(max_targets=3, concurrency=2)
 
-    assert [ticker for ticker, _, _ in calls] == ["ticker-0", "ticker-1", "ticker-2"]
+    assert [ticker for ticker, _, _, _ in calls] == ["ticker-0", "ticker-1", "ticker-2"]
     assert peak == 2
 
 
 @pytest.mark.asyncio
 async def test_post_market_analysis_persists_failed_runs(monkeypatch):
     async def fake_targets():
-        return [("usAAPL", "Apple Inc.")]
+        return [(1, "usAAPL", "Apple Inc.")]
 
-    async def fake_research(ticker, company_name, model_id=None):
+    async def fake_research(ticker, company_name, model_id=None, *, user_id):
         yield "error", {"error": "rate limited"}
 
     monkeypatch.setattr(scheduler, "_load_daily_targets", fake_targets)
@@ -150,8 +151,8 @@ async def test_scheduled_cycle_runs_research_even_when_alert_scan_fails(monkeypa
     async def fake_research():
         calls.append(("research",))
 
-    async def fake_market_review(review_market):
-        calls.append(("market_review", review_market))
+    async def fake_market_review(review_market, user_id):
+        calls.append(("market_review", review_market, user_id))
 
     market = object()
     monkeypatch.setattr(scheduler, "scan_enabled_rules", fail_alerts)
@@ -162,5 +163,5 @@ async def test_scheduled_cycle_runs_research_even_when_alert_scan_fails(monkeypa
 
     assert calls[0][0] == "alerts"
     assert calls[0][1] is market
-    assert calls[1] == ("market_review", market)
+    assert calls[1] == ("market_review", market, 1)
     assert calls[2] == ("research",)

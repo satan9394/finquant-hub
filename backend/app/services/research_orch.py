@@ -128,6 +128,8 @@ async def run_research(
     ticker: str,
     company_name: str = "",
     model_id: int | None = None,
+    *,
+    user_id: int,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
     """并行执行四个 Agent 的研究，通过 yield (event, data) 推送 SSE 事件流。
 
@@ -141,11 +143,11 @@ async def run_research(
     """
     from ..services import model_router
 
-    memory_hits = await search_cross_session_memory(f"{ticker} {company_name}", limit=4)
+    memory_hits = await search_cross_session_memory(f"{ticker} {company_name}", user_id=user_id, limit=4)
     memory_context = render_memory_context(memory_hits)
 
     try:
-        client, _ = await model_router.get_client(model_id)
+        client, _ = await model_router.get_client(model_id, user_id=user_id)
     except LLMError as e:
         yield "error", {"error": str(e)}
         return

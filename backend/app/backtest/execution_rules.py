@@ -2,6 +2,7 @@
 
 from dataclasses import asdict, dataclass
 from decimal import Decimal, ROUND_HALF_UP
+from typing import Any, cast
 
 
 def _trade_date(value: object) -> str:
@@ -42,7 +43,7 @@ class ExecutionRules:
     def check_fill(
         self,
         side: str,
-        bar: dict,
+        bar: dict[str, Any],
         *,
         previous_close: float | None,
         entry_date: str | None = None,
@@ -56,9 +57,9 @@ class ExecutionRules:
         if previous_close in (None, 0) or self.price_limit_ratio is None:
             return True, None
 
-        inferred_up, inferred_down = self.limit_prices(float(previous_close))
-        limit_up = float(bar.get("limit_up") or inferred_up)
-        limit_down = float(bar.get("limit_down") or inferred_down)
+        inferred_up, inferred_down = self.limit_prices(float(cast(Any, previous_close)))
+        limit_up = float(cast(Any, bar.get("limit_up") or inferred_up))
+        limit_down = float(cast(Any, bar.get("limit_down") or inferred_down))
         open_price = float(bar["open"])
         tolerance = self.tick_size / 2
         if side == "buy" and open_price >= limit_up - tolerance:
@@ -67,7 +68,7 @@ class ExecutionRules:
             return False, "limit_down"
         return True, None
 
-    def metadata(self) -> dict:
+    def metadata(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["assumptions"] = list(self.assumptions)
         return payload
@@ -95,7 +96,7 @@ def execution_rules_for(
         ratio = float(price_limit_ratio)
         if not 0 < ratio <= 0.5:
             raise ValueError("price_limit_ratio 必须在 0 到 0.5 之间")
-        assumptions = (
+        assumptions: tuple[str, ...] = (
             "price_limit_ratio_explicit",
             "adjusted_bars_may_distort_historical_limit_prices",
         )

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sqlite3
+from typing import Any, cast
 
 from .. import database
 from . import indicators
@@ -31,7 +32,10 @@ class DuplicateRuleError(ValueError):
     """相同股票、信号类型与方向的规则已存在。"""
 
 
-def _rule(row: dict) -> dict:
+JSONDict = dict[str, Any]
+
+
+def _rule(row: JSONDict) -> JSONDict:
     item = dict(row)
     item["is_enabled"] = bool(item["is_enabled"])
     return item
@@ -59,8 +63,9 @@ async def create_rule(
     signal_type: str,
     direction: str | None = None,
     *,
+    user_id: int,
     is_enabled: bool = True,
-) -> dict:
+) -> JSONDict:
     name = name.strip()[:100]
     if not name:
         raise ValueError("规则名称不能为空")
@@ -69,29 +74,32 @@ async def create_rule(
     try:
         rule_id = await database.execute(
             """
-            INSERT INTO alert_rules (name, ticker, signal_type, direction, is_enabled)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO alert_rules (name, ticker, signal_type, direction, is_enabled, user_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (name, ticker, signal_type, direction, int(is_enabled)),
+            (name, ticker, signal_type, direction, int(is_enabled), user_id),
         )
     except sqlite3.IntegrityError as exc:
         raise DuplicateRuleError("相同股票、信号类型与方向的规则已存在") from exc
-    return _rule(await database.query_one("SELECT * FROM alert_rules WHERE id=?", (rule_id,)))
+    row = await database.query_one("SELECT * FROM alert_rules WHERE id=? AND user_id=?", (rule_id, user_id))
+    return _rule(cast(JSONDict, row))
 
 
-async def list_rules(*, enabled_only: bool = False) -> list[dict]:
-    where = "WHERE is_enabled=1" if enabled_only else ""
-    rows = await database.query_all(f"SELECT * FROM alert_rules {where} ORDER BY id DESC")
+async def list_rules(*, user_id: int, enabled_only: bool = False) -> list[JSONDict]:
+    enabled = "AND is_enabled=1" if enabled_only else ""
+    rows = await database.query_all(
+        f"SELECT * FROM alert_rules WHERE user_id=? {enabled} ORDER BY id DESC", (user_id,)
+    )
     return [_rule(row) for row in rows]
 
 
-async def get_rule(rule_id: int) -> dict | None:
-    row = await database.query_one("SELECT * FROM alert_rules WHERE id=?", (rule_id,))
+async def get_rule(rule_id: int, user_id: int) -> JSONDict | None:
+    row = await database.query_one("SELECT * FROM alert_rules WHERE id=? AND user_id=?", (rule_id, user_id))
     return _rule(row) if row else None
 
 
-async def update_rule(rule_id: int, changes: dict) -> dict | None:
-    current = await get_rule(rule_id)
+async def update_rule(rule_id: int, changes: JSONDict, user_id: int) -> JSONDict | None:
+    current = await get_rule(rule_id, user_id)
     if current is None:
         return None
 
@@ -114,7 +122,7 @@ async def update_rule(rule_id: int, changes: dict) -> dict | None:
             """
             UPDATE alert_rules
             SET name=?, ticker=?, signal_type=?, direction=?, is_enabled=?, updated_at=datetime('now')
-            WHERE id=?
+            WHERE id=? AND user_id=?
             """,
             (
                 values["name"],
@@ -123,30 +131,32 @@ async def update_rule(rule_id: int, changes: dict) -> dict | None:
                 values["direction"],
                 int(values["is_enabled"]),
                 rule_id,
+                user_id,
             ),
         )
     except sqlite3.IntegrityError as exc:
         raise DuplicateRuleError("相同股票、信号类型与方向的规则已存在") from exc
-    return await get_rule(rule_id)
+    return await get_rule(rule_id, user_id)
 
 
-async def delete_rule(rule_id: int) -> bool:
+async def delete_rule(rule_id: int, user_id: int) -> bool:
     db = database.get_db()
-    cursor = await db.execute("DELETE FROM alert_rules WHERE id=?", (rule_id,))
+    cursor = await db.execute("DELETE FROM alert_rules WHERE id=? AND user_id=?", (rule_id, user_id))
     await db.commit()
     return cursor.rowcount == 1
 
 
 async def list_triggers(
     *,
+    user_id: int,
     rule_id: int | None = None,
     ticker: str | None = None,
     limit: int = 50,
-) -> list[dict]:
+) -> list[JSONDict]:
     if not 1 <= limit <= 100:
         raise ValueError("limit 必须在 1 到 100 之间")
-    clauses: list[str] = []
-    params: list[str | int] = []
+    clauses: list[str] = ["user_id=?"]
+    params: list[str | int] = [user_id]
     if rule_id is not None:
         clauses.append("rule_id=?")
         params.append(rule_id)
@@ -161,14 +171,14 @@ async def list_triggers(
     )
 
 
-def _matches(rule: dict, signal: dict) -> bool:
+def _matches(rule: JSONDict, signal: JSONDict) -> bool:
     return (
         rule["signal_type"] in ("*", signal["type"])
         and (rule["direction"] is None or rule["direction"] == signal["direction"])
     )
 
 
-async def _publish_trigger(trigger: dict) -> None:
+async def _publish_trigger(trigger: JSONDict) -> None:
     if trigger.get("notification_id") is not None:
         return
     severity = {
@@ -191,32 +201,39 @@ async def _publish_trigger(trigger: dict) -> None:
             "signal_date": trigger["signal_date"],
         },
         dedupe_key=f"alert-trigger:{trigger['id']}",
+        user_id=int(trigger["user_id"]),
     )
     if notification is None:
         notification = await database.query_one(
-            "SELECT id FROM notifications WHERE dedupe_key=?",
-            (f"alert-trigger:{trigger['id']}",),
+            "SELECT id FROM notifications WHERE dedupe_key=? AND user_id=?",
+            (f"alert-trigger:{trigger['id']}", trigger["user_id"]),
         )
     if notification is not None:
         await database.execute(
-            "UPDATE alert_triggers SET notification_id=? WHERE id=?",
-            (notification["id"], trigger["id"]),
+            "UPDATE alert_triggers SET notification_id=? WHERE id=? AND user_id=?",
+            (notification["id"], trigger["id"], trigger["user_id"]),
         )
 
 
-async def evaluate_signals(ticker: str, signals: list[dict], days: list[str]) -> list[dict]:
+async def evaluate_signals(
+    ticker: str,
+    signals: list[JSONDict],
+    days: list[str],
+    *,
+    user_id: int,
+) -> list[JSONDict]:
     """只评估最新交易日的信号，并为每条规则幂等创建触发记录。"""
     if not days:
         return []
     rules = await database.query_all(
-        "SELECT * FROM alert_rules WHERE is_enabled=1 AND ticker=? ORDER BY id",
-        (ticker,),
+        "SELECT * FROM alert_rules WHERE is_enabled=1 AND ticker=? AND user_id=? ORDER BY id",
+        (ticker, user_id),
     )
     if not rules:
         return []
 
     latest_index = len(days) - 1
-    created: list[dict] = []
+    created: list[JSONDict] = []
     for signal in signals:
         if signal.get("index") != latest_index:
             continue
@@ -234,8 +251,9 @@ async def evaluate_signals(ticker: str, signals: list[dict], days: list[str]) ->
                 INSERT INTO alert_triggers (
                     rule_id, rule_name, ticker, signal_type, direction,
                     confidence, signal_date, description, dedupe_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(dedupe_key) DO NOTHING
+                    , user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, dedupe_key) DO NOTHING
                 """,
                 (
                     rule["id"],
@@ -247,21 +265,24 @@ async def evaluate_signals(ticker: str, signals: list[dict], days: list[str]) ->
                     days[latest_index],
                     str(signal.get("description") or signal_type)[:1000],
                     dedupe_key,
+                    user_id,
                 ),
             )
             await db.commit()
             trigger = await database.query_one(
-                "SELECT * FROM alert_triggers WHERE dedupe_key=?",
-                (dedupe_key,),
+                "SELECT * FROM alert_triggers WHERE dedupe_key=? AND user_id=?",
+                (dedupe_key, user_id),
             )
+            typed_trigger = cast(JSONDict, trigger)
             try:
-                await _publish_trigger(trigger)
+                await _publish_trigger(typed_trigger)
             except Exception:
-                LOGGER.exception("Failed to publish alert trigger %s", trigger["id"])
+                LOGGER.exception("Failed to publish alert trigger %s", typed_trigger["id"])
             if cursor.rowcount == 1:
-                created.append(
-                    await database.query_one("SELECT * FROM alert_triggers WHERE id=?", (trigger["id"],))
-                )
+                created.append(cast(JSONDict, await database.query_one(
+                    "SELECT * FROM alert_triggers WHERE id=? AND user_id=?",
+                    (typed_trigger["id"], user_id),
+                )))
     return created
 
 
@@ -270,17 +291,17 @@ async def scan_enabled_rules(
     *,
     max_targets: int = 20,
     concurrency: int = 2,
-) -> list[dict]:
+) -> list[JSONDict]:
     """按股票去重扫描启用规则；单个行情失败不阻断其他规则。"""
     target_limit = min(1000, max(1, max_targets))
     worker_limit = min(20, max(1, concurrency))
     rows = await database.query_all(
-        "SELECT DISTINCT ticker FROM alert_rules WHERE is_enabled=1 ORDER BY ticker LIMIT ?",
+        "SELECT DISTINCT user_id, ticker FROM alert_rules WHERE is_enabled=1 ORDER BY user_id, ticker LIMIT ?",
         (target_limit,),
     )
     semaphore = asyncio.Semaphore(worker_limit)
 
-    async def scan(ticker: str) -> list[dict]:
+    async def scan(ticker: str, user_id: int) -> list[JSONDict]:
         async with semaphore:
             try:
                 bars = await market.kline(ticker, "1d", 120)
@@ -293,12 +314,12 @@ async def scan_enabled_rules(
                     [bar["low"] for bar in bars],
                     [bar["volume"] for bar in bars],
                 )
-                return await evaluate_signals(ticker, detected, [bar["day"] for bar in bars])
+                return await evaluate_signals(ticker, detected, [bar["day"] for bar in bars], user_id=user_id)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 LOGGER.exception("Alert scan failed for %s", ticker)
                 return []
 
-    groups = await asyncio.gather(*(scan(row["ticker"]) for row in rows))
+    groups = await asyncio.gather(*(scan(row["ticker"], int(row["user_id"])) for row in rows))
     return [trigger for group in groups for trigger in group]

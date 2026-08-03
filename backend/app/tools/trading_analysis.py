@@ -1,8 +1,10 @@
 """Pure shadow-trade attribution and real-money connector design guardrails."""
 from __future__ import annotations
 
+from typing import Any
 
-def analyze_shadow_trades(trades: list[dict]) -> dict:
+
+def analyze_shadow_trades(trades: list[dict[str, Any]]) -> dict[str, Any]:
     if not trades:
         raise ValueError("trades 不能为空")
     rows = []
@@ -46,7 +48,10 @@ def analyze_shadow_trades(trades: list[dict]) -> dict:
     }
 
 
-def connector_design_assessment(broker: str, requested_capabilities: list[str]) -> dict:
+def connector_design_assessment(
+    broker: str,
+    requested_capabilities: list[str],
+) -> dict[str, Any]:
     requested = list(dict.fromkeys(str(item).strip() for item in requested_capabilities if str(item).strip()))
     return {
         "broker": broker.strip() or "unspecified",

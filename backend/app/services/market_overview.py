@@ -4,6 +4,7 @@ import asyncio
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any, cast
 
 import httpx
 
@@ -40,18 +41,19 @@ INDEXES = {
         ("^RUT", "RUT", "罗素2000"),
     ),
 }
+JSONDict = dict[str, Any]
 
 
-def _number(value, *, scale: float = 1.0) -> float | None:
+def _number(value: object, *, scale: float = 1.0) -> float | None:
     if value in (None, "", "-"):
         return None
     try:
-        return round(float(value) / scale, 4)
+        return round(float(cast(Any, value)) / scale, 4)
     except (TypeError, ValueError):
         return None
 
 
-def _integer(value) -> int | None:
+def _integer(value: object) -> int | None:
     number = _number(value)
     return int(number) if number is not None else None
 
@@ -60,7 +62,7 @@ def _integer(value) -> int | None:
 class MarketOverviewService:
     market: MarketDataService
 
-    async def _get_json(self, urls: tuple[str, ...], *, params: dict) -> dict:
+    async def _get_json(self, urls: tuple[str, ...], *, params: JSONDict) -> JSONDict:
         breaker = self.market._breaker("eastmoney")
         if not breaker.allow_request():
             raise MarketError("东方财富数据源熔断中")
@@ -79,7 +81,7 @@ class MarketOverviewService:
         breaker.record_failure(last_error or "空响应")
         raise MarketError("东方财富数据源不可用") from last_error
 
-    async def _post_json(self, url: str, *, body: dict) -> dict:
+    async def _post_json(self, url: str, *, body: JSONDict) -> JSONDict:
         breaker = self.market._breaker("eastmoney")
         if not breaker.allow_request():
             raise MarketError("东方财富数据源熔断中")
@@ -95,11 +97,11 @@ class MarketOverviewService:
             breaker.record_failure(exc)
             raise MarketError("东方财富数据源不可用") from exc
 
-    async def indices(self, market: str) -> list[dict]:
+    async def indices(self, market: str) -> list[JSONDict]:
         if market not in INDEXES:
             raise ValueError("market 必须是 cn、hk 或 us")
 
-        async def fetch(spec: tuple[str, str, str]) -> dict:
+        async def fetch(spec: tuple[str, str, str]) -> JSONDict:
             provider_symbol, code, name = spec
             try:
                 item = await self.market.index_quote(
@@ -126,7 +128,7 @@ class MarketOverviewService:
 
         return await asyncio.gather(*(fetch(spec) for spec in INDEXES[market]))
 
-    async def breadth(self, market: str) -> dict:
+    async def breadth(self, market: str) -> JSONDict:
         if market != "cn":
             return {
                 "status": "unsupported",
@@ -134,7 +136,7 @@ class MarketOverviewService:
                 "reason": "当前数据源未提供可验证的港股/美股全市场成分集合",
                 "source": None,
             }
-        params = {
+        params: JSONDict = {
             "pn": 1,
             "pz": 100,
             "po": 1,
@@ -156,7 +158,7 @@ class MarketOverviewService:
             # without bursting the public endpoint hard enough to trigger resets.
             semaphore = asyncio.Semaphore(4)
 
-            async def page(page_number: int) -> list[dict]:
+            async def page(page_number: int) -> list[JSONDict]:
                 async with semaphore:
                     payload = await self._get_json(
                         EASTMONEY_CLIST_URLS,
@@ -180,7 +182,7 @@ class MarketOverviewService:
             "source": "eastmoney",
         }
 
-    async def overview(self, market: str) -> dict:
+    async def overview(self, market: str) -> JSONDict:
         if market not in INDEXES:
             raise ValueError("market 必须是 cn、hk 或 us")
         indices, breadth = await asyncio.gather(self.indices(market), self.breadth(market))
@@ -193,7 +195,7 @@ class MarketOverviewService:
             "status": "ok" if available_indices == len(indices) else "partial",
         }
 
-    async def sectors(self, kind: str, limit: int = 20) -> dict:
+    async def sectors(self, kind: str, limit: int = 20) -> JSONDict:
         market_type = {"industry": 2, "concept": 3}.get(kind)
         if market_type is None:
             raise ValueError("kind 必须是 industry 或 concept")
@@ -234,7 +236,7 @@ class MarketOverviewService:
             ],
         }
 
-    async def popular(self, limit: int = 20) -> dict:
+    async def popular(self, limit: int = 20) -> JSONDict:
         ranking = await self._post_json(
             EASTMONEY_HOT_RANK,
             body={
@@ -266,7 +268,7 @@ class MarketOverviewService:
             },
         )
         rows = ((quotes.get("data") or {}).get("diff") or [])
-        items = []
+        items: list[JSONDict] = []
         for row in rows:
             prefix = "SH" if _integer(row.get("f13")) == 1 else "SZ"
             rank_code = f"{prefix}{row.get('f12')}"
@@ -280,7 +282,7 @@ class MarketOverviewService:
         items.sort(key=lambda item: item["rank"] if item["rank"] is not None else 10_000)
         return {"source": "eastmoney", "items": items}
 
-    async def limit_up(self, trading_date: date) -> dict:
+    async def limit_up(self, trading_date: date) -> JSONDict:
         payload = await self._get_json(
             (EASTMONEY_LIMIT_UP,),
             params={
@@ -293,7 +295,7 @@ class MarketOverviewService:
             },
         )
         data = payload.get("data") or {}
-        items = []
+        items: list[JSONDict] = []
         for row in data.get("pool") or []:
             market_prefix = "sh" if _integer(row.get("m")) == 1 else "sz"
             stats = row.get("zttj") or {}

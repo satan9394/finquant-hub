@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 
 def _finite_number(value: object) -> float | None:
     try:
-        number = float(value)
+        number = float(cast(Any, value))
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
@@ -17,7 +17,7 @@ def _finite_number(value: object) -> float | None:
 def adversarial_review(
     claims: Sequence[Mapping[str, Any]],
     financial_signals: Mapping[str, Any] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Turn thesis weak points into verification questions, never accusations."""
     if not claims:
         raise ValueError("至少需要一条投资论点")

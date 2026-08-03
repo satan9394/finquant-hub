@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 
 BUFFETT_GATES = {
@@ -19,7 +20,7 @@ HARD_VETO_GATES = frozenset({"circle_of_competence", "management"})
 def check_buffett_rules(
     assessments: Mapping[str, str],
     notes: Mapping[str, str] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Evaluate all six gates without turning missing evidence into a pass."""
     missing = [gate for gate in BUFFETT_GATES if gate not in assessments]
     extra = [gate for gate in assessments if gate not in BUFFETT_GATES]

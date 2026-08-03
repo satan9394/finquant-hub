@@ -4,16 +4,27 @@ services:
       context: .
       target: backend
     environment:
+      APP_ENV: production
+      MASTER_KEY: ${MASTER_KEY:?MASTER_KEY is required}
+      AUTH_COOKIE_SECURE: "true"
       HOST: 0.0.0.0
       PORT: 8000
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-deepseek-v4-flash}
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
-    ports:
-      - "8000:8000"
+      SMTP_HOST: ${SMTP_HOST:?SMTP_HOST is required}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM is required}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
+    expose:
+      - "8000"
     volumes:
       - finquant-data:/app/backend/data
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
   frontend:
@@ -24,7 +35,13 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ${TLS_CERT_PATH:?TLS_CERT_PATH is required}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_KEY_PATH:?TLS_KEY_PATH is required}:/etc/nginx/tls/privkey.pem:ro
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 volumes:

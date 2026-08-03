@@ -69,6 +69,29 @@ export type FundamentalsResponse = Provenance & {
   items: FundamentalItem[];
 };
 
+export type ChipCostRange = {
+  low: number;
+  high: number;
+  concentration: number;
+};
+
+export type ChipDistributionItem = {
+  date: string;
+  profit_ratio: number;
+  average_cost: number;
+  cost_90: ChipCostRange;
+  cost_70: ChipCostRange;
+  chip_peak: null;
+};
+
+export type ChipDistributionResponse = Provenance & {
+  symbol: string;
+  source: string;
+  methodology: 'akshare_cyq_calculator_120_day_turnover_decay';
+  latest: ChipDistributionItem;
+  items: ChipDistributionItem[];
+};
+
 export type InstrumentSearchResponse = Provenance & { items: Instrument[] };
 
 export type EvidenceItem = {

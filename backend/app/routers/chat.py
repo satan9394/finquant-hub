@@ -1,8 +1,10 @@
 """单 Agent 对话：会话管理 + SSE 流式聊天。"""
 import json
 import logging
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from .. import database
@@ -14,8 +16,9 @@ from ..services import model_router
 from ..services.llm_client import LLMError
 from ..services.llm_usage import reset_usage_context, set_usage_context
 from ..services.memory import render_memory_context, search_cross_session_memory
+from .auth import CurrentUser, authenticated_context
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(authenticated_context)])
 LOGGER = logging.getLogger(__name__)
 
 HISTORY_LIMIT = 20
@@ -43,89 +46,103 @@ async def _execute_tool(name: str, arguments: str) -> str:
     )
 
 
-async def _get_session(session_id: int) -> dict:
-    session = await database.query_one("SELECT * FROM conversations WHERE id=?", (session_id,))
+async def _get_session(session_id: int, user_id: int) -> dict[str, Any]:
+    session = await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?", (session_id, user_id)
+    )
     if session is None:
         raise HTTPException(404, f"会话不存在：id={session_id}")
     return session
 
 
 @router.post("/sessions", status_code=201)
-async def create_session(body: SessionCreate):
+async def create_session(body: SessionCreate, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
     new_id = await database.execute(
-        "INSERT INTO conversations (title, mode, role_preset, model_id) VALUES (?, 'single', ?, ?)",
-        (body.title, body.role_preset, body.model_id),
+        "INSERT INTO conversations (title, mode, role_preset, model_id, user_id) VALUES (?, 'single', ?, ?, ?)",
+        (body.title, body.role_preset, body.model_id, user_id),
     )
-    return await database.query_one("SELECT * FROM conversations WHERE id=?", (new_id,))
+    return cast(dict[str, Any], await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?",
+        (new_id, user_id),
+    ))
 
 
 @router.get("/sessions")
-async def list_sessions():
+async def list_sessions(user: CurrentUser) -> dict[str, Any]:
     return {
         "items": await database.query_all(
             """
             SELECT c.*,
-                   (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id) AS message_count,
+                   (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id AND m.user_id=c.user_id) AS message_count,
                    (SELECT substr(m.content, 1, 50) FROM messages m
-                     WHERE m.conversation_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_message
-            FROM conversations c WHERE c.mode='single' AND c.status='active'
+                     WHERE m.conversation_id=c.id AND m.user_id=c.user_id ORDER BY m.id DESC LIMIT 1) AS last_message
+            FROM conversations c WHERE c.mode='single' AND c.status='active' AND c.user_id=?
             ORDER BY c.updated_at DESC
-            """
+            """,
+            (user["id"],),
         )
     }
 
 
 @router.put("/sessions/{session_id}")
-async def update_session(session_id: int, body: SessionUpdate):
-    await _get_session(session_id)
+async def update_session(session_id: int, body: SessionUpdate, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
         sets = ", ".join(f"{k}=?" for k in updates)
         await database.execute(
-            f"UPDATE conversations SET {sets}, updated_at=datetime('now') WHERE id=?",
-            (*updates.values(), session_id),
+            f"UPDATE conversations SET {sets}, updated_at=datetime('now') WHERE id=? AND user_id=?",
+            (*updates.values(), session_id, user_id),
         )
-    return await database.query_one("SELECT * FROM conversations WHERE id=?", (session_id,))
+    return cast(dict[str, Any], await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?",
+        (session_id, user_id),
+    ))
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: int):
-    await _get_session(session_id)
-    await database.execute("DELETE FROM messages WHERE conversation_id=?", (session_id,))
-    await database.execute("DELETE FROM conversations WHERE id=?", (session_id,))
+async def delete_session(session_id: int, user: CurrentUser) -> dict[str, bool]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
+    await database.execute("DELETE FROM messages WHERE conversation_id=? AND user_id=?", (session_id, user_id))
+    await database.execute("DELETE FROM conversations WHERE id=? AND user_id=?", (session_id, user_id))
     return {"ok": True}
 
 
 @router.get("/sessions/{session_id}/messages")
-async def list_messages(session_id: int):
-    await _get_session(session_id)
+async def list_messages(session_id: int, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
     return {
         "items": await database.query_all(
-            "SELECT * FROM messages WHERE conversation_id=? ORDER BY id", (session_id,)
+            "SELECT * FROM messages WHERE conversation_id=? AND user_id=? ORDER BY id", (session_id, user_id)
         )
     }
 
 
 @router.post("/sessions/{session_id}/messages")
-async def send_message(session_id: int, body: MessageIn):
-    session = await _get_session(session_id)
+async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> EventSourceResponse:
+    user_id = int(user["id"])
+    session = await _get_session(session_id, user_id)
     content = body.content.strip()
 
     # 落库用户消息；首条消息自动生成标题
     user_msg_id = await database.execute(
-        "INSERT INTO messages (conversation_id, role, content, token_count) VALUES (?, 'user', ?, ?)",
-        (session_id, content, estimate_tokens(content)),
+        "INSERT INTO messages (conversation_id, role, content, token_count, user_id) VALUES (?, 'user', ?, ?, ?)",
+        (session_id, content, estimate_tokens(content), user_id),
     )
     if not session.get("title"):
         await database.execute(
-            "UPDATE conversations SET title=? WHERE id=?", (content[:30], session_id)
+            "UPDATE conversations SET title=? WHERE id=? AND user_id=?", (content[:30], session_id, user_id)
         )
 
-    async def stream():
+    async def stream() -> AsyncIterator[dict[str, str]]:
         full = ""
-        usage_token = set_usage_context("chat", session_id)
+        usage_token = set_usage_context("chat", session_id, user_id)
         try:
-            client, _ = await model_router.get_client(session.get("model_id"))
+            client, _ = await model_router.get_client(session.get("model_id"), user_id=user_id)
 
             system = DEFAULT_SYSTEM
             if session.get("role_preset"):
@@ -136,13 +153,14 @@ async def send_message(session_id: int, body: MessageIn):
                     system = preset["system_prompt"]
 
             rows = await database.query_all(
-                "SELECT role, content FROM messages WHERE conversation_id=? AND role IN ('user','assistant') "
+                "SELECT role, content FROM messages WHERE conversation_id=? AND user_id=? AND role IN ('user','assistant') "
                 "ORDER BY id DESC LIMIT ?",
-                (session_id, HISTORY_LIMIT),
+                (session_id, user_id, HISTORY_LIMIT),
             )
             llm_messages = [{"role": "system", "content": system}]
             memory_hits = await search_cross_session_memory(
                 content,
+                user_id=user_id,
                 exclude_conversation_id=session_id,
             )
             memory_context = render_memory_context(memory_hits)
@@ -168,12 +186,12 @@ async def send_message(session_id: int, body: MessageIn):
                 yield {"event": "token", "data": json.dumps({"delta": full}, ensure_ascii=False)}
 
             msg_id = await database.execute(
-                "INSERT INTO messages (conversation_id, role, content, token_count) "
-                "VALUES (?, 'assistant', ?, ?)",
-                (session_id, full, estimate_tokens(full)),
+                "INSERT INTO messages (conversation_id, role, content, token_count, user_id) "
+                "VALUES (?, 'assistant', ?, ?, ?)",
+                (session_id, full, estimate_tokens(full), user_id),
             )
             await database.execute(
-                "UPDATE conversations SET updated_at=datetime('now') WHERE id=?", (session_id,)
+                "UPDATE conversations SET updated_at=datetime('now') WHERE id=? AND user_id=?", (session_id, user_id)
             )
             yield {
                 "event": "done",

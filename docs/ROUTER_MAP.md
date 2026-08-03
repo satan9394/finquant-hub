@@ -1,4 +1,4 @@
-# Router Map — 20 路由器, 42 MVP + 72 新端点
+# Router Map — 21 路由器, 42 MVP + 81 新端点
 
 | Prefix | File | Stage |
 |--------|------|-------|
@@ -7,7 +7,7 @@
 | /api/chat | chat.py | MVP |
 | /api/discussion | discussion.py | MVP |
 | /api/market | market.py | MVP + Phase 9.2（市场级快照、复盘历史、源健康/优先级与批量预取） |
-| /api/dashboard | dashboard.py | MVP |
+| /api/dashboard | dashboard.py | MVP + TASK-017（CSV/TXT/XLSX/剪贴板自选股导入） |
 | /api/analysis | analysis.py | MVP |
 | /api/portfolio | portfolio.py | MVP |
 | /api/backtest | backtest.py | MVP (v1 sync) |
@@ -22,3 +22,4 @@
 | /api/mcp | mcp.py | New（已发现服务器/工具目录 + 运行时启停） |
 | /api/settings | settings.py | New（安全系统配置 + 5 字段 cron 研究 job store/立即运行） |
 | /api/usage | usage.py | New（LLM token 按日/场景聚合，只读） |
+| /api/thesis | thesis.py | New（投资论文 CRUD、报告转论文、论点状态与漂移核验） |

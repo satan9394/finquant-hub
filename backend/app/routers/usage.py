@@ -1,20 +1,24 @@
 """Read-only aggregate API for persisted LLM token usage."""
 
-from fastapi import APIRouter, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, Query
 
 from .. import database
+from .auth import CurrentUser, authenticated_context
 
-router = APIRouter(prefix="/api/usage", tags=["usage"])
+router = APIRouter(prefix="/api/usage", tags=["usage"], dependencies=[Depends(authenticated_context)])
 
 
 @router.get("")
 async def get_usage(
+    user: CurrentUser,
     days: int = Query(default=30, ge=1, le=365),
     session_type: str | None = Query(default=None, min_length=1, max_length=40),
-):
+) -> dict[str, Any]:
     """Return daily token and request counts over a bounded UTC date window."""
-    where = "date(created_at) >= date('now', ?)"
-    params: list[object] = [f"-{days - 1} days"]
+    where = "date(created_at) >= date('now', ?) AND user_id=?"
+    params: list[object] = [f"-{days - 1} days", user["id"]]
     if session_type:
         where += " AND session_type = ?"
         params.append(session_type)

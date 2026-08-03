@@ -14,8 +14,9 @@ from app.services.llm_usage import (
 async def test_usage_write_is_attributed_and_daily_api_aggregates(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "usage.db")
     await database.init_db()
+    await database.execute("INSERT INTO users (id, email, is_admin) VALUES (1, 'usage@test.local', 1)")
     try:
-        token = set_usage_context("research", 42)
+        token = set_usage_context("research", 42, 1)
         try:
             record_llm_usage("deepseek-test", {
                 "prompt_tokens": 100,
@@ -34,7 +35,7 @@ async def test_usage_write_is_attributed_and_daily_api_aggregates(tmp_path, monk
         assert rows[0]["prompt_tokens"] == 100
         assert rows[0]["completion_tokens"] == 25
 
-        result = await get_usage(days=30, session_type=None)
+        result = await get_usage({"id": 1}, days=30, session_type=None)
         assert result["total"] == {
             "prompt_tokens": 100,
             "completion_tokens": 25,

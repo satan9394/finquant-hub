@@ -3,14 +3,18 @@
 输入为 indicators.compute 输出的原始指标序列，
 返回信号列表（信号名、位置、方向、置信度）。
 """
+from typing import Any
+
 import numpy as np
 
+Signal = dict[str, Any]
 
-def _to_arr(v: list) -> np.ndarray:
+
+def _to_arr(v: list[float]) -> np.ndarray:
     return np.asarray(v, dtype=float)
 
 
-def golden_cross(macd: dict) -> list[dict]:
+def golden_cross(macd: dict[str, Any]) -> list[Signal]:
     """MACD 金叉：DIF 上穿 DEA。"""
     dif = _to_arr(macd["dif"])
     dea = _to_arr(macd["dea"])
@@ -31,7 +35,7 @@ def golden_cross(macd: dict) -> list[dict]:
     return signals
 
 
-def death_cross(macd: dict) -> list[dict]:
+def death_cross(macd: dict[str, Any]) -> list[Signal]:
     """MACD 死叉：DIF 下穿 DEA。"""
     dif = _to_arr(macd["dif"])
     dea = _to_arr(macd["dea"])
@@ -52,7 +56,7 @@ def death_cross(macd: dict) -> list[dict]:
     return signals
 
 
-def divergence(macd: dict, close: list[float]) -> list[dict]:
+def divergence(macd: dict[str, Any], close: list[float]) -> list[Signal]:
     """MACD 顶背离/底背离：价格与 DIF 反向运动。
 
     顶背离：价格新高，DIF 未新高 → 看跌
@@ -93,7 +97,12 @@ def divergence(macd: dict, close: list[float]) -> list[dict]:
     return signals
 
 
-def breakout(close: list[float], high: list[float], low: list[float], period: int = 20) -> list[dict]:
+def breakout(
+    close: list[float],
+    high: list[float],
+    low: list[float],
+    period: int = 20,
+) -> list[Signal]:
     """突破信号：收盘价突破period内最高价（向上突破）或跌破period内最低价（向下突破）。"""
     c = _to_arr(close)
     h = _to_arr(high)
@@ -128,7 +137,11 @@ def breakout(close: list[float], high: list[float], low: list[float], period: in
     return signals
 
 
-def volume_surge(volume: list[float], multiplier: float = 2.0, window: int = 20) -> list[dict]:
+def volume_surge(
+    volume: list[float],
+    multiplier: float = 2.0,
+    window: int = 20,
+) -> list[Signal]:
     """放量信号：成交量超过过去window日均量的multiplier倍。"""
     v = _to_arr(volume)
     signals = []
@@ -152,7 +165,7 @@ def volume_surge(volume: list[float], multiplier: float = 2.0, window: int = 20)
     return signals
 
 
-def rsi_oversold(rsi: list[float], threshold: float = 30.0) -> list[dict]:
+def rsi_oversold(rsi: list[float], threshold: float = 30.0) -> list[Signal]:
     """RSI 进入超卖区：只在穿越阈值时记录一次。"""
     r = _to_arr(rsi)
     signals = []
@@ -171,7 +184,7 @@ def rsi_oversold(rsi: list[float], threshold: float = 30.0) -> list[dict]:
     return signals
 
 
-def rsi_overbought(rsi: list[float], threshold: float = 70.0) -> list[dict]:
+def rsi_overbought(rsi: list[float], threshold: float = 70.0) -> list[Signal]:
     """RSI 进入超买区：只在穿越阈值时记录一次。"""
     r = _to_arr(rsi)
     signals = []
@@ -190,10 +203,10 @@ def rsi_overbought(rsi: list[float], threshold: float = 70.0) -> list[dict]:
     return signals
 
 
-def _recent_unique(sigs: list[dict], latest_index: int, lookback: int = 20) -> list[dict]:
+def _recent_unique(sigs: list[Signal], latest_index: int, lookback: int = 20) -> list[Signal]:
     """保留最近窗口内每类最新事件，避免历史状态淹没当前决策。"""
     minimum_index = max(0, latest_index - lookback + 1)
-    newest_by_type: dict[str, dict] = {}
+    newest_by_type: dict[str, Signal] = {}
     for signal in sigs:
         if signal["index"] < minimum_index:
             continue
@@ -203,8 +216,13 @@ def _recent_unique(sigs: list[dict], latest_index: int, lookback: int = 20) -> l
     return sorted(newest_by_type.values(), key=lambda signal: signal["index"])
 
 
-def detect_all(indicators: dict, close: list[float], high: list[float],
-               low: list[float], volume: list[float]) -> list[dict]:
+def detect_all(
+    indicators: dict[str, Any],
+    close: list[float],
+    high: list[float],
+    low: list[float],
+    volume: list[float],
+) -> list[Signal]:
     """运行全部信号检测，返回近期且每类唯一的事件。"""
     sigs = []
 

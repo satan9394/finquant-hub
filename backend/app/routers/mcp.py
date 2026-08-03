@@ -1,5 +1,7 @@
 """Persisted HTTP MCP servers and their discovered runtime tools."""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,7 +39,7 @@ class MCPServerUpdate(MCPServerCreate):
     pass
 
 
-def _public_config(row: dict) -> dict:
+def _public_config(row: dict[str, Any]) -> dict[str, Any]:
     return {
         **row,
         "is_enabled": bool(row["is_enabled"]),
@@ -46,7 +48,7 @@ def _public_config(row: dict) -> dict:
     }
 
 
-async def _config_or_404(config_id: int) -> dict:
+async def _config_or_404(config_id: int) -> dict[str, Any]:
     row = await database.query_one("SELECT * FROM mcp_server_configs WHERE id=?", (config_id,))
     if row is None:
         raise HTTPException(404, f"MCP 服务器配置不存在：id={config_id}")
@@ -54,13 +56,13 @@ async def _config_or_404(config_id: int) -> dict:
 
 
 @router.get("/configs")
-async def list_mcp_configs():
+async def list_mcp_configs() -> dict[str, Any]:
     rows = await database.query_all("SELECT * FROM mcp_server_configs ORDER BY id")
     return {"items": [_public_config(row) for row in rows], "total": len(rows)}
 
 
 @router.post("/configs", status_code=status.HTTP_201_CREATED)
-async def create_mcp_config(body: MCPServerCreate):
+async def create_mcp_config(body: MCPServerCreate) -> dict[str, Any]:
     try:
         body.validated_config()
     except ValueError as exc:
@@ -75,7 +77,7 @@ async def create_mcp_config(body: MCPServerCreate):
 
 
 @router.put("/configs/{config_id:int}")
-async def update_mcp_config(config_id: int, body: MCPServerUpdate):
+async def update_mcp_config(config_id: int, body: MCPServerUpdate) -> dict[str, Any]:
     existing = await _config_or_404(config_id)
     try:
         body.validated_config()
@@ -100,7 +102,7 @@ async def update_mcp_config(config_id: int, body: MCPServerUpdate):
 
 
 @router.delete("/configs/{config_id:int}")
-async def delete_mcp_config(config_id: int):
+async def delete_mcp_config(config_id: int) -> dict[str, bool]:
     existing = await _config_or_404(config_id)
     remove_mcp_server(existing["name"])
     await database.execute("DELETE FROM mcp_server_configs WHERE id=?", (config_id,))
@@ -108,7 +110,7 @@ async def delete_mcp_config(config_id: int):
 
 
 @router.post("/configs/{config_id:int}/connect")
-async def connect_mcp_config(config_id: int):
+async def connect_mcp_config(config_id: int) -> dict[str, Any]:
     existing = await _config_or_404(config_id)
     try:
         tool_count = await connect_http_mcp_server(existing["name"], existing["url"])
@@ -127,7 +129,7 @@ async def connect_mcp_config(config_id: int):
 
 
 @router.post("/configs/{config_id:int}/disconnect")
-async def disconnect_mcp_config(config_id: int):
+async def disconnect_mcp_config(config_id: int) -> dict[str, Any]:
     existing = await _config_or_404(config_id)
     remove_mcp_server(existing["name"])
     await database.execute(
@@ -138,7 +140,7 @@ async def disconnect_mcp_config(config_id: int):
 
 
 @router.get("/servers")
-async def get_mcp_servers():
+async def get_mcp_servers() -> dict[str, Any]:
     servers = list_mcp_servers()
     return {
         "items": servers,
@@ -148,7 +150,7 @@ async def get_mcp_servers():
 
 
 @router.patch("/tools/{local_name}")
-async def toggle_mcp_tool(local_name: str, body: MCPToolToggle):
+async def toggle_mcp_tool(local_name: str, body: MCPToolToggle) -> dict[str, Any]:
     try:
         return set_mcp_tool_enabled(local_name, body.enabled)
     except KeyError as exc:

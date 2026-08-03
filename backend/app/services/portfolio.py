@@ -1,5 +1,6 @@
 """投资组合管理：增删改查 + 使用统一多市场行情计算实时盈亏。"""
 from datetime import datetime
+from typing import Any, cast
 
 import httpx
 
@@ -7,37 +8,48 @@ from .. import database
 
 TENCENT_QUOTE = "https://qt.gtimg.cn/q={codes}"
 _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+JSONDict = dict[str, Any]
 
 
 # ------------------------------------------------------------------
 # 组合 CRUD
 # ------------------------------------------------------------------
 
-async def create_portfolio(name: str, description: str = "", currency: str = "CNY") -> dict:
+async def create_portfolio(
+    name: str,
+    description: str = "",
+    currency: str = "CNY",
+    *,
+    user_id: int,
+) -> JSONDict:
     new_id = await database.execute(
-        "INSERT INTO portfolios (name, description, currency) VALUES (?, ?, ?)",
-        (name, description, currency),
+        "INSERT INTO portfolios (name, description, currency, user_id) VALUES (?, ?, ?, ?)",
+        (name, description, currency, user_id),
     )
-    return await database.query_one("SELECT * FROM portfolios WHERE id=?", (new_id,))
+    return cast(JSONDict, await database.query_one(
+        "SELECT * FROM portfolios WHERE id=? AND user_id=?",
+        (new_id, user_id),
+    ))
 
 
-async def list_portfolios() -> list[dict]:
+async def list_portfolios(user_id: int) -> list[JSONDict]:
     items = await database.query_all(
         """SELECT p.*,
-                  (SELECT COUNT(*) FROM positions WHERE portfolio_id=p.id) AS position_count
-           FROM portfolios p ORDER BY p.updated_at DESC"""
+                  (SELECT COUNT(*) FROM positions WHERE portfolio_id=p.id AND user_id=p.user_id) AS position_count
+           FROM portfolios p WHERE p.user_id=? ORDER BY p.updated_at DESC""",
+        (user_id,),
     )
     return items
 
 
-async def get_portfolio(portfolio_id: int) -> dict | None:
-    return await database.query_one("SELECT * FROM portfolios WHERE id=?", (portfolio_id,))
+async def get_portfolio(portfolio_id: int, user_id: int) -> JSONDict | None:
+    return await database.query_one("SELECT * FROM portfolios WHERE id=? AND user_id=?", (portfolio_id, user_id))
 
 
-async def update_portfolio(portfolio_id: int, name: str | None = None,
+async def update_portfolio(portfolio_id: int, user_id: int, name: str | None = None,
                            description: str | None = None,
-                           currency: str | None = None) -> dict | None:
-    updates = {}
+                           currency: str | None = None) -> JSONDict | None:
+    updates: dict[str, object] = {}
     if name is not None:
         updates["name"] = name
     if description is not None:
@@ -45,22 +57,22 @@ async def update_portfolio(portfolio_id: int, name: str | None = None,
     if currency is not None:
         updates["currency"] = currency
     if not updates:
-        return await get_portfolio(portfolio_id)
+        return await get_portfolio(portfolio_id, user_id)
     sets = ", ".join(f"{k}=?" for k in updates)
     updates["updated_at"] = datetime.now().isoformat()
     await database.execute(
-        f"UPDATE portfolios SET {sets}, updated_at=? WHERE id=?",
-        (*updates.values(), portfolio_id),
+        f"UPDATE portfolios SET {sets}, updated_at=? WHERE id=? AND user_id=?",
+        (*updates.values(), portfolio_id, user_id),
     )
-    return await get_portfolio(portfolio_id)
+    return await get_portfolio(portfolio_id, user_id)
 
 
-async def delete_portfolio(portfolio_id: int) -> bool:
-    p = await get_portfolio(portfolio_id)
+async def delete_portfolio(portfolio_id: int, user_id: int) -> bool:
+    p = await get_portfolio(portfolio_id, user_id)
     if not p:
         return False
-    await database.execute("DELETE FROM positions WHERE portfolio_id=?", (portfolio_id,))
-    await database.execute("DELETE FROM portfolios WHERE id=?", (portfolio_id,))
+    await database.execute("DELETE FROM positions WHERE portfolio_id=? AND user_id=?", (portfolio_id, user_id))
+    await database.execute("DELETE FROM portfolios WHERE id=? AND user_id=?", (portfolio_id, user_id))
     return True
 
 
@@ -69,51 +81,54 @@ async def delete_portfolio(portfolio_id: int) -> bool:
 # ------------------------------------------------------------------
 
 async def add_position(portfolio_id: int, ticker: str, shares: float,
-                       avg_cost: float, name: str = "", currency: str = "") -> dict:
+                       avg_cost: float, name: str = "", currency: str = "", *, user_id: int) -> JSONDict:
     if not currency:
-        portfolio = await get_portfolio(portfolio_id)
+        portfolio = await get_portfolio(portfolio_id, user_id)
         currency = portfolio["currency"] if portfolio else "CNY"
     new_id = await database.execute(
-        "INSERT INTO positions (portfolio_id, ticker, name, shares, avg_cost, currency) VALUES (?, ?, ?, ?, ?, ?)",
-        (portfolio_id, ticker.upper(), name, shares, avg_cost, currency),
+        "INSERT INTO positions (portfolio_id, ticker, name, shares, avg_cost, currency, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (portfolio_id, ticker.upper(), name, shares, avg_cost, currency, user_id),
     )
     await database.execute(
-        "UPDATE portfolios SET updated_at=datetime('now') WHERE id=?", (portfolio_id,)
+        "UPDATE portfolios SET updated_at=datetime('now') WHERE id=? AND user_id=?", (portfolio_id, user_id)
     )
-    return await database.query_one("SELECT * FROM positions WHERE id=?", (new_id,))
+    return cast(JSONDict, await database.query_one(
+        "SELECT * FROM positions WHERE id=? AND user_id=?",
+        (new_id, user_id),
+    ))
 
 
-async def list_positions(portfolio_id: int) -> list[dict]:
+async def list_positions(portfolio_id: int, user_id: int) -> list[JSONDict]:
     return await database.query_all(
-        "SELECT * FROM positions WHERE portfolio_id=? ORDER BY ticker", (portfolio_id,)
+        "SELECT * FROM positions WHERE portfolio_id=? AND user_id=? ORDER BY ticker", (portfolio_id, user_id)
     )
 
 
-async def update_position(position_id: int, shares: float | None = None,
-                          avg_cost: float | None = None) -> dict | None:
-    updates = {}
+async def update_position(position_id: int, user_id: int, shares: float | None = None,
+                          avg_cost: float | None = None) -> JSONDict | None:
+    updates: dict[str, object] = {}
     if shares is not None:
         updates["shares"] = shares
     if avg_cost is not None:
         updates["avg_cost"] = avg_cost
     if not updates:
-        return await database.query_one("SELECT * FROM positions WHERE id=?", (position_id,))
+        return await database.query_one("SELECT * FROM positions WHERE id=? AND user_id=?", (position_id, user_id))
     sets = ", ".join(f"{k}=?" for k in updates)
     updates["updated_at"] = datetime.now().isoformat()
     await database.execute(
-        f"UPDATE positions SET {sets}, updated_at=? WHERE id=?",
-        (*updates.values(), position_id),
+        f"UPDATE positions SET {sets}, updated_at=? WHERE id=? AND user_id=?",
+        (*updates.values(), position_id, user_id),
     )
-    return await database.query_one("SELECT * FROM positions WHERE id=?", (position_id,))
+    return await database.query_one("SELECT * FROM positions WHERE id=? AND user_id=?", (position_id, user_id))
 
 
-async def delete_position(position_id: int) -> bool:
-    pos = await database.query_one("SELECT * FROM positions WHERE id=?", (position_id,))
+async def delete_position(position_id: int, user_id: int) -> bool:
+    pos = await database.query_one("SELECT * FROM positions WHERE id=? AND user_id=?", (position_id, user_id))
     if not pos:
         return False
-    await database.execute("DELETE FROM positions WHERE id=?", (position_id,))
+    await database.execute("DELETE FROM positions WHERE id=? AND user_id=?", (position_id, user_id))
     await database.execute(
-        "UPDATE portfolios SET updated_at=datetime('now') WHERE id=?", (pos["portfolio_id"],)
+        "UPDATE portfolios SET updated_at=datetime('now') WHERE id=? AND user_id=?", (pos["portfolio_id"], user_id)
     )
     return True
 
@@ -122,9 +137,9 @@ async def delete_position(position_id: int) -> bool:
 # 实时盈亏计算
 # ------------------------------------------------------------------
 
-async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
+async def calc_pnl(portfolio_id: int, user_id: int, market_service: Any = None) -> JSONDict:
     """计算组合实时盈亏，返回汇总 + 逐持仓明细。"""
-    positions = await list_positions(portfolio_id)
+    positions = await list_positions(portfolio_id, user_id)
     if not positions:
         return {"total_cost": 0, "total_market_value": 0, "total_pnl": 0, "total_pnl_pct": 0, "positions": []}
 
@@ -144,7 +159,7 @@ async def calc_pnl(portfolio_id: int, market_service=None) -> dict:
 
     total_cost = 0.0
     total_market = 0.0
-    details = []
+    details: list[JSONDict] = []
 
     for p in positions:
         cost = p["shares"] * p["avg_cost"]

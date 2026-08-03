@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import importlib.util
 import math
 import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import Any, cast
 
 from .market_data import normalize_code
+
+JSONDict = dict[str, Any]
 
 _ALIASES = {
     "total_revenue": ("营业总收入", "营业收入", "主营业务收入", "total_revenue", "revenue"),
@@ -96,7 +100,7 @@ def _number(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _as_of(record: dict) -> str | None:
+def _as_of(record: JSONDict) -> str | None:
     for key in _DATE_KEYS:
         if record.get(key) not in (None, ""):
             value = str(record[key]).strip()
@@ -126,7 +130,7 @@ def _item(
     is_ttm: bool,
     currency: str | None = None,
     **extra: object,
-) -> dict:
+) -> JSONDict:
     return {
         "metric": metric,
         "value": value,
@@ -142,13 +146,13 @@ def _item(
 
 
 def normalize_fundamental_record(
-    record: dict,
+    record: JSONDict,
     provider: str,
     *,
     source: str | None = None,
     period_type: str = "reported",
     is_ttm: bool = False,
-) -> list[dict]:
+) -> list[JSONDict]:
     """Normalize one provider record without making claims about its period."""
     lowered = {str(key).strip().lower(): value for key, value in record.items()}
     items = []
@@ -179,16 +183,21 @@ def normalize_fundamental_record(
 
 
 def build_ttm_from_single_quarters(
-    records: Iterable[dict],
+    records: Iterable[JSONDict],
     provider: str,
     *,
     source: str | None = None,
-) -> list[dict]:
+) -> list[JSONDict]:
     """Sum exactly four consecutive single-quarter records into TTM values."""
-    by_date = {_as_of(record): record for record in records if _quarter_index(_as_of(record)) is not None}
+    by_date = {
+        cast(str, _as_of(record)): record
+        for record in records
+        if _quarter_index(_as_of(record)) is not None
+    }
     dates = sorted((date for date in by_date if date), reverse=True)[:4]
     indices = [_quarter_index(date) for date in dates]
-    if len(dates) != 4 or any(indices[index] - indices[index + 1] != 1 for index in range(3)):
+    typed_indices = cast(list[int], indices)
+    if len(dates) != 4 or any(typed_indices[index] - typed_indices[index + 1] != 1 for index in range(3)):
         return []
 
     normalized = {
@@ -222,13 +231,16 @@ def build_ttm_from_single_quarters(
     return items
 
 
-def _add_flag(item: dict, flag: str) -> None:
+def _add_flag(item: JSONDict, flag: str) -> None:
     flags = item.setdefault("quality_flags", [])
     if flag not in flags:
         flags.append(flag)
 
 
-def validate_fundamental_quality(items: list[dict], annual_baseline: list[dict] | None = None) -> list[dict]:
+def validate_fundamental_quality(
+    items: list[JSONDict],
+    annual_baseline: list[JSONDict] | None = None,
+) -> list[JSONDict]:
     """Apply conservative cross-period scale and net-margin checks."""
     result = [dict(item) for item in items]
     current = {item["metric"]: item for item in result}
@@ -286,19 +298,23 @@ def validate_fundamental_quality(items: list[dict], annual_baseline: list[dict] 
     return result
 
 
-def _latest_record(records: Iterable[dict]) -> dict | None:
+def _latest_record(records: Iterable[JSONDict]) -> JSONDict | None:
     return max(records, key=lambda item: _as_of(item) or "", default=None)
 
 
-def _annual_baseline(records: Iterable[dict], provider: str, source: str) -> list[dict]:
+def _annual_baseline(
+    records: Iterable[JSONDict],
+    provider: str,
+    source: str,
+) -> list[JSONDict]:
     latest = _latest_record(records)
     return normalize_fundamental_record(
         latest, provider, source=source, period_type="FY", is_ttm=False,
     ) if latest else []
 
 
-def _fallback_to_annual(annual: list[dict]) -> list[dict]:
-    result = []
+def _fallback_to_annual(annual: list[JSONDict]) -> list[JSONDict]:
+    result: list[JSONDict] = []
     for item in annual:
         if item["metric"] not in _FLOW_METRICS:
             continue
@@ -315,7 +331,7 @@ class FundamentalsAdapter(ABC):
     def is_available(self) -> bool: ...
 
     @abstractmethod
-    async def fetch(self, symbol: str) -> list[dict]: ...
+    async def fetch(self, symbol: str) -> list[JSONDict]: ...
 
 
 class AkshareFundamentalsAdapter(FundamentalsAdapter):
@@ -325,19 +341,19 @@ class AkshareFundamentalsAdapter(FundamentalsAdapter):
     def is_available(self) -> bool:
         return importlib.util.find_spec("akshare") is not None
 
-    async def fetch(self, symbol: str) -> list[dict]:
+    async def fetch(self, symbol: str) -> list[JSONDict]:
         code = normalize_code(symbol)[2:]
 
-        def load() -> tuple[list[dict], list[dict], list[dict]]:
-            import akshare as ak
+        def load() -> tuple[list[JSONDict], list[JSONDict], list[JSONDict]]:
+            ak = importlib.import_module("akshare")
 
             quarterly = ak.stock_financial_abstract_ths(symbol=code, indicator="按单季度")
             reported = ak.stock_financial_abstract_ths(symbol=code, indicator="按报告期")
             annual = ak.stock_financial_abstract_ths(symbol=code, indicator="按年度")
-            return tuple(
+            return cast(tuple[list[JSONDict], list[JSONDict], list[JSONDict]], tuple(
                 [] if frame is None else frame.to_dict("records")
                 for frame in (quarterly, reported, annual)
-            )
+            ))
 
         quarterly, reported, annual_records = await asyncio.to_thread(load)
         annual = _annual_baseline(annual_records, self.name, self.source)
@@ -350,8 +366,8 @@ class AkshareFundamentalsAdapter(FundamentalsAdapter):
         return validate_fundamental_quality((ttm or _fallback_to_annual(annual)) + point, annual)
 
 
-def _dedupe_tushare(records: Iterable[dict]) -> list[dict]:
-    selected: dict[str, dict] = {}
+def _dedupe_tushare(records: Iterable[JSONDict]) -> list[JSONDict]:
+    selected: dict[str, JSONDict] = {}
     for record in records:
         date = _as_of(record)
         if not date:
@@ -362,14 +378,18 @@ def _dedupe_tushare(records: Iterable[dict]) -> list[dict]:
     return list(selected.values())
 
 
-def cumulative_to_single_quarters(records: Iterable[dict], provider: str) -> list[dict]:
+def cumulative_to_single_quarters(
+    records: Iterable[JSONDict],
+    provider: str,
+) -> list[JSONDict]:
     """Convert fiscal-year cumulative statement rows to standalone quarters."""
     canonical: dict[str, dict[str, float]] = {}
     for record in _dedupe_tushare(records):
         date = _as_of(record)
         if _quarter_index(date) is None:
             continue
-        canonical[date] = {
+        typed_date = cast(str, date)
+        canonical[typed_date] = {
             item["metric"]: float(item["value"])
             for item in normalize_fundamental_record(record, provider)
             if item["metric"] in _FLOW_METRICS
@@ -398,19 +418,22 @@ class TushareFundamentalsAdapter(FundamentalsAdapter):
     name = "tushare"
     source = "tushare.pro"
 
-    def is_available(self) -> bool:
-        return bool(os.getenv("TUSHARE_TOKEN", "").strip()) and importlib.util.find_spec("tushare") is not None
+    def __init__(self, token: str | None = None) -> None:
+        self.token = token or os.getenv("TUSHARE_TOKEN", "").strip()
 
-    async def fetch(self, symbol: str) -> list[dict]:
+    def is_available(self) -> bool:
+        return bool(self.token) and importlib.util.find_spec("tushare") is not None
+
+    async def fetch(self, symbol: str) -> list[JSONDict]:
         normalized = normalize_code(symbol)
         suffix = "SH" if normalized.startswith("sh") else "SZ"
 
-        def load() -> tuple[list[dict], list[dict], list[dict], list[dict]]:
-            import tushare as ts
+        def load() -> tuple[list[JSONDict], list[JSONDict], list[JSONDict], list[JSONDict]]:
+            ts = importlib.import_module("tushare")
 
-            pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
+            pro = ts.pro_api(self.token)
             ts_code = f"{normalized[2:]}.{suffix}"
-            result: dict[str, list[dict]] = {}
+            result: dict[str, list[JSONDict]] = {}
             errors: list[Exception] = []
             for endpoint in ("fina_indicator", "income", "cashflow", "balancesheet"):
                 try:
@@ -422,22 +445,25 @@ class TushareFundamentalsAdapter(FundamentalsAdapter):
                 result[endpoint] = [] if frame is None else frame.to_dict("records")
             if not any(result.values()) and errors:
                 raise errors[-1]
-            return tuple(result[key] for key in ("fina_indicator", "income", "cashflow", "balancesheet"))
+            return cast(
+                tuple[list[JSONDict], list[JSONDict], list[JSONDict], list[JSONDict]],
+                tuple(result[key] for key in ("fina_indicator", "income", "cashflow", "balancesheet")),
+            )
 
         indicators, income, cashflow, balance = await asyncio.to_thread(load)
-        quarters_by_date: dict[str, dict] = {}
+        quarters_by_date: dict[str, JSONDict] = {}
         for record in cumulative_to_single_quarters(income, self.name) + cumulative_to_single_quarters(cashflow, self.name):
             quarters_by_date.setdefault(record["end_date"], {}).update(record)
         ttm = build_ttm_from_single_quarters(quarters_by_date.values(), self.name, source=self.source)
 
-        annual_records: dict[str, dict] = {}
+        annual_records: dict[str, JSONDict] = {}
         for record in _dedupe_tushare(income) + _dedupe_tushare(cashflow):
             date = _as_of(record)
             if date and date.endswith("12-31"):
                 annual_records.setdefault(date, {}).update(record)
         annual = _annual_baseline(annual_records.values(), self.name, self.source)
 
-        point: list[dict] = []
+        point: list[JSONDict] = []
         for records in (indicators, balance):
             latest = _latest_record(_dedupe_tushare(records))
             if latest:
@@ -450,8 +476,8 @@ class TushareFundamentalsAdapter(FundamentalsAdapter):
         return validate_fundamental_quality((ttm or _fallback_to_annual(annual)) + list(deduplicated.values()), annual)
 
 
-def _yahoo_series(payload: dict) -> dict[str, list[dict]]:
-    result: dict[str, list[dict]] = {}
+def _yahoo_series(payload: JSONDict) -> dict[str, list[JSONDict]]:
+    result: dict[str, list[JSONDict]] = {}
     for series in payload.get("result") or []:
         metric = ((series.get("meta") or {}).get("type") or [None])[0]
         if metric:
@@ -459,15 +485,15 @@ def _yahoo_series(payload: dict) -> dict[str, list[dict]]:
     return result
 
 
-def _yahoo_value(value: dict) -> float | None:
+def _yahoo_value(value: JSONDict) -> float | None:
     return _number((value.get("reportedValue") or {}).get("raw"))
 
 
-def normalize_yahoo_cn_fundamentals(payload: dict) -> list[dict]:
+def normalize_yahoo_cn_fundamentals(payload: JSONDict) -> list[JSONDict]:
     """Use Yahoo quarter rows only when four consecutive periods prove TTM."""
     source = "yahoo.fundamentals_timeseries"
     series = _yahoo_series(payload)
-    quarter_records: dict[str, dict] = {}
+    quarter_records: dict[str, JSONDict] = {}
     for yahoo_metric, metric in _YAHOO_QUARTERLY.items():
         for value in series.get(yahoo_metric, []):
             raw, date = _yahoo_value(value), value.get("asOfDate")
@@ -475,7 +501,7 @@ def normalize_yahoo_cn_fundamentals(payload: dict) -> list[dict]:
                 quarter_records.setdefault(str(date), {"end_date": str(date).replace("-", "")})[metric] = raw
     ttm = build_ttm_from_single_quarters(quarter_records.values(), "yahoo", source=source)
 
-    annual_records: dict[str, dict] = {}
+    annual_records: dict[str, JSONDict] = {}
     for yahoo_metric, metric in _YAHOO_ANNUAL.items():
         for value in series.get(yahoo_metric, []):
             raw, date = _yahoo_value(value), value.get("asOfDate")
@@ -527,7 +553,7 @@ def normalize_yahoo_cn_fundamentals(payload: dict) -> list[dict]:
 async def fetch_cn_fundamentals(
     symbol: str,
     adapters: tuple[FundamentalsAdapter, ...] | None = None,
-) -> list[dict]:
+) -> list[JSONDict]:
     """Use the first available provider returning period-safe data."""
     selected = adapters or (AkshareFundamentalsAdapter(), TushareFundamentalsAdapter())
     errors = []

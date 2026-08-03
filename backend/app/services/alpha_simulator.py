@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from ..backtest.metrics import calculate_performance
 
@@ -73,7 +73,7 @@ def simulate_factor(
         equity_curve.append({"date": date, "value": equity})
         previous_weights = weights
 
-    values = [point["value"] for point in equity_curve]
+    values = [float(cast(Any, point["value"])) for point in equity_curve]
     metrics = calculate_performance(values, [1.0] * len(values), periods_per_year)
     metrics.update(
         {

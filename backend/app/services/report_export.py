@@ -21,7 +21,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Flowable, Paragraph, SimpleDocTemplate, Spacer
 
 
 SECTIONS = (
@@ -168,7 +168,7 @@ def markdown_to_pdf(markdown: str, title: str) -> bytes:
     h2 = ParagraphStyle("ResearchH2", parent=base, fontSize=15, leading=22, textColor=colors.HexColor("#0f3d75"), spaceBefore=14, spaceAfter=8)
     h3 = ParagraphStyle("ResearchH3", parent=base, fontSize=12, leading=19, textColor=colors.HexColor("#244b74"), spaceBefore=10)
     meta = ParagraphStyle("ResearchMeta", parent=base, fontSize=9, leading=13, textColor=colors.HexColor("#64748b"), spaceAfter=1)
-    story = [Paragraph(escape(title), title_style)]
+    story: list[Flowable] = [Paragraph(escape(title), title_style)]
     for raw_line in markdown.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("# "):

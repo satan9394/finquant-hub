@@ -4,10 +4,13 @@
 降级策略：实时行情 腾讯 → 新浪；K 线 新浪 → 腾讯。单源失败自动切换（DATA-04）。
 """
 import asyncio
+from functools import lru_cache
 import json
+import os
 import re
 from datetime import UTC, datetime
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 import httpx
 
@@ -44,6 +47,46 @@ SEARCH_ALIASES = {
 PERIOD_TO_SCALE = {"1d": 240, "60m": 60, "30m": 30, "15m": 15, "5m": 5}
 
 DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+JSONDict = dict[str, Any]
+
+
+@lru_cache(maxsize=128)
+def _pinyin_initial_candidates(keyword: str) -> tuple[str, ...]:
+    """Convert unspaced pinyin into likely initial strings for provider search."""
+    from pypinyin.constants import PINYIN_DICT
+    from pypinyin.contrib.tone_convert import to_normal
+
+    text = re.sub(r"[^a-z]", "", keyword.casefold())
+    if len(text) < 3:
+        return ()
+    syllables = {
+        to_normal(pronunciation)
+        for pronunciations in PINYIN_DICT.values()
+        for pronunciation in pronunciations.split(",")
+    }
+    paths: list[str] = []
+
+    def split(position: int, initials: str) -> None:
+        if len(paths) >= 24:
+            return
+        if position == len(text):
+            paths.append(initials)
+            return
+        for end in range(position + 1, min(len(text), position + 6) + 1):
+            if text[position:end] in syllables:
+                split(end, initials + text[position])
+
+    split(0, "")
+    return tuple(sorted({path.upper() for path in paths}, key=lambda value: (len(value), value))[:6])
+
+
+def _name_matches_pinyin(keyword: str, name: str) -> bool:
+    from pypinyin import Style, lazy_pinyin
+
+    needle = re.sub(r"[^a-z]", "", keyword.casefold())
+    full = "".join(lazy_pinyin(name)).casefold()
+    initials = "".join(lazy_pinyin(name, style=Style.FIRST_LETTER)).casefold()
+    return bool(needle and (needle in full or needle == initials))
 
 
 class MarketError(Exception):
@@ -126,7 +169,7 @@ def _yahoo_symbol(code: str) -> str:
     raise ValueError("不支持的市场")
 
 
-def _is_usable_quote(quote: dict | None) -> bool:
+def _is_usable_quote(quote: JSONDict | None) -> bool:
     return bool(quote and quote.get("name") and quote.get("price") not in (None, 0))
 
 
@@ -134,14 +177,14 @@ def _is_usable_quote(quote: dict | None) -> bool:
 class MarketDataService:
     """可注入 httpx 客户端（测试时用 MockTransport）。"""
 
-    http: httpx.AsyncClient = field(default=None)
-    yahoo_http: httpx.AsyncClient = field(default=None)
+    http: httpx.AsyncClient = field(default=cast(httpx.AsyncClient, None))
+    yahoo_http: httpx.AsyncClient = field(default=cast(httpx.AsyncClient, None))
     quote_priority: tuple[str, ...] = ("tencent", "sina", "yahoo")
     kline_priority: tuple[str, ...] = ("sina", "tencent", "yahoo")
     fundamentals_priority: tuple[str, ...] = ("akshare", "tushare", "yahoo")
     breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         injected_http = self.http is not None
         if self.http is None:
             # trust_env=False：国内行情接口直连，绕过系统代理避免 TLS 超时/劫持
@@ -155,7 +198,7 @@ class MarketDataService:
                 timeout=DEFAULT_TIMEOUT, follow_redirects=True, trust_env=True
             )
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         await self.http.aclose()
         if self.yahoo_http is not self.http:
             await self.yahoo_http.aclose()
@@ -177,7 +220,7 @@ class MarketDataService:
             raise ValueError(f"源优先级必须且只能包含 {names} 各一次")
         setattr(self, f"{kind}_priority", tuple(providers))
 
-    def source_status(self) -> dict:
+    def source_status(self) -> JSONDict:
         return {
             "priorities": {
                 "quote": list(self.quote_priority),
@@ -194,7 +237,7 @@ class MarketDataService:
     # 搜索 — 东方财富
     # ------------------------------------------------------------------
 
-    async def search(self, keyword: str) -> list[dict]:
+    async def search(self, keyword: str) -> list[JSONDict]:
         """Search A shares plus Yahoo's global symbol index.
 
         A failed source should not make the search box unusable when the other
@@ -203,34 +246,50 @@ class MarketDataService:
         query = SEARCH_ALIASES.get(keyword.strip(), keyword.strip())
         if not query:
             return []
-        results: list[dict] = []
+        results: list[JSONDict] = []
         succeeded_sources: list[str] = []
         failed_sources: list[str] = []
         try:
-            resp = await self.http.get(
-                EASTMONEY_SEARCH,
-                params={"input": query, "count": 10, "type": 14, "token": EASTMONEY_TOKEN},
-            )
-            resp.raise_for_status()
+            eastmoney_queries = (query, *_pinyin_initial_candidates(query))
+            for provider_query in dict.fromkeys(eastmoney_queries):
+                resp = await self.http.get(
+                    EASTMONEY_SEARCH,
+                    params={
+                        "input": provider_query,
+                        "count": 100 if provider_query != query else 10,
+                        "type": 14,
+                        "token": EASTMONEY_TOKEN,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                provider_results: list[JSONDict] = []
+                for it in (data.get("QuotationCodeTable") or {}).get("Data") or []:
+                    quote_id = str(it.get("QuoteID", ""))
+                    classify = it.get("Classify", "")
+                    raw_code = str(it.get("UnifiedCode") or it.get("Code", ""))
+                    # Eastmoney's current endpoint uses numeric Classify values
+                    # for newly listed shares (e.g. 科创板 "23"), while older
+                    # responses used "AStock". The six-digit code + mainland
+                    # QuoteID is the stable boundary.
+                    if not re.fullmatch(r"\d{6}", raw_code) or not quote_id.startswith(("0.", "1.")):
+                        continue
+                    provider_results.append({
+                        "code": normalize_code(raw_code),
+                        "name": it.get("Name", ""),
+                        "market": "sh" if quote_id.startswith("1.") else "sz",
+                        "type": it.get("SecurityTypeName") or ("ETF" if classify == "ETF" else "股票"),
+                        "source": "eastmoney",
+                    })
+                if provider_query != query:
+                    provider_results = [
+                        row for row in provider_results
+                        if _name_matches_pinyin(query, str(row["name"]))
+                    ]
+                if provider_results:
+                    results.extend(provider_results)
+                    break
             succeeded_sources.append("eastmoney")
-            data = resp.json()
-            for it in (data.get("QuotationCodeTable") or {}).get("Data") or []:
-                quote_id = str(it.get("QuoteID", ""))
-                classify = it.get("Classify", "")
-                raw_code = str(it.get("UnifiedCode") or it.get("Code", ""))
-                # Eastmoney's current endpoint uses numeric Classify values
-                # for newly listed shares (e.g. 科创板 "23"), while older
-                # responses used "AStock". The six-digit code + mainland
-                # QuoteID is the stable boundary.
-                if not re.fullmatch(r"\d{6}", raw_code) or not quote_id.startswith(("0.", "1.")):
-                    continue
-                results.append({
-                    "code": normalize_code(raw_code),
-                    "name": query if query != keyword.strip() else it.get("Name", ""),
-                    "market": "sh" if quote_id.startswith("1.") else "sz",
-                    "type": it.get("SecurityTypeName") or ("ETF" if classify == "ETF" else "股票"),
-                    "source": "eastmoney",
-                })
         except (httpx.HTTPError, ValueError):
             failed_sources.append("eastmoney")
 
@@ -304,7 +363,7 @@ class MarketDataService:
     # 实时行情 — 腾讯主源 / 新浪备源
     # ------------------------------------------------------------------
 
-    async def quote(self, ticker: str) -> dict:
+    async def quote(self, ticker: str) -> JSONDict:
         code = normalize_code(ticker)
         providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.quote_priority
         last_error: Exception | None = None
@@ -317,13 +376,13 @@ class MarketDataService:
                 if not _is_usable_quote(quote):
                     raise ValueError("行情响应缺少名称或价格")
                 breaker.record_success()
-                return quote
+                return cast(JSONDict, quote)
             except (httpx.HTTPError, ValueError, MarketError) as exc:
                 breaker.record_failure(exc)
                 last_error = exc
         raise MarketError(f"无法获取 {ticker} 的行情") from last_error
 
-    async def _quote_from(self, provider: str, code: str) -> dict | None:
+    async def _quote_from(self, provider: str, code: str) -> JSONDict | None:
         if provider == "tencent":
             quotes = await self._quotes_tencent([code])
             return quotes[0] if quotes else None
@@ -334,11 +393,11 @@ class MarketDataService:
             return await self._quote_yahoo(code)
         raise ValueError(f"未知行情源：{provider}")
 
-    async def quotes(self, tickers: list[str]) -> list[dict]:
+    async def quotes(self, tickers: list[str]) -> list[JSONDict]:
         responses = await asyncio.gather(*(self.quote(ticker) for ticker in tickers), return_exceptions=True)
         return [result for result in responses if isinstance(result, dict)]
 
-    async def quote_enriched(self, ticker: str) -> dict:
+    async def quote_enriched(self, ticker: str) -> JSONDict:
         """Fill missing quote fields from lower-priority sources, never overwrite facts."""
         quote = await self.quote(ticker)
         code = normalize_code(ticker)
@@ -360,10 +419,11 @@ class MarketDataService:
                 except (httpx.HTTPError, ValueError, MarketError) as exc:
                     breaker.record_failure(exc)
                     continue
+                typed_candidate = cast(JSONDict, candidate)
                 sources.append(provider)
                 for key in tuple(missing):
-                    if candidate.get(key) not in (None, 0, ""):
-                        quote[key] = candidate[key]
+                    if typed_candidate.get(key) not in (None, 0, ""):
+                        quote[key] = typed_candidate[key]
                         missing.remove(key)
                 if not missing:
                     break
@@ -377,11 +437,11 @@ class MarketDataService:
         *,
         enriched: bool = True,
         concurrency: int = 8,
-    ) -> dict:
+    ) -> JSONDict:
         """Bounded concurrent batch fetch with per-ticker errors preserved."""
         semaphore = asyncio.Semaphore(max(1, min(concurrency, 32)))
 
-        async def fetch(ticker: str) -> tuple[str, dict | Exception]:
+        async def fetch(ticker: str) -> tuple[str, JSONDict | Exception]:
             async with semaphore:
                 try:
                     method = self.quote_enriched if enriched else self.quote
@@ -399,19 +459,19 @@ class MarketDataService:
             },
         }
 
-    async def _quotes_tencent(self, codes: list[str]) -> list[dict]:
+    async def _quotes_tencent(self, codes: list[str]) -> list[JSONDict]:
         resp = await self.http.get(TENCENT_QUOTE.format(codes=",".join(codes)))
         resp.raise_for_status()
         text = resp.content.decode("gbk", "replace")
         return parse_tencent_quotes(text)
 
-    async def _quotes_sina(self, codes: list[str]) -> list[dict]:
+    async def _quotes_sina(self, codes: list[str]) -> list[JSONDict]:
         resp = await self.http.get(SINA_QUOTE.format(codes=",".join(codes)), headers=SINA_HEADERS)
         resp.raise_for_status()
         text = resp.content.decode("gbk", "replace")
         return parse_sina_quotes(text)
 
-    async def _quote_yahoo(self, code: str) -> dict:
+    async def _quote_yahoo(self, code: str) -> JSONDict:
         symbol = _yahoo_symbol(code)
         payload = await self._yahoo_chart(symbol, "5d", "1d")
         meta = payload.get("meta") or {}
@@ -419,24 +479,24 @@ class MarketDataService:
         previous = meta.get("previousClose") or meta.get("chartPreviousClose")
         if price in (None, 0) or previous in (None, 0):
             raise MarketError(f"未找到股票代码：{code}")
-        change = float(price) - float(previous)
+        change = float(cast(Any, price)) - float(cast(Any, previous))
         return {
             "code": code,
             "name": meta.get("longName") or meta.get("shortName") or symbol,
-            "price": float(price),
-            "last_close": float(previous),
+            "price": float(cast(Any, price)),
+            "last_close": float(cast(Any, previous)),
             "open": _number(meta.get("regularMarketOpen")),
             "high": _number(meta.get("regularMarketDayHigh")),
             "low": _number(meta.get("regularMarketDayLow")),
             "volume": _number(meta.get("regularMarketVolume")),
             "amount": 0.0,
             "change": round(change, 4),
-            "change_percent": round(change / float(previous) * 100, 2),
+            "change_percent": round(change / float(cast(Any, previous)) * 100, 2),
             "turnover_rate": None,
             "pe": None,
             "pb": None,
             "market_cap": _number(meta.get("marketCap")),
-            "amplitude": round((_number(meta.get("regularMarketDayHigh")) - _number(meta.get("regularMarketDayLow"))) / float(previous) * 100, 2) if _number(meta.get("regularMarketDayHigh")) and _number(meta.get("regularMarketDayLow")) else None,
+            "amplitude": round((_number(meta.get("regularMarketDayHigh")) - _number(meta.get("regularMarketDayLow"))) / float(cast(Any, previous)) * 100, 2) if _number(meta.get("regularMarketDayHigh")) and _number(meta.get("regularMarketDayLow")) else None,
             "timestamp": int(meta.get("regularMarketTime") or 0),
             "currency": meta.get("currency"),
             "source": "yahoo",
@@ -451,7 +511,7 @@ class MarketDataService:
         code: str,
         name: str,
         market: str,
-    ) -> dict:
+    ) -> JSONDict:
         """Return a normalized index quote for mainland or Yahoo index symbols."""
         if provider_symbol.startswith(("sh", "sz")):
             quote = await self.quote(provider_symbol)
@@ -472,14 +532,14 @@ class MarketDataService:
         previous = meta.get("previousClose") or meta.get("chartPreviousClose")
         if price in (None, 0) or previous in (None, 0):
             raise MarketError(f"指数行情不可用：{provider_symbol}")
-        change = float(price) - float(previous)
+        change = float(cast(Any, price)) - float(cast(Any, previous))
         return {
             "code": code,
             "name": name,
             "market": market,
-            "price": float(price),
+            "price": float(cast(Any, price)),
             "change": round(change, 4),
-            "change_percent": round(change / float(previous) * 100, 2),
+            "change_percent": round(change / float(cast(Any, previous)) * 100, 2),
             "timestamp": int(meta.get("regularMarketTime") or 0),
             "source": "yahoo",
         }
@@ -488,7 +548,7 @@ class MarketDataService:
     # K 线 — 新浪主源 / 腾讯备源
     # ------------------------------------------------------------------
 
-    async def kline(self, ticker: str, period: str = "1d", count: int = 100) -> list[dict]:
+    async def kline(self, ticker: str, period: str = "1d", count: int = 100) -> list[JSONDict]:
         code = normalize_code(ticker)
         scale = PERIOD_TO_SCALE.get(period, 240)
         count = max(1, min(count, 800))
@@ -516,7 +576,7 @@ class MarketDataService:
                 last_error = exc
         raise MarketError(f"无法获取 {ticker} 的 K 线") from last_error
 
-    async def _kline_sina(self, code: str, scale: int, count: int) -> list[dict]:
+    async def _kline_sina(self, code: str, scale: int, count: int) -> list[JSONDict]:
         resp = await self.http.get(
             SINA_KLINE.format(code=code, scale=scale, count=count), headers=SINA_HEADERS
         )
@@ -539,7 +599,7 @@ class MarketDataService:
             if it.get("day") and it.get("open")
         ]
 
-    async def _kline_tencent(self, code: str, count: int) -> list[dict]:
+    async def _kline_tencent(self, code: str, count: int) -> list[JSONDict]:
         resp = await self.http.get(TENCENT_KLINE.format(code=code, count=count))
         resp.raise_for_status()
         data = resp.json()
@@ -560,13 +620,13 @@ class MarketDataService:
             if len(r) >= 6
         ]
 
-    async def _kline_yahoo(self, code: str, period: str, count: int) -> list[dict]:
+    async def _kline_yahoo(self, code: str, period: str, count: int) -> list[JSONDict]:
         interval = {"1d": "1d", "60m": "60m", "30m": "30m", "15m": "15m", "5m": "5m"}.get(period, "1d")
         range_value = "5y" if interval == "1d" else "60d"
         payload = await self._yahoo_chart(_yahoo_symbol(code), range_value, interval)
         quote = ((payload.get("indicators") or {}).get("quote") or [{}])[0]
         adjusted = ((payload.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or []
-        rows = []
+        rows: list[JSONDict] = []
         for index, (timestamp, open_, high, low, close, volume) in enumerate(zip(
             payload.get("timestamp") or [], quote.get("open") or [], quote.get("high") or [],
             quote.get("low") or [], quote.get("close") or [], quote.get("volume") or [],
@@ -574,11 +634,11 @@ class MarketDataService:
             if None in (open_, high, low, close):
                 continue
             adjusted_close = adjusted[index] if index < len(adjusted) else None
-            ratio = float(adjusted_close) / float(close) if adjusted_close not in (None, 0) and close else 1.0
+            ratio = float(cast(Any, adjusted_close)) / float(close) if adjusted_close not in (None, 0) and close else 1.0
             rows.append({
                 "day": datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"),
                 "open": float(open_) * ratio, "high": float(high) * ratio, "low": float(low) * ratio,
-                "close": float(adjusted_close) if adjusted_close not in (None, 0) else float(close),
+                "close": float(cast(Any, adjusted_close)) if adjusted_close not in (None, 0) else float(close),
                 "volume": int(volume or 0),
                 "source": "yahoo",
                 "adjustment": "split_dividend_adjusted" if adjusted_close not in (None, 0) else "none",
@@ -587,7 +647,7 @@ class MarketDataService:
             raise MarketError(f"无K线数据：{code}")
         return rows[-count:]
 
-    async def _yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
+    async def _yahoo_chart(self, symbol: str, range_value: str, interval: str) -> JSONDict:
         last_error: Exception | None = None
         for endpoint in YAHOO_CHARTS:
             try:
@@ -599,12 +659,12 @@ class MarketDataService:
                 response.raise_for_status()
                 result = (response.json().get("chart") or {}).get("result") or []
                 if result:
-                    return result[0]
+                    return cast(JSONDict, result[0])
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
         raise MarketError(f"未找到股票代码：{symbol}") from last_error
 
-    async def fundamentals(self, ticker: str) -> list[dict]:
+    async def fundamentals(self, ticker: str) -> list[JSONDict]:
         """Return period-safe fundamentals with domestic-source priority."""
         code = normalize_code(ticker)
         if not code.startswith(("sh", "sz")):
@@ -615,19 +675,36 @@ class MarketDataService:
             TushareFundamentalsAdapter,
             fetch_cn_fundamentals,
         )
+        from .auth import current_user_id
+        from .credential_store import get_credential
+
+        tushare_token = os.getenv("TUSHARE_TOKEN", "").strip()
+        try:
+            owner_id = current_user_id()
+        except RuntimeError:
+            owner_id = None
+        if owner_id is not None:
+            stored_token = await get_credential(owner_id, "tushare")
+            if stored_token:
+                tushare_token = stored_token
 
         adapters = {
             "akshare": AkshareFundamentalsAdapter,
             "tushare": TushareFundamentalsAdapter,
         }
         errors = []
-        suspicious_candidate: list[dict] | None = None
+        suspicious_candidate: list[JSONDict] | None = None
         for provider in self.fundamentals_priority:
             try:
                 if provider == "yahoo":
                     items = await self._yahoo_fundamentals(ticker)
                 else:
-                    items = await fetch_cn_fundamentals(code, (adapters[provider](),))
+                    adapter = (
+                        TushareFundamentalsAdapter(tushare_token)
+                        if provider == "tushare"
+                        else adapters[provider]()
+                    )
+                    items = await fetch_cn_fundamentals(code, (adapter,))
             except (MarketError, RuntimeError) as exc:
                 errors.append(f"{provider}:{type(exc).__name__}")
                 continue
@@ -645,7 +722,7 @@ class MarketDataService:
             return suspicious_candidate
         raise MarketError(f"无法获取 {ticker} 的基本面数据（{', '.join(errors) or '无可用数据源'}）")
 
-    async def _yahoo_fundamentals(self, ticker: str) -> list[dict]:
+    async def _yahoo_fundamentals(self, ticker: str) -> list[JSONDict]:
         code = normalize_code(ticker)
         domestic = code.startswith(("sh", "sz"))
         symbol = _yahoo_symbol(code)
@@ -702,7 +779,7 @@ class MarketDataService:
 
             return normalize_yahoo_cn_fundamentals(payload)
 
-        items: list[dict] = []
+        items: list[JSONDict] = []
         for series in payload.get("result") or []:
             metric = ((series.get("meta") or {}).get("type") or [None])[0]
             values = series.get(metric) if metric else None
@@ -755,7 +832,7 @@ class MarketDataService:
 
 def _number(value: object) -> float:
     try:
-        return float(value) if value is not None else 0.0
+        return float(cast(Any, value)) if value is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
 
@@ -767,8 +844,8 @@ def _number(value: object) -> float:
 _TENCENT_LINE = re.compile(r'^v_(sh|sz|hk|us)(\w+)="(.*)";?\s*$', re.M)
 
 
-def parse_tencent_quotes(raw: str) -> list[dict]:
-    results = []
+def parse_tencent_quotes(raw: str) -> list[JSONDict]:
+    results: list[JSONDict] = []
     for m in _TENCENT_LINE.finditer(raw):
         market, stock_code, payload = m.group(1), m.group(2), m.group(3)
         f = payload.split("~")
@@ -814,8 +891,8 @@ def parse_tencent_quotes(raw: str) -> list[dict]:
 _SINA_LINE = re.compile(r'^var hq_str_(sh|sz|hk|us)(\w+)="(.*)";\s*$', re.M)
 
 
-def parse_sina_quotes(raw: str) -> list[dict]:
-    results = []
+def parse_sina_quotes(raw: str) -> list[JSONDict]:
+    results: list[JSONDict] = []
     for m in _SINA_LINE.finditer(raw):
         market, stock_code, payload = m.group(1), m.group(2), m.group(3)
         f = payload.split(",")

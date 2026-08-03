@@ -2,7 +2,11 @@
 
 分项满分 100，方向为 bullish(+) / bearish(-)，加权合成综合分。
 """
+from typing import Any
+
 import numpy as np
+
+JSONDict = dict[str, Any]
 
 
 def _skip_nan(arr: np.ndarray) -> np.ndarray:
@@ -10,7 +14,7 @@ def _skip_nan(arr: np.ndarray) -> np.ndarray:
 
 
 def trend_strength(close: list[float], ma_short: list[float | None],
-                   ma_long: list[float | None]) -> dict:
+                   ma_long: list[float | None]) -> JSONDict:
     """趋势强度评分（-100~+100）。
 
     判断依据：
@@ -50,7 +54,10 @@ def trend_strength(close: list[float], ma_short: list[float | None],
     }
 
 
-def momentum_score(close: list[float], rsi_vals: list[float | None] | None = None) -> dict:
+def momentum_score(
+    close: list[float],
+    rsi_vals: list[float | None] | None = None,
+) -> JSONDict:
     """动量评分（-100~+100）。
 
     使用 N 日收益率和 RSI 综合判断。
@@ -70,7 +77,7 @@ def momentum_score(close: list[float], rsi_vals: list[float | None] | None = Non
     momentum_from_ret = max(-100, min(100, momentum_from_ret))
 
     # RSI 调整
-    rsi_score = 0
+    rsi_score = 0.0
     if rsi_vals:
         rsi_last = [v for v in rsi_vals if v is not None]
         if rsi_last:
@@ -92,7 +99,7 @@ def momentum_score(close: list[float], rsi_vals: list[float | None] | None = Non
     }
 
 
-def volume_score(volume: list[float], volma: list[float | None]) -> dict:
+def volume_score(volume: list[float], volma: list[float | None]) -> JSONDict:
     """成交量评分（-100~+100）。
 
     放量上涨偏正，放量下跌偏负；缩量横盘中性。
@@ -127,7 +134,7 @@ def composite_score(close: list[float],
                     ma_long: list[float | None],
                     volume: list[float],
                     volma: list[float | None],
-                    rsi_vals: list[float | None] | None = None) -> dict:
+                    rsi_vals: list[float | None] | None = None) -> JSONDict:
     """综合评分 -100~+100。
 
     权重：趋势 40%，动量 35%，成交量 25%。

@@ -11,7 +11,7 @@ from app.services import model_router, research_orch
 
 @pytest.fixture(autouse=True)
 def empty_research_memory(monkeypatch):
-    async def empty_search(query, *, limit):
+    async def empty_search(query, *, user_id, limit):
         return []
 
     monkeypatch.setattr(research_orch, "search_cross_session_memory", empty_search)
@@ -132,7 +132,7 @@ async def test_mock_llm_runs_complete_four_agent_research_flow(monkeypatch, isol
     client = MockLLMClient()
     requested_model_ids = []
 
-    async def fake_get_client(model_id=None):
+    async def fake_get_client(model_id=None, **_kwargs):
         requested_model_ids.append(model_id)
         return client, {"id": model_id, "name": "Mock LLM"}
 
@@ -140,7 +140,9 @@ async def test_mock_llm_runs_complete_four_agent_research_flow(monkeypatch, isol
 
     events = [
         event
-        async for event in research_orch.run_research("usAAPL", "Apple Inc.", model_id=17)
+        async for event in research_orch.run_research(
+            "usAAPL", "Apple Inc.", model_id=17, user_id=1
+        )
     ]
 
     role_keys = {role["role_key"] for role in RESEARCH_ROLES}
@@ -180,7 +182,7 @@ async def test_mock_llm_runs_complete_four_agent_research_flow(monkeypatch, isol
 
 @pytest.mark.asyncio
 async def test_unexpected_agent_failure_emits_error_and_completes(monkeypatch):
-    async def fake_get_client(model_id=None):
+    async def fake_get_client(model_id=None, **_kwargs):
         return object(), {"id": model_id}
 
     async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
@@ -191,7 +193,7 @@ async def test_unexpected_agent_failure_emits_error_and_completes(monkeypatch):
     monkeypatch.setattr(model_router, "get_client", fake_get_client)
     monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
 
-    events = [event async for event in research_orch.run_research("usAAPL", "Apple")]
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
 
     errors = [data for event, data in events if event == "error"]
     assert errors == [{"role_key": "business_analyst", "error": "研究 Agent 异常：agent crashed"}]

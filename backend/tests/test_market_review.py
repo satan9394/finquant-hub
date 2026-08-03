@@ -13,6 +13,7 @@ async def review_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "market-review.db")
     monkeypatch.setattr(config, "EXTERNAL_SENDERS_ENABLED", False)
     await database.init_db()
+    await database.execute("INSERT INTO users (id, email, is_admin) VALUES (1, 'review@test.local', 1)")
     try:
         yield
     finally:
@@ -36,14 +37,14 @@ async def test_create_market_review_persists_snapshot_report_and_notification(mo
     async def snapshot(_market, markets, trading_date):
         return {"markets": markets, "trading_date": trading_date.isoformat(), "data": {}}
 
-    async def fake_client(model_id):
+    async def fake_client(model_id, **_kwargs):
         return FakeClient(), {"id": 7, "name": "Review Model"}
 
     monkeypatch.setattr(market_review, "collect_market_snapshot", snapshot)
     monkeypatch.setattr(market_review.model_router, "get_client", fake_client)
 
     result = await market_review.create_market_review(
-        object(), ["cn", "hk", "cn"], date(2026, 7, 31), model_id=7
+        object(), ["cn", "hk", "cn"], date(2026, 7, 31), model_id=7, user_id=1
     )
 
     assert result["markets"] == ["cn", "hk"]
@@ -60,14 +61,14 @@ async def test_review_failure_is_persisted(monkeypatch):
     async def snapshot(_market, markets, trading_date):
         return {"markets": markets, "trading_date": trading_date.isoformat()}
 
-    async def fail_client(model_id):
+    async def fail_client(model_id, **_kwargs):
         raise LLMError("missing key")
 
     monkeypatch.setattr(market_review, "collect_market_snapshot", snapshot)
     monkeypatch.setattr(market_review.model_router, "get_client", fail_client)
 
     with pytest.raises(LLMError, match="missing key"):
-        await market_review.create_market_review(object(), ["us"], date(2026, 7, 31))
+        await market_review.create_market_review(object(), ["us"], date(2026, 7, 31), user_id=1)
     row = await database.query_one("SELECT status, error_message FROM market_reviews")
     assert row == {"status": "failed", "error_message": "missing key"}
 
@@ -77,15 +78,16 @@ async def test_scheduled_review_is_idempotent(monkeypatch):
     today = date.today().isoformat()
     review_id = await database.execute(
         "INSERT INTO market_reviews "
-        "(markets_json, trading_date, snapshot_json, report_json, status) VALUES (?, ?, '{}', '{}', 'completed')",
-        ('["cn", "hk", "us"]', today),
+        "(markets_json, trading_date, snapshot_json, report_json, status, user_id) "
+        "VALUES (?, ?, '{}', '{}', 'completed', ?)",
+        ('["cn", "hk", "us"]', today, 1),
     )
 
     async def unexpected(*args, **kwargs):
         raise AssertionError("completed review must be reused")
 
     monkeypatch.setattr(market_review, "create_market_review", unexpected)
-    result = await market_review.run_scheduled_market_review(object())
+    result = await market_review.run_scheduled_market_review(object(), 1)
     assert result["id"] == review_id
 
 

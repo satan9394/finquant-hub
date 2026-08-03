@@ -58,6 +58,7 @@ async def test_fallback_records_failure_then_uses_next_provider(monkeypatch):
     assert result["providers_attempted"] == ["brave", "sina"]
     assert result["providers_used"] == ["sina"]
     assert "brave" in result["errors"]
+    assert "secret" not in str(result)
 
 
 def test_service_rejects_unknown_provider_and_strategy():

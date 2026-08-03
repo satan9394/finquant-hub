@@ -55,7 +55,7 @@ class MCPTool(BaseTool):
         remote_name: str,
         local_name: str,
         description: str,
-        parameters: dict,
+        parameters: dict[str, Any],
     ) -> None:
         self.bridge = bridge
         self.remote_name = remote_name
@@ -63,7 +63,7 @@ class MCPTool(BaseTool):
         self.description = description
         self.parameters = parameters
 
-    async def run(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs: Any) -> ToolResult:
         return await self.bridge.call_tool(self.remote_name, kwargs)
 
 

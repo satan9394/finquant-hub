@@ -13,14 +13,18 @@ const mocks = vi.hoisted(() => ({
   deleteConfig: vi.fn(),
   connect: vi.fn(),
   disconnect: vi.fn(),
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  apiPut: vi.fn(),
+  apiDelete: vi.fn(),
 }));
 
 vi.mock('../src/services/api', () => ({
   default: {
-    get: vi.fn().mockResolvedValue({ data: { items: [] } }),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
+    get: mocks.apiGet,
+    post: mocks.apiPost,
+    put: mocks.apiPut,
+    delete: mocks.apiDelete,
   },
 }));
 
@@ -74,6 +78,10 @@ beforeEach(() => {
   mocks.createConfig.mockResolvedValue(server);
   mocks.updateConfig.mockResolvedValue(server);
   mocks.deleteConfig.mockResolvedValue(undefined);
+  mocks.apiGet.mockResolvedValue({ data: { items: [] } });
+  mocks.apiPost.mockResolvedValue({ data: {} });
+  mocks.apiPut.mockResolvedValue({ data: {} });
+  mocks.apiDelete.mockResolvedValue({ data: { ok: true } });
 });
 
 describe('Settings configuration management', () => {
@@ -105,5 +113,27 @@ describe('Settings configuration management', () => {
       name: 'news',
       url: 'https://news.example.test/mcp',
     }));
-  });
+  }, 15_000);
+
+  test('saves service credentials without rendering the plaintext again', async () => {
+    render(<Settings />);
+    fireEvent.click(screen.getByRole('tab', { name: 'API 密钥' }));
+
+    expect(await screen.findByText('Tushare Token')).toBeTruthy();
+    const configureButtons = screen.getAllByRole('button', { name: /配置/ });
+    fireEvent.click(configureButtons[0]);
+    fireEvent.change(screen.getByLabelText('Tushare Token 凭据'), {
+      target: { value: 'private-tushare-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '加密保存' }));
+
+    await waitFor(() => expect(mocks.apiPut).toHaveBeenCalledWith('/me/credentials/tushare', {
+      value: 'private-tushare-key',
+      provider: 'tushare.pro',
+    }));
+    await waitFor(() => {
+      const input = screen.queryByLabelText('Tushare Token 凭据') as HTMLInputElement | null;
+      expect(input?.value ?? '').toBe('');
+    });
+  }, 15_000);
 });

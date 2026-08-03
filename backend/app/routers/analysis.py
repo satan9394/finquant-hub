@@ -5,8 +5,10 @@
 """
 import json
 import logging
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -16,8 +18,9 @@ from ..services.analysis import signals as sig_mod
 from ..services.analysis.ticker import resolve_ticker
 from ..services.market_data import MarketDataService, MarketError
 from ..services.research_orch import run_research
+from .auth import CurrentUser, authenticated_context
 
-router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+router = APIRouter(prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(authenticated_context)])
 LOGGER = logging.getLogger(__name__)
 
 
@@ -27,7 +30,7 @@ class StockAnalysisRequest(BaseModel):
 
 
 def _svc(request: Request) -> MarketDataService:
-    return request.app.state.market
+    return cast(MarketDataService, request.app.state.market)
 
 
 # ===================================================================
@@ -35,7 +38,7 @@ def _svc(request: Request) -> MarketDataService:
 # ===================================================================
 
 @router.post("/stock")
-async def analyze_stock(body: StockAnalysisRequest, request: Request):
+async def analyze_stock(body: StockAnalysisRequest, request: Request, user: CurrentUser) -> EventSourceResponse:
     """多 Agent 并行研究 + SSE 流式推送。
 
     事件类型：agent_started, tool_call, agent_completed, report_progress, done, error
@@ -53,10 +56,12 @@ async def analyze_stock(body: StockAnalysisRequest, request: Request):
     except MarketError:
         pass
 
-    async def event_stream():
-        research_stream = None
+    async def event_stream() -> AsyncIterator[dict[str, str]]:
+        research_stream: AsyncIterator[tuple[str, dict[str, Any]]] | None = None
         try:
-            research_stream = run_research(ticker, company_name, body.model_id)
+            research_stream = run_research(
+                ticker, company_name, body.model_id, user_id=int(user["id"])
+            )
             async for event, data in research_stream:
                 if event == "error":
                     message = data.get("error") or data.get("message") or "研究管线异常"
@@ -93,8 +98,9 @@ async def analyze_stock(body: StockAnalysisRequest, request: Request):
 async def get_indicators(
     request: Request,
     ticker: str,
+    user: CurrentUser,
     count: int = Query(default=120, ge=30, le=800),
-):
+) -> dict[str, Any]:
     """获取技术指标数据 + 综合评分。"""
     try:
         code = await resolve_ticker(ticker, _svc(request))
@@ -121,7 +127,7 @@ async def get_indicators(
     # 信号检测
     signals = sig_mod.detect_all(ind, close, high, low, volume)
     days = [k["day"] for k in kline]
-    alert_triggers = await alerts.evaluate_signals(code, signals, days)
+    alert_triggers = await alerts.evaluate_signals(code, signals, days, user_id=int(user["id"]))
 
     # 评分
     ma5 = ind.get("ma", {}).get("ma5", [])
@@ -149,9 +155,10 @@ async def get_indicators(
 async def get_chart_data(
     request: Request,
     ticker: str,
+    _user: CurrentUser,
     count: int = Query(default=200, ge=30, le=800),
     period: str = Query(default="1d", pattern=r"^(1d|60m|30m|15m|5m)$"),
-):
+) -> dict[str, Any]:
     """获取轻量级图表数据（lightweight-charts 兼容格式）。"""
     try:
         code = await resolve_ticker(ticker, _svc(request))

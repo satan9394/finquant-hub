@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...services.market_data import MarketDataService
@@ -33,7 +33,7 @@ class BaseLoader(ABC):
         return market in self.markets and (period is None or period in self.periods)
 
     @abstractmethod
-    async def load(self, symbol: str, period: str, count: int) -> dict:
+    async def load(self, symbol: str, period: str, count: int) -> dict[str, Any]:
         """Return InstrumentService-compatible bars and provenance."""
 
     def require_market_service(self) -> MarketDataService:

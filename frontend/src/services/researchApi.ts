@@ -3,6 +3,7 @@ import type {
   BacktestCreatePayload,
   BacktestRun,
   BarsResponse,
+  ChipDistributionResponse,
   FundamentalsResponse,
   InstrumentSearchResponse,
   ResearchWorkspace,
@@ -28,6 +29,11 @@ export async function fetchInstrumentBars(symbol: string, count = 260): Promise<
 
 export async function fetchInstrumentFundamentals(symbol: string): Promise<FundamentalsResponse> {
   const response = await apiClient.get(`/instruments/${encodeURIComponent(symbol)}/fundamentals`);
+  return response.data;
+}
+
+export async function fetchChipDistribution(symbol: string): Promise<ChipDistributionResponse> {
+  const response = await apiClient.get(`/instruments/${encodeURIComponent(symbol)}/chip-distribution`);
   return response.data;
 }
 

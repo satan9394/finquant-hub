@@ -1,6 +1,7 @@
 """FastAPI 入口：lifespan 初始化数据库与行情服务，挂载全部路由。"""
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
@@ -9,9 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import config, database
-from .routers import agents, alerts, analysis as analysis_router, backtest, backtests, chat, dashboard, discussion, instruments, market, mcp as mcp_router, models_crud, notifications, portfolio as portfolio_router, research, screening, settings, swarm, usage, wq
+from .middleware.security import SecurityMiddleware
+from .routers import agents, alerts, analysis as analysis_router, auth, backtest, backtests, chat, credentials, dashboard, discussion, instruments, market, mcp as mcp_router, models_crud, notifications, portfolio as portfolio_router, research, screening, settings, swarm, thesis, usage, wq
 from .services.market_data import MarketDataService
 from .services.logging import configure_logging
+from .services.credential_store import migrate_legacy_model_api_keys, validate_master_key
 from .services.llm_usage import flush_llm_usage
 from .services.mcp_runtime import restore_enabled_mcp_servers
 from .services.scheduler import scheduler_loop
@@ -57,8 +60,15 @@ def _first_validation_detail(exc: RequestValidationError) -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    validate_master_key()
+    if config.APP_ENV == "production":
+        if not config.AUTH_COOKIE_SECURE:
+            raise RuntimeError("production requires AUTH_COOKIE_SECURE=true")
+        if not config.SMTP_HOST or not config.SMTP_FROM:
+            raise RuntimeError("production requires SMTP_HOST and SMTP_FROM")
     await database.init_db()
+    await migrate_legacy_model_api_keys()
     await load_system_settings()
     await restore_enabled_mcp_servers()
     app.state.market = MarketDataService()
@@ -84,12 +94,12 @@ app = FastAPI(title="FinQuant Hub", version=config.APP_VERSION, lifespan=lifespa
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation_exception_handler(_request: Request, exc: RequestValidationError):
+async def request_validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": _first_validation_detail(exc)})
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     LOGGER.exception(
         "Unhandled request exception",
         exc_info=exc,
@@ -103,22 +113,25 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "服务内部错误，请稍后重试"})
 
 # MVP 经 Vite proxy 同源访问；CORS 仅放开本地调试端口，便于直连测试
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if config.APP_ENV != "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+app.add_middleware(SecurityMiddleware, cookie_name=config.AUTH_COOKIE_NAME)
 
-for r in (models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
+for r in (auth.router, credentials.router, models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
           analysis_router.router, portfolio_router.router, wq.router, research.router, screening.router,
           backtest.router, instruments.router, backtests.router, swarm.router, notifications.router,
-          alerts.router, mcp_router.router, settings.router, usage.router):
+          alerts.router, mcp_router.router, settings.router, usage.router, thesis.router):
     app.include_router(r)
 
 
 @app.get("/api/health")
-async def health():
+async def health() -> dict[str, str]:
     row = await database.query_one("PRAGMA journal_mode")
     return {"status": "ok", "version": config.APP_VERSION, "db": (row or {}).get("journal_mode", "?")}
 

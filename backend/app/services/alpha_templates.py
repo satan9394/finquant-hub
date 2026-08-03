@@ -7,7 +7,7 @@ from typing import Any
 from .alpha_service import list_fields
 
 
-_TEMPLATE_SPECS = (
+_TEMPLATE_SPECS: tuple[dict[str, Any], ...] = (
     {
         "id": "fundamental_quality",
         "name": "基本面质量",
@@ -58,14 +58,14 @@ def generate_factor_templates(
     catalogue = {str(field.get("id")): field for field in (fields if fields is not None else list_fields())}
     templates: list[dict[str, Any]] = []
     for spec in _TEMPLATE_SPECS:
-        field_ids = spec["fields"]
+        field_ids = tuple(str(value) for value in spec["fields"])
         if not all(field_id in catalogue for field_id in field_ids):
             continue
         templates.append(
             {
                 "id": spec["id"],
                 "name": spec["name"],
-                "expression": spec["expression"].format(*field_ids),
+                "expression": str(spec["expression"]).format(*field_ids),
                 "fields": [
                     {
                         "id": field_id,

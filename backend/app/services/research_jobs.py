@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any, cast
 
 from .. import database
 from .cron import CronExpression
 
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+JSONDict = dict[str, Any]
 
 
 def format_local(value: datetime) -> str:
@@ -25,29 +27,34 @@ async def create_research_job(
     cron_expr: str,
     model_id: int | None,
     is_enabled: bool,
-) -> dict:
+    user_id: int,
+) -> JSONDict:
     new_id = await database.execute(
         """
         INSERT INTO scheduled_research_jobs
-        (name, ticker, company_name, cron_expr, model_id, is_enabled, next_run_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (name, ticker, company_name, cron_expr, model_id, is_enabled, next_run_at, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (name, ticker, company_name, CronExpression.parse(cron_expr).raw, model_id,
-         int(is_enabled), next_run_at(cron_expr) if is_enabled else None),
+         int(is_enabled), next_run_at(cron_expr) if is_enabled else None, user_id),
     )
-    return await get_research_job(new_id)
+    return cast(JSONDict, await get_research_job(new_id, user_id))
 
 
-async def get_research_job(job_id: int) -> dict | None:
-    return await database.query_one("SELECT * FROM scheduled_research_jobs WHERE id=?", (job_id,))
+async def get_research_job(job_id: int, user_id: int) -> JSONDict | None:
+    return await database.query_one(
+        "SELECT * FROM scheduled_research_jobs WHERE id=? AND user_id=?", (job_id, user_id)
+    )
 
 
-async def list_research_jobs() -> list[dict]:
-    return await database.query_all("SELECT * FROM scheduled_research_jobs ORDER BY id DESC")
+async def list_research_jobs(user_id: int) -> list[JSONDict]:
+    return await database.query_all(
+        "SELECT * FROM scheduled_research_jobs WHERE user_id=? ORDER BY id DESC", (user_id,)
+    )
 
 
-async def update_research_job(job_id: int, updates: dict) -> dict | None:
-    current = await get_research_job(job_id)
+async def update_research_job(job_id: int, updates: JSONDict, user_id: int) -> JSONDict | None:
+    current = await get_research_job(job_id, user_id)
     if current is None:
         return None
     values = dict(updates)
@@ -58,18 +65,18 @@ async def update_research_job(job_id: int, updates: dict) -> dict | None:
     values["is_enabled"] = int(enabled)
     assignments = ", ".join(f"{key}=?" for key in values)
     await database.execute(
-        f"UPDATE scheduled_research_jobs SET {assignments}, updated_at=datetime('now') WHERE id=?",
-        (*values.values(), job_id),
+        f"UPDATE scheduled_research_jobs SET {assignments}, updated_at=datetime('now') WHERE id=? AND user_id=?",
+        (*values.values(), job_id, user_id),
     )
-    return await get_research_job(job_id)
+    return await get_research_job(job_id, user_id)
 
 
-async def due_research_jobs(now: datetime | None = None) -> list[dict]:
+async def due_research_jobs(now: datetime | None = None) -> list[JSONDict]:
     current = format_local(now or datetime.now())
     return await database.query_all(
         """
         SELECT * FROM scheduled_research_jobs
-        WHERE is_enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=?
+        WHERE user_id IS NOT NULL AND is_enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=?
           AND last_status!='running'
         ORDER BY next_run_at, id LIMIT 20
         """,
@@ -77,9 +84,9 @@ async def due_research_jobs(now: datetime | None = None) -> list[dict]:
     )
 
 
-async def mark_job_running(job_id: int, now: datetime | None = None) -> bool:
+async def mark_job_running(job_id: int, user_id: int, now: datetime | None = None) -> bool:
     current = now or datetime.now()
-    job = await get_research_job(job_id)
+    job = await get_research_job(job_id, user_id)
     if job is None:
         return False
     cursor = await database.get_db().execute(
@@ -87,20 +94,22 @@ async def mark_job_running(job_id: int, now: datetime | None = None) -> bool:
         UPDATE scheduled_research_jobs
         SET last_status='running', last_error=NULL, last_run_at=?,
             next_run_at=?, updated_at=datetime('now')
-        WHERE id=? AND last_status!='running'
+        WHERE id=? AND user_id=? AND last_status!='running'
         """,
         (
             format_local(current),
             next_run_at(job["cron_expr"], current),
             job_id,
+            user_id,
         ),
     )
     await database.get_db().commit()
     return cursor.rowcount == 1
 
 
-async def mark_job_finished(job_id: int, *, error: str | None = None) -> None:
+async def mark_job_finished(job_id: int, user_id: int, *, error: str | None = None) -> None:
     await database.execute(
-        "UPDATE scheduled_research_jobs SET last_status=?, last_error=?, updated_at=datetime('now') WHERE id=?",
-        ("failed" if error else "completed", error, job_id),
+        "UPDATE scheduled_research_jobs SET last_status=?, last_error=?, updated_at=datetime('now') "
+        "WHERE id=? AND user_id=?",
+        ("failed" if error else "completed", error, job_id, user_id),
     )

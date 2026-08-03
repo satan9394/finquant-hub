@@ -3,12 +3,16 @@
 仅依赖 OpenAI Chat Completions 协议，DeepSeek/其他兼容供应商即插即用。
 """
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import httpx
 
 from .context import DEFAULT_CONTEXT_BUDGET, compact_messages, estimate_tokens
 from .llm_usage import record_llm_usage
+
+
+JSONDict = dict[str, Any]
 
 
 class LLMError(Exception):
@@ -36,7 +40,7 @@ class LLMClient:
         self.timeout = timeout
         self.context_budget = context_budget
 
-    def _payload(self, messages: list[dict], stream: bool) -> dict:
+    def _payload(self, messages: list[JSONDict], stream: bool) -> JSONDict:
         payload = {
             "model": self.model,
             "messages": self._prepare_messages(messages),
@@ -48,19 +52,21 @@ class LLMClient:
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def _prepare_messages(self, messages: list[dict], tools: list[dict] | None = None) -> list[dict]:
+    def _prepare_messages(
+        self, messages: list[JSONDict], tools: list[JSONDict] | None = None,
+    ) -> list[JSONDict]:
         """压缩输入消息，并为工具 schema 预留上下文预算。"""
         tool_tokens = estimate_tokens(tools) if tools else 0
         message_budget = max(128, self.context_budget - tool_tokens)
         return compact_messages(messages, token_budget=message_budget)
 
-    def _headers(self) -> dict:
+    def _headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
 
-    async def chat(self, messages: list[dict]) -> tuple[str, int | None]:
+    async def chat(self, messages: list[JSONDict]) -> tuple[str, int | None]:
         """非流式调用，返回 (全文, total_tokens)。"""
         url = f"{self.base_url}/chat/completions"
         try:
@@ -77,8 +83,8 @@ class LLMClient:
         return content, usage.get("total_tokens")
 
     async def chat_with_tools(
-        self, messages: list[dict], tools: list[dict] | None = None
-    ) -> tuple[str, list[dict], int | None]:
+        self, messages: list[JSONDict], tools: list[JSONDict] | None = None
+    ) -> tuple[str, list[JSONDict], int | None]:
         """调用支持 function_calling，返回 (文本, tool_calls 列表, total_tokens)。
 
         tool_calls 元素格式：{"id": str, "type": "function", "function": {"name": str, "arguments": str}}
@@ -105,7 +111,7 @@ class LLMClient:
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
         raw_calls = choice.get("tool_calls") or []
-        tool_calls = []
+        tool_calls: list[JSONDict] = []
         for tc in raw_calls:
             tool_calls.append({
                 "id": tc["id"],
@@ -122,9 +128,9 @@ class LLMClient:
 
     async def chat_with_tools_safe(
         self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-    ) -> tuple[str, list[dict], int | None]:
+        messages: list[JSONDict],
+        tools: list[JSONDict] | None = None,
+    ) -> tuple[str, list[JSONDict], int | None]:
         """Tool calling with DeepSeek-compatible assistant message recovery.
 
         Thinking-mode models require their ``reasoning_content`` to be returned
@@ -152,7 +158,7 @@ class LLMClient:
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
         raw_calls = choice.get("tool_calls") or []
-        tool_calls = []
+        tool_calls: list[JSONDict] = []
         for tc in raw_calls:
             tool_calls.append({
                 "id": tc["id"],
@@ -167,9 +173,9 @@ class LLMClient:
         record_llm_usage(self.model, usage)
         return content, tool_calls, usage.get("total_tokens")
 
-    def _sanitize_messages(self, messages: list[dict]) -> list[dict]:
+    def _sanitize_messages(self, messages: list[JSONDict]) -> list[JSONDict]:
         """Normalize tool-call messages without deleting required reasoning."""
-        cleaned = []
+        cleaned: list[JSONDict] = []
         for msg in messages:
             copy = dict(msg)
             # 当 role=assistant 且包含 tool_calls 时，content 必须为 None
@@ -180,11 +186,11 @@ class LLMClient:
 
     async def chat_with_tools_loop(
         self,
-        messages: list[dict],
-        tools: list[dict],
-        tool_executor: callable,
+        messages: list[JSONDict],
+        tools: list[JSONDict],
+        tool_executor: Callable[[str, str], Awaitable[str]],
         max_rounds: int = 5,
-    ) -> tuple[str, list[dict], int | None]:
+    ) -> tuple[str, list[JSONDict], int | None]:
         """完整 function_calling 循环：调用 LLM → 执行工具 → 反馈 → 最终回复。
 
         参数：
@@ -196,7 +202,7 @@ class LLMClient:
         返回：
             (最终文本, 全部工具调用记录 list[dict], total_tokens)
         """
-        all_tool_calls = []
+        all_tool_calls: list[JSONDict] = []
         total_tokens = 0
 
         # Each upstream request made by chat_with_tools_safe is persisted once.
@@ -248,10 +254,10 @@ class LLMClient:
         total_tokens += tokens or 0
         return content, all_tool_calls, total_tokens or None
 
-    async def chat_stream(self, messages: list[dict]) -> AsyncIterator[str]:
+    async def chat_stream(self, messages: list[JSONDict]) -> AsyncIterator[str]:
         """流式调用，逐 token yield 增量文本。"""
         url = f"{self.base_url}/chat/completions"
-        usage: dict = {}
+        usage: JSONDict = {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as http:
                 async with http.stream(

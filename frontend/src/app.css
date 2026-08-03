@@ -10,6 +10,57 @@ html, body, #root {
   margin: 0;
 }
 
+.app-theme { min-height: 100vh; }
+.auth-loading {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #f3f6fa;
+}
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(22, 119, 255, .13), transparent 34%),
+    linear-gradient(145deg, #eef4fb, #f8fafc 56%, #e8f0f8);
+}
+.login-card {
+  width: min(100%, 430px);
+  border-color: rgba(104, 132, 168, .24);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(37, 58, 88, .14);
+}
+.login-brand {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 20px;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1677ff, #43a1ff);
+  place-items: center;
+}
+.login-secondary-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  width: 100%;
+}
+.app-theme--dark .auth-loading,
+.app-theme--dark .login-shell {
+  background:
+    radial-gradient(circle at 15% 15%, rgba(22, 119, 255, .22), transparent 34%),
+    linear-gradient(145deg, #0d1420, #111827 56%, #0a1019);
+}
+.app-theme--dark .login-card {
+  border-color: rgba(125, 160, 205, .2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .36);
+}
+
 body { background: #f3f6fa; }
 .mobile-nav-toggle { display: none; }
 

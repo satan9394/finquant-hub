@@ -7,6 +7,9 @@
 
 所有计算基于 numpy 向量化，输入 OHLCV list[dict]。
 """
+from collections.abc import Callable, Sequence
+from typing import Any, cast
+
 import numpy as np
 
 from .metrics import calculate_performance, calculate_trade_metrics
@@ -16,7 +19,10 @@ from .metrics import calculate_performance, calculate_trade_metrics
 # ---------------------------------------------------------------------------
 
 
-def _to_arr(v: list) -> np.ndarray:
+JSONDict = dict[str, Any]
+
+
+def _to_arr(v: list[float]) -> np.ndarray:
     return np.asarray(v, dtype=float)
 
 
@@ -129,7 +135,7 @@ def _signal_bollinger_breakout(close: np.ndarray, period: int = 20, k: float = 2
 
 
 # 策略注册表
-_STRATEGIES = {
+_STRATEGIES: dict[str, Callable[..., np.ndarray]] = {
     "ma_cross": _signal_ma_cross,
     "rsi_reversal": _signal_rsi_reversal,
     "bollinger_breakout": _signal_bollinger_breakout,
@@ -158,11 +164,11 @@ def _calc_positions(signals: np.ndarray) -> np.ndarray:
 
 
 def run_backtest(
-    kline: list[dict],
+    kline: list[JSONDict],
     strategy_type: str = "ma_cross",
-    params: dict | None = None,
+    params: JSONDict | None = None,
     periods: int | None = None,
-) -> dict:
+) -> JSONDict:
     """执行向量化回测。
 
     参数：
@@ -207,7 +213,7 @@ def run_backtest(
     equity = 1.0 + np.cumsum(strat_returns)
 
     # 记录交易
-    trades = []
+    trades: list[JSONDict] = []
     entry_price = 0.0
     entry_day = ""
     for i in range(len(signals)):
@@ -259,11 +265,15 @@ def _calc_metrics(
     equity: np.ndarray,
     strat_returns: np.ndarray,
     close: np.ndarray,
-    trades: list[dict],
-) -> dict:
+    trades: list[JSONDict],
+) -> JSONDict:
     """计算绩效指标。"""
     benchmark = close / close[0]
-    performance = calculate_performance(equity, benchmark, 252)
+    performance = calculate_performance(
+        cast(Sequence[float], equity),
+        cast(Sequence[float], benchmark),
+        252,
+    )
     trade_metrics = calculate_trade_metrics([trade["return_pct"] for trade in trades])
     total_return = float(performance["total_return"] or 0.0) * 100
     ann_return = float(performance["annualized_return"] or 0.0) * 100

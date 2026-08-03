@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from typing import Any, Self
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .. import config
@@ -14,9 +15,10 @@ from ..services.market_data import normalize_code
 from ..services.research_jobs import create_research_job, get_research_job, list_research_jobs, update_research_job
 from ..services.scheduler import run_research_job, scheduler_loop
 from ..services.system_settings import current_system_settings, save_system_settings
+from .auth import CurrentUser, authenticated_context
 
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(authenticated_context)])
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -27,7 +29,7 @@ class SystemSettingsUpdate(BaseModel):
     scheduler_minute: int | None = Field(default=None, ge=0, le=59)
 
     @model_validator(mode="after")
-    def require_update(self):
+    def require_update(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("至少提交一个系统配置")
         return self
@@ -61,13 +63,13 @@ class ScheduledResearchUpdate(BaseModel):
         return CronExpression.parse(value).raw if value is not None else None
 
     @model_validator(mode="after")
-    def require_update(self):
+    def require_update(self) -> Self:
         if not self.model_fields_set:
             raise ValueError("至少提交一个定时任务配置")
         return self
 
 
-def _response() -> dict:
+def _response() -> dict[str, Any]:
     return {
         "settings": current_system_settings(),
         "metadata": {
@@ -82,12 +84,14 @@ def _response() -> dict:
 
 
 @router.get("/system")
-async def get_system_settings():
+async def get_system_settings(_user: CurrentUser) -> dict[str, Any]:
     return _response()
 
 
 @router.patch("/system")
-async def update_system_settings(body: SystemSettingsUpdate, request: Request):
+async def update_system_settings(body: SystemSettingsUpdate, request: Request, user: CurrentUser) -> dict[str, Any]:
+    if not user["is_admin"]:
+        raise HTTPException(403, "仅管理员可修改系统设置")
     values = body.model_dump(exclude_none=True)
     await save_system_settings(values)
 
@@ -105,12 +109,12 @@ async def update_system_settings(body: SystemSettingsUpdate, request: Request):
 
 
 @router.get("/research-jobs")
-async def get_scheduled_research_jobs():
-    return {"items": await list_research_jobs()}
+async def get_scheduled_research_jobs(user: CurrentUser) -> dict[str, Any]:
+    return {"items": await list_research_jobs(int(user["id"]))}
 
 
 @router.post("/research-jobs", status_code=status.HTTP_201_CREATED)
-async def create_scheduled_research_job(body: ScheduledResearchCreate):
+async def create_scheduled_research_job(body: ScheduledResearchCreate, user: CurrentUser) -> dict[str, Any]:
     try:
         ticker = normalize_code(body.ticker)
     except ValueError as exc:
@@ -119,41 +123,53 @@ async def create_scheduled_research_job(body: ScheduledResearchCreate):
         **body.model_dump(exclude={"ticker", "company_name"}),
         ticker=ticker,
         company_name=body.company_name.strip() or ticker,
+        user_id=int(user["id"]),
     )
 
 
 @router.patch("/research-jobs/{job_id:int}")
-async def patch_scheduled_research_job(job_id: int, body: ScheduledResearchUpdate):
+async def patch_scheduled_research_job(
+    job_id: int,
+    body: ScheduledResearchUpdate,
+    user: CurrentUser,
+) -> dict[str, Any]:
     updates = body.model_dump(exclude_unset=True)
     if "ticker" in updates:
         try:
             updates["ticker"] = normalize_code(updates["ticker"])
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-    job = await update_research_job(job_id, updates)
+    job = await update_research_job(job_id, updates, int(user["id"]))
     if job is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
     return job
 
 
 @router.delete("/research-jobs/{job_id:int}")
-async def delete_scheduled_research_job(job_id: int):
-    if await get_research_job(job_id) is None:
+async def delete_scheduled_research_job(job_id: int, user: CurrentUser) -> dict[str, bool]:
+    user_id = int(user["id"])
+    if await get_research_job(job_id, user_id) is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
-    await database.execute("DELETE FROM scheduled_research_jobs WHERE id=?", (job_id,))
+    await database.execute("DELETE FROM scheduled_research_jobs WHERE id=? AND user_id=?", (job_id, user_id))
     return {"ok": True}
 
 
 @router.post("/research-jobs/{job_id:int}/run", status_code=status.HTTP_202_ACCEPTED)
-async def run_scheduled_research_job(job_id: int, background_tasks: BackgroundTasks):
-    job = await get_research_job(job_id)
+async def run_scheduled_research_job(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    user: CurrentUser,
+) -> dict[str, Any]:
+    user_id = int(user["id"])
+    job = await get_research_job(job_id, user_id)
     if job is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
     if job["last_status"] == "running":
         raise HTTPException(409, "定时研究任务正在运行")
     await database.execute(
-        "UPDATE scheduled_research_jobs SET last_status='queued', last_error=NULL, updated_at=datetime('now') WHERE id=?",
-        (job_id,),
+        "UPDATE scheduled_research_jobs SET last_status='queued', last_error=NULL, updated_at=datetime('now') "
+        "WHERE id=? AND user_id=?",
+        (job_id, user_id),
     )
-    background_tasks.add_task(run_research_job, job_id)
+    background_tasks.add_task(run_research_job, job_id, user_id)
     return {"id": job_id, "status": "queued"}

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import importlib.util
 import os
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, TypedDict
 
 from ...services.instruments import MARKET_META, InstrumentService, instrument_from_code, provenance
 from ...services.market_data import MarketError, normalize_code
@@ -13,11 +14,20 @@ from .base import BaseLoader, LoaderUnavailableError, SUPPORTED_PERIODS
 from .registry import register
 
 
-def _clean_rows(rows: list[dict[str, Any]], mapping: dict[str, str]) -> list[dict]:
-    cleaned: list[dict] = []
+class BarRow(TypedDict):
+    day: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+
+
+def _clean_rows(rows: list[dict[str, Any]], mapping: dict[str, str]) -> list[BarRow]:
+    cleaned: list[BarRow] = []
     for row in rows:
         try:
-            item = {
+            item: BarRow = {
                 "day": str(row[mapping["day"]])[:19],
                 "open": float(row[mapping["open"]]),
                 "high": float(row[mapping["high"]]),
@@ -40,11 +50,11 @@ def _payload(
     symbol: str,
     period: str,
     count: int,
-    rows: list[dict],
+    rows: list[BarRow],
     *,
     provider: str,
     adjustment: str,
-) -> dict:
+) -> dict[str, Any]:
     normalized = normalize_code(symbol)
     instrument = instrument_from_code(normalized)
     selected = rows[-count:]
@@ -75,7 +85,7 @@ class YahooLoader(BaseLoader):
     markets = frozenset({"HK", "US"})
     priority = 10
 
-    async def load(self, symbol: str, period: str, count: int) -> dict:
+    async def load(self, symbol: str, period: str, count: int) -> dict[str, Any]:
         payload = await InstrumentService(self.require_market_service()).bars(symbol, period, count)
         providers = {part for part in str(payload.get("provider") or "").split(",") if part}
         if not providers or providers != {"yahoo"}:
@@ -93,11 +103,11 @@ class AkshareLoader(BaseLoader):
     def is_available(self) -> bool:
         return importlib.util.find_spec("akshare") is not None
 
-    async def load(self, symbol: str, period: str, count: int) -> dict:
+    async def load(self, symbol: str, period: str, count: int) -> dict[str, Any]:
         del period
 
         def fetch() -> list[dict[str, Any]]:
-            import akshare as ak
+            ak = importlib.import_module("akshare")
 
             end = date.today()
             start = end - timedelta(days=max(365, count * 3))
@@ -133,11 +143,11 @@ class TushareLoader(BaseLoader):
     def is_available(self) -> bool:
         return bool(os.getenv("TUSHARE_TOKEN", "").strip()) and importlib.util.find_spec("tushare") is not None
 
-    async def load(self, symbol: str, period: str, count: int) -> dict:
+    async def load(self, symbol: str, period: str, count: int) -> dict[str, Any]:
         del period
 
         def fetch() -> list[dict[str, Any]]:
-            import tushare as ts
+            ts = importlib.import_module("tushare")
 
             normalized = normalize_code(symbol)
             suffix = "SH" if normalized.startswith("sh") else "SZ"
@@ -172,7 +182,7 @@ class MarketDataLoader(BaseLoader):
     periods = SUPPORTED_PERIODS
     priority = 100
 
-    async def load(self, symbol: str, period: str, count: int) -> dict:
+    async def load(self, symbol: str, period: str, count: int) -> dict[str, Any]:
         try:
             return await InstrumentService(self.require_market_service()).bars(symbol, period, count)
         except MarketError as exc:

@@ -3,6 +3,7 @@
 覆盖：模型 CRUD / 角色 CRUD / 单聊 SSE / 讨论 SSE / 仪表盘 / 错误路径。
 """
 import json
+import hashlib
 
 import pytest
 import pytest_asyncio
@@ -31,7 +32,7 @@ class FakeLLMClient:
         return "这是假模型的回复。", [], 12
 
 
-async def _fake_get_client(model_id=None):
+async def _fake_get_client(model_id=None, **_kwargs):
     return FakeLLMClient(), {"id": 1, "name": "FakeModel"}
 
 
@@ -42,6 +43,17 @@ async def client(tmp_path, monkeypatch):
     monkeypatch.setattr(model_router, "get_client", _fake_get_client)
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+            user_id = await database.execute(
+                "INSERT INTO users (email, is_admin) VALUES ('tests@example.com', 1)"
+            )
+            await database.claim_unowned_data(user_id)
+            token = "test-session-token"
+            await database.execute(
+                "INSERT INTO sessions (user_id, token_hash, expires_at) "
+                "VALUES (?, ?, datetime('now', '+1 day'))",
+                (user_id, hashlib.sha256(token.encode()).hexdigest()),
+            )
+            c.cookies.set(config.AUTH_COOKIE_NAME, token)
             yield c
     database._db = None
 
@@ -213,14 +225,14 @@ class TestChat:
                 captured_messages.append(messages)
                 return "已读取历史线索", [], 8
 
-        async def get_capturing_client(model_id=None):
+        async def get_capturing_client(model_id=None, **_kwargs):
             return CapturingClient(), {"id": 1, "name": "Capture"}
 
         historical_id = await database.execute(
-            "INSERT INTO conversations (title, mode) VALUES ('Apple moat review', 'single')"
+            "INSERT INTO conversations (title, mode, user_id) VALUES ('Apple moat review', 'single', 1)"
         )
         await database.execute(
-            "INSERT INTO messages (conversation_id, role, content) VALUES (?, 'user', ?)",
+            "INSERT INTO messages (conversation_id, role, content, user_id) VALUES (?, 'user', ?, 1)",
             (historical_id, "AAPL moat was discussed as a historical hypothesis."),
         )
         current_id = (await client.post("/api/chat/sessions", json={})).json()["id"]
@@ -255,7 +267,7 @@ class TestChat:
                     "result": result,
                 }], 21
 
-        async def get_tool_client(model_id=None):
+        async def get_tool_client(model_id=None, **_kwargs):
             return ToolCallingClient(), {"id": 1, "name": "ToolModel"}
 
         monkeypatch.setattr(model_router, "get_client", get_tool_client)
@@ -325,11 +337,153 @@ class TestDashboard:
             assert key in d
         assert d["default_model"]["model_name"] == "deepseek-v4-flash"
 
+    @pytest.mark.asyncio
+    async def test_watchlist_import_multipart(self, client, monkeypatch):
+        async def fake_search(candidate):
+            matches = {
+                "600519": [{"code": "sh600519", "name": "贵州茅台"}],
+                "maotai": [{"code": "sh600519", "name": "贵州茅台"}],
+                "AAPL": [{"code": "usAAPL", "name": "Apple Inc."}],
+            }
+            return matches.get(candidate, [])
+
+        monkeypatch.setattr(app.state.market, "search", fake_search)
+        response = await client.post(
+            "/api/dashboard/watchlist/import",
+            data={"text": "maotai", "existing": '["sh600519"]'},
+            files={"file": ("watchlist.csv", b"code\nAAPL\n", "text/csv")},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "total": 2,
+            "success": 1,
+            "failed": 0,
+            "duplicate": 1,
+            "items": [{"code": "usAAPL", "name": "Apple Inc."}],
+            "failures": [],
+        }
+
+
+class TestThesis:
+    @pytest.mark.asyncio
+    async def test_manual_create_edit_filter_and_claim_update(self, client, monkeypatch):
+        async def fake_quote(_ticker):
+            return {"price": 88.0}
+
+        async def fake_fundamentals(_ticker):
+            return [{"metric": "total_revenue", "value": 90_000_000_000.0}]
+
+        monkeypatch.setattr(app.state.market, "quote", fake_quote)
+        monkeypatch.setattr(app.state.market, "fundamentals", fake_fundamentals)
+
+        created = await client.post("/api/thesis", json={
+            "ticker": "000858",
+            "title": "五粮液渠道论文",
+            "thesis": "渠道库存回归健康后，品牌势能可支撑收入恢复。",
+            "assumptions": ["渠道库存逐季改善"],
+            "claims": ["合同负债不再恶化"],
+        })
+        assert created.status_code == 201
+        thesis_id = created.json()["id"]
+        manual_claim = next(claim for claim in created.json()["claims"] if claim["kind"] == "manual")
+        assert created.json()["ticker"] == "sz000858"
+        assert created.json()["baseline"]["price"] == 88.0
+
+        updated = await client.put(f"/api/thesis/{thesis_id}", json={
+            "title": "五粮液渠道论文（复核）",
+            "thesis": "渠道库存和合同负债共同改善后，收入恢复假设才成立。",
+            "assumptions": ["渠道库存逐季改善", "合同负债企稳"],
+            "claims": ["经销商回款保持稳定"],
+            "status": "closed",
+        })
+        assert updated.status_code == 200
+        assert updated.json()["status"] == "closed"
+        assert [claim["claim"] for claim in updated.json()["claims"] if claim["kind"] == "manual"] == [
+            "经销商回款保持稳定",
+        ]
+
+        # The edit replaces manual claims, so the stale claim id must not be writable.
+        stale = await client.put(
+            f"/api/thesis/{thesis_id}/claims/{manual_claim['id']}",
+            json={"status": "confirmed", "note": "旧论点"},
+        )
+        assert stale.status_code == 404
+        current_claim = next(claim for claim in updated.json()["claims"] if claim["kind"] == "manual")
+        confirmed = await client.put(
+            f"/api/thesis/{thesis_id}/claims/{current_claim['id']}",
+            json={"status": "confirmed", "note": "已由最新渠道数据确认"},
+        )
+        assert confirmed.status_code == 200
+        claim = next(item for item in confirmed.json()["claims"] if item["id"] == current_claim["id"])
+        assert claim["status"] == "confirmed"
+        assert claim["note"] == "已由最新渠道数据确认"
+
+        filtered = await client.get("/api/thesis", params={"status": "closed"})
+        assert filtered.status_code == 200
+        assert [item["id"] for item in filtered.json()["items"]] == [thesis_id]
+
+    @pytest.mark.asyncio
+    async def test_from_report_and_drift_check(self, client, monkeypatch):
+        market_state = {"price": 100.0}
+
+        async def fake_quote(_ticker):
+            return {"price": market_state["price"]}
+
+        async def fake_fundamentals(_ticker):
+            return []
+
+        monkeypatch.setattr(app.state.market, "quote", fake_quote)
+        monkeypatch.setattr(app.state.market, "fundamentals", fake_fundamentals)
+        baseline_report = {
+            "executive_summary": "品牌护城河稳固，现金流持续增长，长期逻辑成立。",
+            "verdict": "长期关注",
+            "team_lead_review": {"bull_case": "高端需求保持韧性", "bear_case": "渠道库存上升"},
+            "fundamental_evidence": {"items": [{"metric": "total_revenue", "value": 100.0}]},
+        }
+        report_id = await database.execute(
+            "INSERT INTO research_reports (ticker, company_name, report_data, status, user_id) "
+            "VALUES (?, ?, ?, 'completed', 1)",
+            ("sh600519", "贵州茅台", json.dumps(baseline_report, ensure_ascii=False)),
+        )
+
+        created = await client.post(f"/api/thesis/from-report/{report_id}")
+        assert created.status_code == 201
+        thesis_id = created.json()["id"]
+        assert created.json()["source_report_id"] == report_id
+        assert {claim["kind"] for claim in created.json()["claims"]} >= {
+            "manual", "price", "position", "fundamental", "report",
+        }
+
+        market_state["price"] = 135.0
+        drifted_report = {
+            "executive_summary": "核心需求和竞争地位发生明显变化，原长期逻辑需要重估。",
+            "verdict": "谨慎",
+            "fundamental_evidence": {"items": [{"metric": "total_revenue", "value": 70.0}]},
+        }
+        await database.execute(
+            "INSERT INTO research_reports (ticker, company_name, report_data, status, user_id) "
+            "VALUES (?, ?, ?, 'completed', 1)",
+            ("sh600519", "贵州茅台", json.dumps(drifted_report, ensure_ascii=False)),
+        )
+
+        checked = await client.post(f"/api/thesis/{thesis_id}/check")
+        assert checked.status_code == 200
+        payload = checked.json()
+        assert payload["drift_status"] == "drifted"
+        statuses = {claim["kind"]: claim["status"] for claim in payload["claims"]}
+        assert statuses["price"] == "violated"
+        assert statuses["fundamental"] == "violated"
+        assert statuses["position"] == "unknown"
+
+        duplicate = await client.post(f"/api/thesis/from-report/{report_id}")
+        assert duplicate.status_code == 409
+
 
 class TestResearchHistory:
     @pytest.mark.asyncio
     async def test_research_persists_events_and_provenance(self, client, monkeypatch):
-        async def fake_research(ticker, company_name, model_id):
+        async def fake_research(ticker, company_name, model_id, *, user_id):
             yield "agent_started", {"role_key": "business_analyst", "name": "商业模式"}
             yield "tool_call", {"role_key": "business_analyst", "tool_name": "search_news", "arguments": '{"keyword":"AAPL"}'}
             yield "done", {
@@ -390,7 +544,7 @@ class TestResearchHistory:
 
     @pytest.mark.asyncio
     async def test_research_error_is_normalized_and_persisted_once(self, client, monkeypatch):
-        async def fake_research(ticker, company_name, model_id):
+        async def fake_research(ticker, company_name, model_id, *, user_id):
             yield "error", {"role_key": "risk_manager", "error": "API rate limit exceeded"}
 
         monkeypatch.setattr(research_router, "run_research", fake_research)
@@ -418,7 +572,7 @@ class TestResearchHistory:
 
     @pytest.mark.asyncio
     async def test_research_completion_failure_transitions_to_failed(self, client, monkeypatch):
-        async def fake_research(ticker, company_name, model_id):
+        async def fake_research(ticker, company_name, model_id, *, user_id):
             yield "done", {"report": {"ticker": ticker}, "agent_results": {}}
 
         async def fail_completion(*args, **kwargs):
@@ -521,6 +675,7 @@ class TestNotifications:
             "test.completed",
             "测试完成",
             "测试任务已完成",
+            user_id=1,
             payload={"url": "/"},
         )
 
@@ -611,6 +766,26 @@ class TestAlerts:
 
 
 class TestQuantResearchV2:
+    @pytest.mark.asyncio
+    async def test_chip_distribution_endpoint_contract(self, client, monkeypatch):
+        async def fake_chips(symbol, adjustment):
+            assert symbol == "600519"
+            assert adjustment == "qfq"
+            return {
+                "symbol": symbol, "provider": "akshare.stock_cyq_em", "source": "eastmoney.kline",
+                "as_of": "2026-07-31", "timezone": "Asia/Shanghai", "currency": "CNY",
+                "adjustment": adjustment, "frequency": "daily",
+                "methodology": "akshare_cyq_calculator_120_day_turnover_decay",
+                "quality_flags": ["derived_from_price_volume_turnover", "chip_peak_not_exposed_by_provider"],
+                "latest": {"chip_peak": None}, "items": [{"chip_peak": None}],
+            }
+
+        monkeypatch.setattr("app.routers.instruments.fetch_chip_distribution", fake_chips)
+        response = await client.get("/api/instruments/600519/chip-distribution")
+        assert response.status_code == 200
+        assert response.json()["latest"]["chip_peak"] is None
+        assert response.json()["quality_flags"][0] == "derived_from_price_volume_turnover"
+
     @pytest.mark.asyncio
     async def test_instrument_contract_and_workspace_upsert(self, client, monkeypatch):
         async def fake_quote(ticker):
@@ -787,8 +962,9 @@ class TestCoverageCriticalRoutes:
         changed = await client.put(f"/api/portfolio/positions/{position_id}", json={"shares": 12, "avg_cost": 310})
         assert changed.json()["avg_cost"] == 310
 
-        async def fake_pnl(requested_id):
+        async def fake_pnl(requested_id, user_id):
             assert requested_id == portfolio_id
+            assert user_id == 1
             return {"total_cost": 3720, "total_market_value": 4000, "total_pnl": 280, "total_pnl_pct": 7.53, "positions": []}
 
         monkeypatch.setattr(portfolio_router.svc, "calc_pnl", fake_pnl)
@@ -885,13 +1061,16 @@ class TestCoverageCriticalRoutes:
         async def prefetch(tickers, *, enriched, concurrency):
             return {"items": [{"code": tickers[0]}], "errors": {}}
 
-        async def create_review(market, markets, trading_date, model_id):
+        async def create_review(market, markets, trading_date, model_id, *, user_id):
+            assert user_id == 1
             return {"id": 8, "markets": markets, "trading_date": trading_date.isoformat()}
 
-        async def list_reviews(limit):
+        async def list_reviews(user_id, limit):
+            assert user_id == 1
             return [{"id": 8, "limit": limit}]
 
-        async def get_review(review_id):
+        async def get_review(review_id, user_id):
+            assert user_id == 1
             return {"id": review_id} if review_id == 8 else None
 
         monkeypatch.setattr(MarketOverviewService, "overview", overview)

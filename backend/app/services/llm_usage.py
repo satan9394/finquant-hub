@@ -6,7 +6,7 @@ import asyncio
 import logging
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from .. import database
 
@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 class UsageContext:
     session_type: str = "unknown"
     conversation_id: int | None = None
+    user_id: int | None = None
 
 
 _CURRENT_USAGE: ContextVar[UsageContext] = ContextVar(
@@ -25,19 +26,23 @@ _CURRENT_USAGE: ContextVar[UsageContext] = ContextVar(
 _PENDING_WRITES: set[asyncio.Task[None]] = set()
 
 
-def set_usage_context(session_type: str, conversation_id: int | None = None) -> Token:
+def set_usage_context(
+    session_type: str,
+    conversation_id: int | None = None,
+    user_id: int | None = None,
+) -> Token[UsageContext]:
     """Attribute all LLM requests in the current async execution context."""
     normalized = session_type.strip() or "unknown"
-    return _CURRENT_USAGE.set(UsageContext(normalized, conversation_id))
+    return _CURRENT_USAGE.set(UsageContext(normalized, conversation_id, user_id))
 
 
-def reset_usage_context(token: Token) -> None:
+def reset_usage_context(token: Token[UsageContext]) -> None:
     _CURRENT_USAGE.reset(token)
 
 
 def _count(value: object) -> int:
     try:
-        return max(0, int(value or 0))
+        return max(0, int(cast(Any, value or 0)))
     except (TypeError, ValueError):
         return 0
 
@@ -52,8 +57,8 @@ async def _write_usage(
     try:
         await database.execute(
             "INSERT INTO llm_usage "
-            "(session_type, conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(session_type, conversation_id, model_name, prompt_tokens, completion_tokens, total_tokens, user_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 context.session_type,
                 context.conversation_id,
@@ -61,6 +66,7 @@ async def _write_usage(
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                context.user_id,
             ),
         )
     except Exception:

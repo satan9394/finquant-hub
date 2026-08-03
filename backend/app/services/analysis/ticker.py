@@ -30,5 +30,5 @@ async def resolve_ticker(symbol: str, market: MarketDataService) -> str:
     except MarketError as exc:
         raise ValueError(f"无法解析股票代码：{symbol}") from exc
     if matches:
-        return matches[0]["code"]
+        return str(matches[0]["code"])
     raise ValueError(f"无法解析股票代码：{symbol}")

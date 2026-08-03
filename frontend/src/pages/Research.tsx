@@ -9,7 +9,7 @@ import {
 } from 'antd';
 import {
   PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
-  LoadingOutlined, CloseCircleOutlined, RobotOutlined, DownloadOutlined,
+  LoadingOutlined, CloseCircleOutlined, RobotOutlined, DownloadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
 import apiClient from '../services/api';
@@ -216,6 +216,16 @@ export default function Research() {
     }
   }, [selectedReportId]);
 
+  const saveAsThesis = useCallback(async () => {
+    if (!selectedReportId) return;
+    try {
+      const response = await apiClient.post(`/thesis/from-report/${selectedReportId}`);
+      message.success(`已存为投资论文 #${response.data.id}`);
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '存为投资论文失败');
+    }
+  }, [selectedReportId]);
+
   // 开始研究
   const handleStart = useCallback(async () => {
     const code = ticker.trim();
@@ -383,6 +393,7 @@ export default function Research() {
             <Space size={4} wrap>
               {selectedReportId && done && (
                 <>
+                  <Button size="small" icon={<FileTextOutlined />} onClick={() => void saveAsThesis()}>存为论文</Button>
                   <Button size="small" icon={<DownloadOutlined />} onClick={() => void downloadReport('html')}>HTML</Button>
                   <Button size="small" onClick={() => void downloadReport('md')}>MD</Button>
                   <Button size="small" onClick={() => void downloadReport('pdf')}>PDF</Button>

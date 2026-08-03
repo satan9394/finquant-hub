@@ -20,24 +20,26 @@ import json
 import math
 import sys
 from decimal import Decimal, Context, ROUND_HALF_EVEN
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Exact Decimal Engine (no floating-point drift)
 # ---------------------------------------------------------------------------
 
 _CTX = Context(prec=28, rounding=ROUND_HALF_EVEN)
+Numeric = Decimal | int | float | str
 
 
 def _force_utf8_stdio() -> None:
     """确保含 emoji 的状态信息可在 Windows GBK 终端安全输出。"""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            cast(Any, stream).reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
 
 
-def exact(value) -> Decimal:
+def exact(value: Numeric) -> Decimal:
     """Convert any numeric to exact Decimal, avoiding float traps."""
     if isinstance(value, Decimal):
         return value
@@ -67,7 +69,12 @@ def fmt_number(d: Decimal, unit: str = "") -> str:
 # 1. Market Cap Verification (股价×总股本 vs 报告市值)
 # ---------------------------------------------------------------------------
 
-def verify_market_cap(price, shares, reported_cap, currency=""):
+def verify_market_cap(
+    price: Numeric,
+    shares: Numeric,
+    reported_cap: Numeric,
+    currency: str = "",
+) -> bool:
     """Verify market cap = price × shares, compare with reported value."""
     p = exact(price)
     s = exact(shares)
@@ -104,8 +111,14 @@ def verify_market_cap(price, shares, reported_cap, currency=""):
 # 2. Valuation Metrics Verification (估值指标验算)
 # ---------------------------------------------------------------------------
 
-def verify_valuation(price, eps=None, bvps=None, fcf_per_share=None,
-                     dividend=None, revenue_per_share=None):
+def verify_valuation(
+    price: Numeric,
+    eps: Numeric | None = None,
+    bvps: Numeric | None = None,
+    fcf_per_share: Numeric | None = None,
+    dividend: Numeric | None = None,
+    revenue_per_share: Numeric | None = None,
+) -> dict[str, float]:
     """Calculate and verify key valuation ratios from raw inputs."""
     p = exact(price)
 
@@ -173,7 +186,12 @@ def verify_valuation(price, eps=None, bvps=None, fcf_per_share=None,
 # 3. Cross-Source Data Validation (多源交叉验证)
 # ---------------------------------------------------------------------------
 
-def cross_validate(field_name, source_values: dict, unit="", tolerance_pct=2.0):
+def cross_validate(
+    field_name: str,
+    source_values: dict[str, Numeric],
+    unit: str = "",
+    tolerance_pct: float = 2.0,
+) -> dict[str, Any]:
     """Compare a data point across multiple sources, flag discrepancies."""
     print("=" * 60)
     print(f"交叉验证: {field_name} (Cross-Validation)")
@@ -220,7 +238,7 @@ def cross_validate(field_name, source_values: dict, unit="", tolerance_pct=2.0):
 _BENFORD = {d: math.log10(1 + 1/d) for d in range(1, 10)}
 
 
-def benford_check(values: list):
+def benford_check(values: list[Numeric]) -> dict[str, Any] | None:
     """Quick Benford's Law check on a list of financial values."""
     print("=" * 60)
     print("Benford定律检测 (Financial Data Fabrication Check)")
@@ -242,7 +260,7 @@ def benford_check(values: list):
         return None
 
     # Observed distribution
-    counts = {}
+    counts: dict[int, int] = {}
     for d in digits:
         counts[d] = counts.get(d, 0) + 1
     observed = {d: counts.get(d, 0) / n for d in range(1, 10)}
@@ -294,7 +312,7 @@ def benford_check(values: list):
 # 5. Exact Calculator (精确计算器)
 # ---------------------------------------------------------------------------
 
-def exact_calc(expr: str):
+def exact_calc(expr: str) -> float | None:
     """Evaluate a financial expression with exact decimal arithmetic.
 
     Supports: +, -, *, /, (), numbers (including scientific notation).
@@ -326,10 +344,18 @@ def exact_calc(expr: str):
 # 6. Three-Scenario Valuation (三情景估值)
 # ---------------------------------------------------------------------------
 
-def three_scenario_valuation(current_price, current_eps,
-                             growth_optimistic, growth_neutral, growth_pessimistic,
-                             pe_optimistic, pe_neutral, pe_pessimistic,
-                             years=3, currency=""):
+def three_scenario_valuation(
+    current_price: Numeric,
+    current_eps: Numeric,
+    growth_optimistic: Numeric,
+    growth_neutral: Numeric,
+    growth_pessimistic: Numeric,
+    pe_optimistic: Numeric,
+    pe_neutral: Numeric,
+    pe_pessimistic: Numeric,
+    years: int = 3,
+    currency: str = "",
+) -> None:
     """Calculate three-scenario target prices with exact arithmetic."""
     print("=" * 60)
     print("三情景估值模型 (Three-Scenario Valuation)")
@@ -372,7 +398,7 @@ def three_scenario_valuation(current_price, current_eps,
 # CLI Entry Point
 # ---------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Financial Rigor Toolkit — 金融数据严谨性验证工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,

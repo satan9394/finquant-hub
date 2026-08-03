@@ -47,7 +47,7 @@ def configure_logging(*, level: str | int | None = None, stream: TextIO | None =
             logger.removeHandler(handler)
     handler = logging.StreamHandler(stream or sys.stdout)
     handler.setFormatter(JsonFormatter())
-    handler._finquant_json = True  # type: ignore[attr-defined]
+    setattr(handler, "_finquant_json", True)
     logger.addHandler(handler)
     logger.setLevel(level or os.getenv("LOG_LEVEL", "INFO").upper())
     logger.propagate = False

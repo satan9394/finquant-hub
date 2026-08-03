@@ -1,18 +1,21 @@
 """Pure portfolio risk X-ray for normalized backtest curves."""
 
 from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
+JSONDict = dict[str, Any]
 
-def _returns(points: list[dict]) -> np.ndarray:
+
+def _returns(points: list[JSONDict]) -> np.ndarray:
     values = np.asarray([point["value"] for point in points], dtype=float)
     if len(values) < 2 or not np.isfinite(values).all() or np.any(values <= 0):
         return np.asarray([], dtype=float)
     return np.diff(values) / values[:-1]
 
 
-def _tail_risk(returns: np.ndarray, current_value: float, confidence: float) -> dict:
+def _tail_risk(returns: np.ndarray, current_value: float, confidence: float) -> JSONDict:
     if len(returns) < 20:
         return {
             "status": "insufficient_data",
@@ -40,7 +43,7 @@ def _tail_risk(returns: np.ndarray, current_value: float, confidence: float) -> 
     }
 
 
-def _diversification(asset_results: list[dict], weights: Mapping[str, float]) -> dict:
+def _diversification(asset_results: list[JSONDict], weights: Mapping[str, float]) -> JSONDict:
     if len(asset_results) < 2:
         return {"status": "insufficient_assets", "average_correlation": None, "benefit": None}
     periods = {asset.get("period") for asset in asset_results}
@@ -79,12 +82,12 @@ def _diversification(asset_results: list[dict], weights: Mapping[str, float]) ->
 
 
 def portfolio_risk_xray(
-    asset_results: list[dict],
+    asset_results: list[JSONDict],
     weights: Mapping[str, float],
-    equity_curve: list[dict],
+    equity_curve: list[JSONDict],
     *,
     confidence: float = 0.95,
-) -> dict:
+) -> JSONDict:
     if not 0.8 <= confidence < 1:
         raise ValueError("confidence 必须在 0.8 到 1 之间")
     values = np.asarray([point["value"] for point in equity_curve], dtype=float)

@@ -1,6 +1,7 @@
 from app.tools.report_audit import extract_data_points, render_verdict
 from app.agent.tools_definitions import AuditReportData
 from app.main import app
+from app.routers.auth import get_current_user
 from httpx import ASGITransport, AsyncClient
 import pytest
 
@@ -95,24 +96,28 @@ def test_empty_input_does_not_raise():
 @pytest.mark.asyncio
 async def test_report_audit_api_and_agent_tool_expose_existing_functions():
     markdown = "| 指标 | 2025年 |\n| --- | --- |\n| 营收 | 100亿元 |"
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        extracted = await client.post("/api/research/audit", json={"markdown": markdown})
-        verdict = await client.post(
-            "/api/research/audit",
-            json={
-                "markdown": markdown,
-                "verified_results": [
-                    {
-                        "id": 1,
-                        "label": "营收",
-                        "reported_value": 100,
-                        "unit": "亿元",
-                        "fetched_value": 100,
-                        "fetched_source": "official",
-                    }
-                ],
-            },
-        )
+    app.dependency_overrides[get_current_user] = lambda: {"id": 1, "email": "audit@test.local"}
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            extracted = await client.post("/api/research/audit", json={"markdown": markdown})
+            verdict = await client.post(
+                "/api/research/audit",
+                json={
+                    "markdown": markdown,
+                    "verified_results": [
+                        {
+                            "id": 1,
+                            "label": "营收",
+                            "reported_value": 100,
+                            "unit": "亿元",
+                            "fetched_value": 100,
+                            "fetched_source": "official",
+                        }
+                    ],
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
     tool_result = await AuditReportData().run(markdown=markdown)
     invalid = await AuditReportData().run(markdown="")

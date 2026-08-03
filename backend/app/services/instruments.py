@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from . import indicators
 from .market_data import MarketDataService, normalize_code
@@ -76,7 +76,7 @@ def provenance(
 
 def _as_of_from_timestamp(value: object, timezone: str) -> str | None:
     try:
-        timestamp = int(value or 0)
+        timestamp = int(cast(Any, value or 0))
     except (TypeError, ValueError):
         return None
     if timestamp <= 0:

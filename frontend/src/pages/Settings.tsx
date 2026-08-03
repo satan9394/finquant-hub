@@ -4,10 +4,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Alert, Card, Col, Table, Button, Modal, Form, Input, Row, Select, Popconfirm,
-  Statistic, message, Tabs, Typography,
+  Statistic, message, Tabs, Typography, Tag, Space,
 } from 'antd';
 import type { FormInstance } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
 import { useModelStore } from '../store/modelStore';
 import type { AgentPreset } from '../types';
@@ -36,6 +36,173 @@ interface UsageSummary {
     total_tokens: number;
     request_count: number;
   }>;
+}
+
+interface CredentialStatus {
+  service: string;
+  has_key: boolean;
+  provider: string;
+  updated_at?: string;
+}
+
+const CREDENTIAL_SERVICES = [
+  { service: 'tushare', label: 'Tushare Token', provider: 'tushare.pro', hint: 'A 股基本面数据' },
+  { service: 'tavily', label: 'Tavily API Key', provider: 'tavily', hint: '新闻与网页搜索' },
+  { service: 'serpapi', label: 'SerpAPI Key', provider: 'serpapi', hint: 'Google 新闻搜索' },
+  { service: 'bocha', label: '博查 API Key', provider: 'bocha', hint: '中文网页搜索' },
+  { service: 'brave', label: 'Brave Search Key', provider: 'brave', hint: 'Brave 新闻搜索' },
+  { service: 'searxng', label: 'SearXNG 地址', provider: 'searxng', hint: '自托管搜索端点' },
+  { service: 'mcp:default', label: 'MCP Bearer Token', provider: 'mcp', hint: '受保护 MCP 服务' },
+] as const;
+
+
+function CredentialPanel() {
+  const [items, setItems] = useState<CredentialStatus[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState<(typeof CREDENTIAL_SERVICES)[number] | null>(null);
+  const [secret, setSecret] = useState('');
+
+  const loadCredentials = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await apiClient.get<{ items: CredentialStatus[] }>('/me/credentials');
+      setItems(response.data.items);
+    } catch (reason: unknown) {
+      message.error(reason instanceof Error ? reason.message : '凭据状态读取失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadCredentials(); }, [loadCredentials]);
+  const statusByService = new Map(items.map((item) => [item.service, item]));
+  const rows = CREDENTIAL_SERVICES.map((service) => ({
+    ...service,
+    status: statusByService.get(service.service),
+  }));
+
+  const closeEditor = () => {
+    setSelected(null);
+    setSecret('');
+  };
+
+  const saveCredential = async () => {
+    if (!selected || !secret) return;
+    const pending = selected;
+    const value = secret;
+    closeEditor();
+    setSaving(true);
+    try {
+      await apiClient.put(`/me/credentials/${encodeURIComponent(pending.service)}`, {
+        value,
+        provider: pending.provider,
+      });
+      message.success(`${pending.label} 已加密保存`);
+      await loadCredentials();
+    } catch (reason: unknown) {
+      message.error(reason instanceof Error ? reason.message : '凭据保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeCredential = async (service: string) => {
+    try {
+      await apiClient.delete(`/me/credentials/${encodeURIComponent(service)}`);
+      message.success('凭据已删除');
+      await loadCredentials();
+    } catch (reason: unknown) {
+      message.error(reason instanceof Error ? reason.message : '凭据删除失败');
+    }
+  };
+
+  return (
+    <Card title="API 密钥管理" extra={<Button onClick={() => void loadCredentials()}>刷新</Button>}>
+      <Alert
+        type="info"
+        showIcon
+        message="密钥使用 Fernet 加密，仅写入；保存后浏览器和 API 都不会再次显示明文。"
+        style={{ marginBottom: 16 }}
+      />
+      <Table
+        rowKey="service"
+        loading={loading}
+        pagination={false}
+        dataSource={rows}
+        columns={[
+          {
+            title: '服务',
+            key: 'service',
+            render: (_value, row) => (
+              <Space direction="vertical" size={0}>
+                <Typography.Text strong>{row.label}</Typography.Text>
+                <Typography.Text type="secondary">{row.hint}</Typography.Text>
+              </Space>
+            ),
+          },
+          {
+            title: '状态',
+            key: 'status',
+            width: 130,
+            render: (_value, row) => row.status?.has_key
+              ? <Tag color="success">已配置</Tag>
+              : <Tag>未配置</Tag>,
+          },
+          {
+            title: '更新时间',
+            key: 'updated_at',
+            width: 180,
+            render: (_value, row) => row.status?.updated_at || '—',
+          },
+          {
+            title: '操作',
+            key: 'actions',
+            width: 190,
+            render: (_value, row) => (
+              <Space>
+                <Button icon={<KeyOutlined />} onClick={() => setSelected(row)}>
+                  {row.status?.has_key ? '更新' : '配置'}
+                </Button>
+                {row.status?.has_key ? (
+                  <Popconfirm
+                    title="删除这项凭据？"
+                    description="依赖该凭据的数据源将不可用。"
+                    onConfirm={() => void removeCredential(row.service)}
+                  >
+                    <Button danger>删除</Button>
+                  </Popconfirm>
+                ) : null}
+              </Space>
+            ),
+          },
+        ]}
+      />
+      {selected ? (
+        <Modal
+          title={`配置 ${selected.label}`}
+          open
+          onCancel={closeEditor}
+          onOk={() => void saveCredential()}
+          okButtonProps={{ disabled: !secret, loading: saving }}
+          okText="加密保存"
+          cancelText="取消"
+        >
+          <Typography.Paragraph type="secondary">
+            新值只在本次提交期间保存在页面内存中，提交后立即清空。
+          </Typography.Paragraph>
+          <Input.Password
+            aria-label={`${selected.label} 凭据`}
+            autoComplete="new-password"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            placeholder="输入新凭据"
+            autoFocus
+          />
+        </Modal>
+      ) : null}
+    </Card>
+  );
 }
 
 
@@ -192,6 +359,11 @@ export default function Settings() {
       key: 'system',
       label: '系统配置',
       children: <SystemSettingsPanel />,
+    },
+    {
+      key: 'credentials',
+      label: 'API 密钥',
+      children: <CredentialPanel />,
     },
     {
       key: 'mcp',

@@ -143,6 +143,7 @@
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/dashboard/stats` | GET | 聚合统计（模型数、会话数、讨论数、消息数等） | MVP |
+| `/api/dashboard/watchlist/import` | POST | multipart 导入 CSV/TXT/XLSX 或剪贴板文本；返回成功/失败/重复统计 | TASK-017 |
 
 ---
 
@@ -220,6 +221,7 @@
 | `/api/instruments/{symbol}/snapshot` | GET | 标的快照（含完整 provenance 块） | 新增 |
 | `/api/instruments/{symbol}/bars?period=&count=` | GET | K 线数据（含 indicators 和 provenance） | 新增 |
 | `/api/instruments/{symbol}/fundamentals` | GET | 基本面数据 | 新增 |
+| `/api/instruments/{symbol}/chip-distribution?adjustment=` | GET | A 股筹码分布估算（AkShare 基于东方财富 K 线/换手率按 120 日衰减模型计算；含 methodology/quality_flags；筹码峰位缺失时为 null） | 新增 |
 | `/api/instruments/{symbol}/workspace` | GET | 获取研究工作区（不存在则返回空模板） | 新增 |
 | `/api/instruments/{symbol}/workspace` | PUT | 保存/合并研究工作区（UPSERT） | 新增 |
 | `/api/instruments/workspaces` | GET | 列出所有已保存研究工作区 | 新增 |
@@ -325,6 +327,21 @@
 
 ---
 
+## 21. 投资论文 `/api/thesis`
+
+| 路径 | 方法 | 功能 |
+|------|------|------|
+| `/api/thesis` | GET | 列出论文，可按状态筛选 |
+| `/api/thesis` | POST | 手动创建论文并保存价格/持仓/基本面基线 |
+| `/api/thesis/from-report/{report_id}` | POST | 将已完成投研报告一键存为论文 |
+| `/api/thesis/{id}` | GET / PUT | 获取或编辑论文与手动论点 |
+| `/api/thesis/{id}/claims/{claim_id}` | PUT | 人工更新论点状态与备注 |
+| `/api/thesis/{id}/check` | POST | 用真实行情、持仓、基本面和新报告执行确定性漂移核验 |
+
+缺少价格、持仓、基本面或新报告时，相应规则返回 `unknown`，不会用推测值填充。
+
+---
+
 ## 路由汇总
 
 | 序号 | 前缀 | 文件 | MVP 端点 | 新增端点 |
@@ -335,13 +352,13 @@
 | 4 | `/api/chat` | chat.py | 6 | 0 |
 | 5 | `/api/discussion` | discussion.py | 4 | 0 |
 | 6 | `/api/market` | market.py | 4 | 11 |
-| 7 | `/api/dashboard` | dashboard.py | 1 | 0 |
+| 7 | `/api/dashboard` | dashboard.py | 1 | 1 |
 | 8 | `/api/analysis` | analysis.py | 3 | 0 |
 | 9 | `/api/portfolio` | portfolio.py | 10 | 0 |
 | 10 | `/api/backtest` | backtest.py | 3 | 0 |
 | 11 | `/api/research` | research.py | 0 | 6 |
 | 12 | `/api/backtests` | backtests.py | 0 | 7 |
-| 13 | `/api/instruments` | instruments.py | 0 | 7 |
+| 13 | `/api/instruments` | instruments.py | 0 | 8 |
 | 14 | `/api/screening` | screening.py | 0 | 1 |
 | 15 | `/api/wq` | wq.py | 0 | 10 |
 | 16 | `/api/swarm` | swarm.py | 0 | 4 |
@@ -350,4 +367,5 @@
 | 19 | `/api/mcp` | mcp.py | 0 | 8 |
 | 20 | `/api/settings` | settings.py | 0 | 7 |
 | 21 | `/api/usage` | usage.py | 0 | 1 |
-| | **合计** | | **42** | **72** |
+| 22 | `/api/thesis` | thesis.py | 0 | 7 |
+| | **合计** | | **42** | **73** |

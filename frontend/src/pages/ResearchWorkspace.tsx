@@ -12,6 +12,7 @@ import ResearchCharts from '../components/research/ResearchCharts';
 import SwarmStatusCard from '../components/SwarmStatusCard';
 import {
   fetchInstrumentBars,
+  fetchChipDistribution,
   fetchInstrumentFundamentals,
   fetchInstrumentSnapshot,
   fetchResearchWorkspace,
@@ -20,7 +21,7 @@ import {
   searchInstruments,
 } from '../services/researchApi';
 import type {
-  BarsResponse, EvidenceItem, FundamentalItem, FundamentalsResponse, Instrument,
+  BarsResponse, ChipDistributionResponse, EvidenceItem, FundamentalItem, FundamentalsResponse, Instrument,
   ResearchWorkspace as WorkspaceType, SnapshotResponse,
 } from '../types/research';
 
@@ -46,7 +47,12 @@ function formatNumber(value: number | null | undefined, currency?: string | null
   return `${value.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}${currency ? ` ${currency}` : ''}`;
 }
 
-function provenanceEvidence(snapshot?: SnapshotResponse | null, bars?: BarsResponse | null, fundamentals?: FundamentalsResponse | null): EvidenceItem[] {
+function provenanceEvidence(
+  snapshot?: SnapshotResponse | null,
+  bars?: BarsResponse | null,
+  fundamentals?: FundamentalsResponse | null,
+  chips?: ChipDistributionResponse | null,
+): EvidenceItem[] {
   return [
     snapshot && {
       label: 'FACT' as const,
@@ -69,6 +75,13 @@ function provenanceEvidence(snapshot?: SnapshotResponse | null, bars?: BarsRespo
       provider: fundamentals.provider,
       as_of: fundamentals.as_of,
     },
+    chips && {
+      label: 'INFERENCE' as const,
+      title: 'A 股筹码分布估算',
+      detail: `${chips.items.length} 个交易日；AkShare 基于东财 K 线与换手率按 120 日衰减模型计算`,
+      provider: chips.provider,
+      as_of: chips.as_of,
+    },
   ].filter(Boolean) as EvidenceItem[];
 }
 
@@ -83,6 +96,7 @@ export default function ResearchWorkspace() {
   const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null);
   const [bars, setBars] = useState<BarsResponse | null>(null);
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
+  const [chips, setChips] = useState<ChipDistributionResponse | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -122,11 +136,16 @@ export default function ResearchWorkspace() {
     setSnapshot(null);
     setBars(null);
     setFundamentals(null);
+    setChips(null);
+    const chipRequest: Promise<ChipDistributionResponse | null> = /^\d{6}$/.test(currentSymbol)
+      ? fetchChipDistribution(currentSymbol)
+      : Promise.resolve(null);
     const outcomes = await Promise.allSettled([
       fetchInstrumentSnapshot(currentSymbol),
       fetchInstrumentBars(currentSymbol, 260),
       fetchInstrumentFundamentals(currentSymbol),
       fetchResearchWorkspace(currentSymbol),
+      chipRequest,
     ]);
     const nextErrors: string[] = [];
     if (outcomes[0].status === 'fulfilled') setSnapshot(outcomes[0].value);
@@ -141,13 +160,18 @@ export default function ResearchWorkspace() {
     } else {
       nextErrors.push(`研究笔记：${outcomes[3].reason?.message ?? '加载失败'}`);
     }
+    if (outcomes[4].status === 'fulfilled') setChips(outcomes[4].value);
+    else nextErrors.push(`筹码分布：${outcomes[4].reason?.message ?? '加载失败'}`);
     setErrors(nextErrors);
     setLoading(false);
   }, [currentSymbol]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
-  const evidence = useMemo(() => provenanceEvidence(snapshot, bars, fundamentals), [snapshot, bars, fundamentals]);
+  const evidence = useMemo(
+    () => provenanceEvidence(snapshot, bars, fundamentals, chips),
+    [snapshot, bars, fundamentals, chips],
+  );
 
   const saveWorkspace = async () => {
     if (!snapshot) {
@@ -310,6 +334,28 @@ export default function ResearchWorkspace() {
                   </Row>
                 ) : <Empty description="提供方未返回基本面指标；未用 0 或模型数字替代" />}
               </Card>
+
+              {/^\d{6}$/.test(currentSymbol) && (
+                <Card title="筹码分布" className="surface-card" style={{ marginTop: 18 }}>
+                  {chips ? (
+                    <>
+                      <Row gutter={[12, 12]}>
+                        <Col xs={12} md={6}><Statistic title="获利比例" value={chips.latest.profit_ratio * 100} precision={2} suffix="%" /></Col>
+                        <Col xs={12} md={6}><Statistic title="平均成本" value={chips.latest.average_cost} precision={2} suffix=" CNY" /></Col>
+                        <Col xs={12} md={6}><Statistic title="90% 成本区间" value={`${chips.latest.cost_90.low}–${chips.latest.cost_90.high}`} /></Col>
+                        <Col xs={12} md={6}><Statistic title="70% 成本区间" value={`${chips.latest.cost_70.low}–${chips.latest.cost_70.high}`} /></Col>
+                      </Row>
+                      <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
+                        <Descriptions.Item label="90% 集中度">{(chips.latest.cost_90.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                        <Descriptions.Item label="70% 集中度">{(chips.latest.cost_70.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                        <Descriptions.Item label="筹码峰位"><Tag>UNKNOWN</Tag> 提供方未公开该字段</Descriptions.Item>
+                        <Descriptions.Item label="口径">AkShare 120 日换手衰减模型（非交易所原始筹码数据）</Descriptions.Item>
+                        <Descriptions.Item label="来源">{chips.provider} · {chips.source} · 截止 {chips.as_of}</Descriptions.Item>
+                      </Descriptions>
+                    </>
+                  ) : <Empty description="真实筹码分布暂不可用；未使用推算或模型数据替代" />}
+                </Card>
+              )}
 
               <Card title="研究笔记" className="surface-card" style={{ marginTop: 18 }}>
                 <Alert type="info" showIcon message="这里保存的是你的研究笔记；任何 AI 生成内容必须显式标为 MODEL_OUTPUT。" style={{ marginBottom: 12 }} />

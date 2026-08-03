@@ -4,7 +4,9 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Awaitable
 from datetime import date
+from typing import Any, cast
 
 from .. import database
 from . import model_router
@@ -15,6 +17,7 @@ from .senders import dispatch_message
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_MARKETS = ("cn", "hk", "us")
+JSONDict = dict[str, Any]
 
 
 def _normalize_markets(markets: list[str]) -> list[str]:
@@ -24,7 +27,7 @@ def _normalize_markets(markets: list[str]) -> list[str]:
     return unique
 
 
-def _parse_report(content: str) -> dict:
+def _parse_report(content: str) -> JSONDict:
     text = content.strip()
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
     candidates = [fenced.group(1)] if fenced else []
@@ -48,7 +51,7 @@ def _parse_report(content: str) -> dict:
     }
 
 
-def _deserialize(row: dict) -> dict:
+def _deserialize(row: JSONDict) -> JSONDict:
     item = dict(row)
     item["markets"] = json.loads(item.pop("markets_json"))
     item["snapshot"] = json.loads(item.pop("snapshot_json") or "{}")
@@ -60,10 +63,10 @@ async def collect_market_snapshot(
     market: MarketDataService,
     markets: list[str],
     trading_date: date,
-) -> dict:
+) -> JSONDict:
     overview_service = MarketOverviewService(market)
 
-    async def safe(label: str, operation) -> tuple[str, dict]:
+    async def safe(label: str, operation: Awaitable[JSONDict]) -> tuple[str, JSONDict]:
         try:
             return label, await operation
         except (MarketError, ValueError) as exc:
@@ -90,7 +93,7 @@ async def collect_market_snapshot(
     }
 
 
-def _messages(snapshot: dict) -> list[dict]:
+def _messages(snapshot: JSONDict) -> list[JSONDict]:
     return [
         {
             "role": "system",
@@ -108,7 +111,7 @@ def _messages(snapshot: dict) -> list[dict]:
     ]
 
 
-def _delivery_text(item: dict) -> str:
+def _delivery_text(item: JSONDict) -> str:
     report = item.get("report") or {}
     lines = [str(report.get("summary") or "复盘已生成")]
     mainline = report.get("sector_mainline")
@@ -126,20 +129,22 @@ async def create_market_review(
     markets: list[str],
     trading_date: date,
     model_id: int | None = None,
-) -> dict:
+    *,
+    user_id: int,
+) -> JSONDict:
     selected = _normalize_markets(markets)
     review_id = await database.execute(
-        "INSERT INTO market_reviews (markets_json, trading_date, model_id) VALUES (?, ?, ?)",
-        (json.dumps(selected), trading_date.isoformat(), model_id),
+        "INSERT INTO market_reviews (markets_json, trading_date, model_id, user_id) VALUES (?, ?, ?, ?)",
+        (json.dumps(selected), trading_date.isoformat(), model_id, user_id),
     )
     try:
         snapshot = await collect_market_snapshot(market, selected, trading_date)
-        client, model = await model_router.get_client(model_id)
+        client, model = await model_router.get_client(model_id, user_id=user_id)
         content, token_count = await client.chat(_messages(snapshot))
         report = _parse_report(content)
         await database.execute(
             "UPDATE market_reviews SET snapshot_json=?, report_json=?, model_id=?, model_name=?, "
-            "token_count=?, status='completed', updated_at=datetime('now') WHERE id=?",
+            "token_count=?, status='completed', updated_at=datetime('now') WHERE id=? AND user_id=?",
             (
                 json.dumps(snapshot, ensure_ascii=False),
                 json.dumps(report, ensure_ascii=False),
@@ -147,16 +152,18 @@ async def create_market_review(
                 model.get("name") or model.get("model_name"),
                 token_count,
                 review_id,
+                user_id,
             ),
         )
     except Exception as exc:
         await database.execute(
-            "UPDATE market_reviews SET status='failed', error_message=?, updated_at=datetime('now') WHERE id=?",
-            (str(exc)[:1000], review_id),
+            "UPDATE market_reviews SET status='failed', error_message=?, updated_at=datetime('now') "
+            "WHERE id=? AND user_id=?",
+            (str(exc)[:1000], review_id, user_id),
         )
         raise
 
-    item = await get_market_review(review_id)
+    item = cast(JSONDict, await get_market_review(review_id, user_id))
     await publish_notification(
         "market_review.completed",
         f"大盘复盘完成 · {trading_date.isoformat()}",
@@ -166,6 +173,7 @@ async def create_market_review(
         source_id=review_id,
         payload={"url": "/research/market-reviews", "markets": selected},
         dedupe_key=f"market-review:{review_id}:completed",
+        user_id=user_id,
     )
     item["delivery"] = await dispatch_message(
         f"FinQuant Hub 大盘复盘 · {trading_date.isoformat()}",
@@ -174,29 +182,29 @@ async def create_market_review(
     return item
 
 
-async def list_market_reviews(limit: int = 50) -> list[dict]:
+async def list_market_reviews(user_id: int, limit: int = 50) -> list[JSONDict]:
     rows = await database.query_all(
-        "SELECT * FROM market_reviews ORDER BY trading_date DESC, id DESC LIMIT ?",
-        (limit,),
+        "SELECT * FROM market_reviews WHERE user_id=? ORDER BY trading_date DESC, id DESC LIMIT ?",
+        (user_id, limit),
     )
     return [_deserialize(row) for row in rows]
 
 
-async def get_market_review(review_id: int) -> dict | None:
-    row = await database.query_one("SELECT * FROM market_reviews WHERE id=?", (review_id,))
+async def get_market_review(review_id: int, user_id: int) -> JSONDict | None:
+    row = await database.query_one("SELECT * FROM market_reviews WHERE id=? AND user_id=?", (review_id, user_id))
     return _deserialize(row) if row else None
 
 
-async def run_scheduled_market_review(market: MarketDataService) -> dict:
+async def run_scheduled_market_review(market: MarketDataService, user_id: int) -> JSONDict:
     """Create at most one default cross-market review per local calendar date."""
     trading_date = date.today()
     markets_json = json.dumps(list(SUPPORTED_MARKETS))
     existing = await database.query_one(
         "SELECT * FROM market_reviews WHERE trading_date=? AND markets_json=? "
-        "AND status='completed' ORDER BY id DESC LIMIT 1",
-        (trading_date.isoformat(), markets_json),
+        "AND status='completed' AND user_id=? ORDER BY id DESC LIMIT 1",
+        (trading_date.isoformat(), markets_json, user_id),
     )
     if existing:
         return _deserialize(existing)
     LOGGER.info("Starting scheduled multi-market review for %s", trading_date)
-    return await create_market_review(market, list(SUPPORTED_MARKETS), trading_date)
+    return await create_market_review(market, list(SUPPORTED_MARKETS), trading_date, user_id=user_id)

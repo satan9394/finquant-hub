@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from typing import Any, cast
 
 import numpy as np
 
@@ -9,8 +11,10 @@ from ..services.indicators import sma
 from .execution_rules import execution_rules_for
 from .metrics import calculate_performance, calculate_trade_metrics
 
+JSONDict = dict[str, Any]
 
-def validate_bars(bars: list[dict], long_window: int) -> None:
+
+def validate_bars(bars: list[JSONDict], long_window: int) -> None:
     if not bars:
         raise ValueError("回测区间没有可用行情数据")
     if len(bars) < long_window + 2:
@@ -23,7 +27,7 @@ def validate_bars(bars: list[dict], long_window: int) -> None:
 
 
 def run_ma_crossover(
-    bars: list[dict],
+    bars: list[JSONDict],
     *,
     short_window: int,
     long_window: int,
@@ -34,7 +38,7 @@ def run_ma_crossover(
     period: str = "1d",
     market_rules: str = "auto",
     price_limit_ratio: float | None = None,
-) -> dict:
+) -> JSONDict:
     """Run a no-lookahead, next-open execution simulation.
 
     A cross observed on day T's close changes the target position at day T+1's
@@ -70,10 +74,10 @@ def run_ma_crossover(
     slippage = slippage_bps / 10_000.0
     cash = float(initial_capital)
     shares = 0.0
-    entry: dict | None = None
-    trades: list[dict] = []
-    order_marks: list[dict] = []
-    rejected_orders: list[dict] = []
+    entry: JSONDict | None = None
+    trades: list[JSONDict] = []
+    order_marks: list[JSONDict] = []
+    rejected_orders: list[JSONDict] = []
     turnover_notional = 0.0
     equity_values: list[float] = []
 
@@ -180,14 +184,18 @@ def run_ma_crossover(
     benchmark = initial_capital * closes / closes[0]
     running_peak = np.maximum.accumulate(equity)
     drawdown = equity / running_peak - 1.0
-    performance = calculate_performance(equity, benchmark, 252)
+    performance = calculate_performance(
+        cast(Sequence[float], equity),
+        cast(Sequence[float], benchmark),
+        252,
+    )
     trade_metrics = calculate_trade_metrics([trade["pnl"] for trade in trades])
     if not trades:
         warnings.append("no_trades_in_period")
     if trade_metrics["profit_factor"] is None and any(trade["pnl"] > 0 for trade in trades):
         warnings.append("profit_factor_undefined_without_losses")
 
-    def curve(values: np.ndarray) -> list[dict]:
+    def curve(values: np.ndarray) -> list[JSONDict]:
         return [
             {"time": days[index], "value": round(float(value), 6)}
             for index, value in enumerate(values)

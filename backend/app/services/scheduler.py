@@ -5,11 +5,14 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from .. import config, database
 from .alerts import scan_enabled_rules
+from .auth import reset_current_user, set_current_user
 from .market_data import MarketDataService
 from .market_review import run_scheduled_market_review
+from .llm_usage import reset_usage_context, set_usage_context
 from .notifications import publish_research_status
 from .research_orch import run_research
 from .research_jobs import due_research_jobs, mark_job_finished, mark_job_running
@@ -37,63 +40,72 @@ def seconds_until_next_run(
     return (next_run - current).total_seconds()
 
 
-async def _load_daily_targets() -> list[tuple[str, str]]:
+async def _load_daily_targets() -> list[tuple[int, str, str]]:
     """Reload the known research universe before each scheduled run."""
     rows = await database.query_all(
-        "SELECT ticker, COALESCE(MAX(company_name), ticker) AS company_name "
-        "FROM research_reports GROUP BY ticker ORDER BY MAX(updated_at) DESC"
+        "SELECT user_id, ticker, COALESCE(MAX(company_name), ticker) AS company_name "
+        "FROM research_reports WHERE user_id IS NOT NULL GROUP BY user_id, ticker ORDER BY MAX(updated_at) DESC"
     )
-    return [(row["ticker"], row["company_name"]) for row in rows]
+    return [(int(row["user_id"]), row["ticker"], row["company_name"]) for row in rows]
 
 
-async def _append_research_event(report_id: int, event: str, payload: dict) -> None:
+async def _append_research_event(
+    report_id: int,
+    event: str,
+    payload: dict[str, Any],
+    user_id: int,
+) -> None:
     await database.execute(
-        "INSERT INTO research_events (research_id, event_type, agent_role_key, payload) VALUES (?, ?, ?, ?)",
+        "INSERT INTO research_events (research_id, event_type, agent_role_key, payload, user_id) VALUES (?, ?, ?, ?, ?)",
         (
             report_id,
             event,
             payload.get("role_key") or payload.get("agent"),
             json.dumps(payload, ensure_ascii=False),
+            user_id,
         ),
     )
 
 
-async def _mark_research_failed(report_id: int, message: str, *, record_event: bool = True) -> None:
+async def _mark_research_failed(report_id: int, message: str, user_id: int, *, record_event: bool = True) -> None:
     if record_event:
-        await _append_research_event(report_id, "error", {"error": message})
+        await _append_research_event(report_id, "error", {"error": message}, user_id)
     await database.execute(
         "UPDATE research_reports SET status='failed', updated_at=datetime('now') "
-        "WHERE id=? AND status='running'",
-        (report_id,),
+        "WHERE id=? AND status='running' AND user_id=?",
+        (report_id, user_id),
     )
-    await publish_research_status(report_id, "failed", message)
+    await publish_research_status(report_id, "failed", message, user_id=user_id)
 
 
 async def _run_and_persist_target(
     ticker: str,
     company_name: str,
+    user_id: int,
     model_id: int | None = None,
 ) -> None:
     """Run one scheduled research target and persist its full lifecycle."""
     report_id = await database.execute(
         "INSERT INTO research_reports "
-        "(ticker, company_name, report_data, agent_results, model_id, status, updated_at) "
-        "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'))",
-        (ticker, company_name, model_id),
+        "(ticker, company_name, report_data, agent_results, model_id, status, updated_at, user_id) "
+        "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'), ?)",
+        (ticker, company_name, model_id, user_id),
     )
     terminal = False
     failure: str | None = None
     research_stream = None
+    auth_token = set_current_user({"id": user_id})
+    usage_token = set_usage_context("scheduled_research", report_id, user_id)
     try:
-        research_stream = run_research(ticker, company_name, model_id=model_id)
+        research_stream = run_research(ticker, company_name, model_id=model_id, user_id=user_id)
         async for event, payload in research_stream:
             if event == "done":
                 payload = {**payload, "report_id": report_id}
-            await _append_research_event(report_id, event, payload)
+            await _append_research_event(report_id, event, payload, user_id)
 
             if event == "error":
                 message = payload.get("error") or "研究管线异常"
-                await _mark_research_failed(report_id, message, record_event=False)
+                await _mark_research_failed(report_id, message, user_id, record_event=False)
                 terminal = True
                 failure = message
                 LOGGER.warning("Post-market analysis failed for %s: %s", ticker, message)
@@ -101,25 +113,28 @@ async def _run_and_persist_target(
             if event == "done":
                 await database.execute(
                     "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', "
-                    "updated_at=datetime('now') WHERE id=? AND status='running'",
+                    "updated_at=datetime('now') WHERE id=? AND status='running' AND user_id=?",
                     (
                         json.dumps(payload.get("report", {}), ensure_ascii=False),
                         json.dumps(payload.get("agent_results", {}), ensure_ascii=False),
                         report_id,
+                        user_id,
                     ),
                 )
-                await publish_research_status(report_id, "completed")
+                await publish_research_status(report_id, "completed", user_id=user_id)
                 terminal = True
                 break
     except asyncio.CancelledError:
         if not terminal:
-            await _mark_research_failed(report_id, "盘后研究被取消")
+            await _mark_research_failed(report_id, "盘后研究被取消", user_id)
         raise
     except Exception as exc:
         if not terminal:
-            await _mark_research_failed(report_id, f"盘后研究异常：{exc}")
+            await _mark_research_failed(report_id, f"盘后研究异常：{exc}", user_id)
         raise
     finally:
+        reset_usage_context(usage_token)
+        reset_current_user(auth_token)
         close = getattr(research_stream, "aclose", None)
         if close is not None:
             try:
@@ -129,7 +144,7 @@ async def _run_and_persist_target(
 
     if not terminal:
         failure = "盘后研究流在完成前中断"
-        await _mark_research_failed(report_id, failure)
+        await _mark_research_failed(report_id, failure, user_id)
     if failure:
         raise RuntimeError(failure)
 
@@ -156,16 +171,19 @@ async def run_post_market_analysis(
 
     semaphore = asyncio.Semaphore(worker_limit)
 
-    async def analyze_target(ticker: str, company_name: str) -> None:
+    async def analyze_target(user_id: int, ticker: str, company_name: str) -> None:
         async with semaphore:
             try:
-                await _run_and_persist_target(ticker, company_name)
+                await _run_and_persist_target(ticker, company_name, user_id)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 LOGGER.exception("Post-market analysis crashed for %s", ticker)
 
-    await asyncio.gather(*(analyze_target(ticker, company_name) for ticker, company_name in selected_targets))
+    await asyncio.gather(*(
+        analyze_target(user_id, ticker, company_name)
+        for user_id, ticker, company_name in selected_targets
+    ))
 
 
 async def run_scheduled_cycle(market: MarketDataService) -> None:
@@ -182,7 +200,8 @@ async def run_scheduled_cycle(market: MarketDataService) -> None:
         LOGGER.exception("Scheduled alert scan failed")
 
     try:
-        await run_scheduled_market_review(market)
+        users = await database.query_all("SELECT id FROM users WHERE is_active=1 ORDER BY id")
+        await asyncio.gather(*(run_scheduled_market_review(market, int(user["id"])) for user in users))
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -196,21 +215,25 @@ async def run_scheduled_cycle(market: MarketDataService) -> None:
         LOGGER.exception("Scheduled post-market analysis failed")
 
 
-async def run_research_job(job_id: int) -> bool:
+async def run_research_job(job_id: int, user_id: int) -> bool:
     """Claim and execute one persisted research job without overlapping itself."""
-    job = await database.query_one("SELECT * FROM scheduled_research_jobs WHERE id=?", (job_id,))
-    if job is None or not await mark_job_running(job_id):
+    job = await database.query_one(
+        "SELECT * FROM scheduled_research_jobs WHERE id=? AND user_id=?", (job_id, user_id)
+    )
+    if job is None:
+        return False
+    if not await mark_job_running(job_id, user_id):
         return False
     try:
-        await _run_and_persist_target(job["ticker"], job["company_name"], job.get("model_id"))
+        await _run_and_persist_target(job["ticker"], job["company_name"], user_id, job.get("model_id"))
     except asyncio.CancelledError:
-        await mark_job_finished(job_id, error="定时研究被取消")
+        await mark_job_finished(job_id, user_id, error="定时研究被取消")
         raise
     except Exception as exc:
-        await mark_job_finished(job_id, error=str(exc))
+        await mark_job_finished(job_id, user_id, error=str(exc))
         LOGGER.exception("Scheduled research job %d failed", job_id)
     else:
-        await mark_job_finished(job_id)
+        await mark_job_finished(job_id, user_id)
     return True
 
 
@@ -218,7 +241,7 @@ async def run_due_research_jobs(now: datetime | None = None) -> int:
     jobs = await due_research_jobs(now)
     if not jobs:
         return 0
-    results = await asyncio.gather(*(run_research_job(job["id"]) for job in jobs))
+    results = await asyncio.gather(*(run_research_job(job["id"], int(job["user_id"])) for job in jobs))
     return sum(results)
 
 

@@ -228,7 +228,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 ### 前端
 - **不存在每个服务的独立 API 客户端**：所有前端请求通过单一 `api.ts` 的 axios 实例。
-- **不存在认证/授权**：无登录、无 session、无 JWT、无 API Key 鉴权。
+- **邮箱免密认证**：验证码 + HttpOnly Cookie 会话，无密码存储；用户数据完全隔离（各表强制 user_id 归属）；凭据 Fernet 加密。详见 `docs/ai/AUTH_DESIGN.md`。
 - **不存在服务端渲染**：纯 CSR，Vite 仅作开发代理和生产构建。
 
 ### Agent
@@ -440,9 +440,9 @@ Router → ticker.py → MarketDataService → 腾讯API
    - 当前 `_migrate_schema()` 的 `PRAGMA table_info` + `ALTER TABLE ADD COLUMN` 方式不可扩展
    - 方案：引入 `alembic` 或自建基于版本号的迁移系统，支持列删除/重命名/类型变更。
 
-2. **认证与授权体系**
-   - 当前无任何安全控制，所有数据和功能完全开放
-   - 方案：引入 OAuth 2.0 + JWT，区分用户数据和系统配置；API Key 管理用于 Agent 工具的外部访问。
+2. **认证与授权体系（TASK-021～025 已完成）**
+   - 当前使用邮箱验证码 + HttpOnly 服务端会话，所有用户数据按 `user_id` 隔离，个人凭据使用 Fernet 加密。
+   - 后续仅在确有第三方身份联合需求时评估 OAuth；不得用 JWT 或重型认证框架替换现有会话而没有新的架构决策。
 
 3. **WebSocket 替代 SSE（高频率场景）**
    - 当前 SSE 对回测进度推送和实时行情更新不是最优
@@ -498,7 +498,7 @@ Router → ticker.py → MarketDataService → 腾讯API
 
 - **多源新闻与基本面**：新闻支持六源统一结构和显式聚合；A 股财务在可选 AkShare/Tushare 间降级，最后回到 Yahoo，缺包/权限不伪装成零值。
 - **研究型交易工具**：回测、组合风险、影子成交分析均复用纯逻辑服务；实盘连接器工具只返回设计评估，保证 `network_calls=false`、`order_submission=not_implemented`。
-- **实盘 No-Go**：当前“无认证/授权”不变量与真实资金连接不兼容。独立项目必须先满足 `docs/ai/TRADING_CONNECTOR_ASSESSMENT.md` 的身份、风控、幂等、确认、审计和合规阶段门。
+- **实盘 No-Go**：当前邮箱登录只解决应用身份与数据隔离，不构成交易授权或资金风控。独立项目仍必须先满足 `docs/ai/TRADING_CONNECTOR_ASSESSMENT.md` 的身份、风控、幂等、确认、审计和合规阶段门。
 
 ### 8.8 投研证据与 LLM 用量闭环
 
@@ -516,4 +516,4 @@ Router → ticker.py → MarketDataService → 腾讯API
 
 - **共享 SSE reader（9.0 已完成）**：`frontend/src/services/sse.ts` 统一处理分片、CRLF、心跳、尾帧与取消清理，页面不再保有内联读取循环。
 - **大屏独立路由**：Dashboard 大屏区块从后台布局中拆为独立全屏路由，属前端路由结构调整。
-- **登录页（需先决策）**：BigDataView 的登录页模板与"不存在认证/授权"不变量冲突。引入登录前必须先决策是否将 auth/authz 从不变量中移除，并同步更新本文档第 3 节与 CLAUDE.md。
+- **登录页（已决策）**：@Satanchen 已决策引入邮箱免密认证（2026-08-01）。「不存在认证/授权」不变量已移除，改为「邮箱免密认证 + 数据完全隔离」。本文档第 3 节与 CLAUDE.md 已同步更新，设计见 `docs/ai/AUTH_DESIGN.md`。
