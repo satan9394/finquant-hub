@@ -2,6 +2,68 @@
 
 > 红线：未配置有效 HTTPS、强 `MASTER_KEY` 和可用 SMTP 时，不得把服务暴露到公网。
 
+## 0. 上线前检查清单（照着一步步做）
+
+### 0.1 先确认发布方式能支撑后端
+
+finquant-hub 是「FastAPI 后端 + SQLite 数据库 + 前端」三件套，不是纯静态网页。无论用哪种方式发布，先确认它能满足：
+
+- [ ] 能运行 Python/FastAPI 服务（不是只放 HTML/JS 的静态托管）
+- [ ] 数据库文件能持久化（服务重启不清空）
+- [ ] 能设置环境变量（下面 0.3/0.4 的 SMTP、MASTER_KEY 要填进去）
+- [ ] 支持长期运行（定时任务、登录会话需要）
+
+**如果用 Codex Site 建站发布**：先确认 Site 支持上述能力（后端服务 + 环境变量 + 持久化）。若 Site 是纯静态托管，后端无法运行，登录和投研功能会失效——此时应改用 Docker Compose 部署到一台 Linux 主机（见第 1-5 节）。
+
+### 0.2 域名与证书
+
+- [ ] 准备一个域名，解析到发布主机
+- [ ] 取得覆盖该域名的 TLS 证书（Codex Site 通常自带；自建则用 Certbot/Let's Encrypt）
+- [ ] 证书私钥不放进镜像、Git 或日志
+
+### 0.3 SMTP（发验证码邮件）——你只需要一个能发信的邮箱
+
+用「QQ 邮箱授权码」示例（163/其他邮箱同理）：
+
+| 配置项 | 填什么 | 去哪找 |
+|--------|--------|--------|
+| `SMTP_HOST` | `smtp.qq.com`（163 是 `smtp.163.com`） | 固定值 |
+| `SMTP_PORT` | `465` | 固定值 |
+| `SMTP_USERNAME` | 你的邮箱号，如 `123456@qq.com` | 你自己的 |
+| `SMTP_PASSWORD` | **16 位授权码**（不是邮箱密码！） | QQ 邮箱网页版 → 设置 → 账号 → 开启 POP3/IMAP/SMTP → 扫码验证 → 生成授权码 |
+| `SMTP_FROM` | 发件人显示名，一般同邮箱号 | 同上 |
+
+- [ ] 已拿到授权码并填入
+- [ ] 已用真实收件邮箱实测「发码 → 收邮件 → 登录」成功（验证码不能出现在生产日志）
+
+> 授权码等同于邮箱登录凭据，填入系统后被加密存储；自己也要妥善保管。
+
+### 0.4 MASTER_KEY（加密保险柜钥匙）
+
+作用：加密用户存入的 API 密钥（Tushare/新闻/MCP 等）。数据库被偷也解不开。
+
+- [ ] 已生成密钥（见下方命令）并写入环境变量
+- [ ] **已离线备份**——丢失后所有用户已存密钥永久解不开；更换会使旧密文失效（需迁移）
+
+生成命令（在项目 `backend` 目录运行）：
+
+```bash
+.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+输出 `gAAAAAB...` 长串，复制保存到 `.env` 的 `MASTER_KEY`。
+
+### 0.5 上线前冒烟
+
+- [ ] `docker compose config` 通过
+- [ ] HTTP 自动跳 HTTPS，证书域名匹配
+- [ ] 响应含 HSTS/CSP/X-Content-Type-Options/Referrer-Policy/X-Frame-Options
+- [ ] `/api/health` 正常；后端 8000 端口公网不可访问
+- [ ] 两个真实用户各自注册登录，确认互相看不到对方数据（隔离回归）
+- [ ] 生产日志无验证码、session token、凭据明文
+
+---
+
 ## 1. 主机与域名
 
 1. 准备只对外开放 TCP 80/443 的 Linux 主机；不要开放后端 8000 端口。

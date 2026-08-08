@@ -131,3 +131,10 @@
 - Why: close the verified gap-analysis sequence from exception/SSE containment through report, market, backtest, and tool-chain capabilities.
 - Docs updated: `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DATA_SOURCES.md`, `docs/ROUTER_MAP.md`, `docs/ai/LONG_TERM_GOAL.md`, `docs/ai/TRADING_CONNECTOR_ASSESSMENT.md`, `CLAUDE.md`.
 - Risk: medium; real-money and login capabilities remain explicitly unimplemented.
+
+## 2026-08-06
+- What changed: completed TASK-026 real two-user E2E; enforced authentication at the shared business-router registration point, preserved Host through the Vite proxy for CSRF, repaired browser auth/KPI coverage, and removed duplicate thesis keys/auth-loading warnings.
+- Why: prove the TASK-021–025 authentication migration works as a real multi-user system and close regressions found only through browser/HTTP validation.
+- Docs updated: `docs/ai/E2E_VALIDATION.md`, `docs/HANDOVER.md`, `task/CHANGELOG.md`.
+- Verification: 369 backend tests / 83.45%, Ruff, mypy, 30 frontend tests, Playwright 1/1, frontend build, and bidirectional owner isolation passed.
+- Risk: high security surface, mitigated by centralized authentication and explicit cross-owner 404 regression coverage.

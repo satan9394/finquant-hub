@@ -9,6 +9,7 @@ async function mockDashboardApi(page: Page) {
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const responses: Record<string, unknown> = {
+      '/api/auth/me': { user: { id: 1, email: 'dashboard@test.local', is_admin: false } },
       '/api/models': { items: [] },
       '/api/dashboard/stats': {
         model_count: 2,
@@ -90,8 +91,8 @@ test('dashboard renders KPI cards from API data', async ({ page }) => {
   const overviewKpis = [
     ['组合市值', '¥3,500.00'],
     ['累计收益', '+¥500.00'],
-    ['组合数量', '02'],
-    ['市场信号', '07'],
+    ['组合数量', '2'],
+    ['市场信号', '7'],
   ];
   for (const [label, value] of overviewKpis) {
     const card = overview.locator('.big-screen-metric').filter({ hasText: label });

@@ -4,7 +4,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -123,11 +123,12 @@ if config.APP_ENV != "production":
     )
 app.add_middleware(SecurityMiddleware, cookie_name=config.AUTH_COOKIE_NAME)
 
-for r in (auth.router, credentials.router, models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
+app.include_router(auth.router)
+for r in (credentials.router, models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
           analysis_router.router, portfolio_router.router, wq.router, research.router, screening.router,
           backtest.router, instruments.router, backtests.router, swarm.router, notifications.router,
           alerts.router, mcp_router.router, settings.router, usage.router, thesis.router):
-    app.include_router(r)
+    app.include_router(r, dependencies=[Depends(auth.authenticated_context)])
 
 
 @app.get("/api/health")

@@ -2,6 +2,17 @@
 
 > Harrison-style: no sugar, just signal. What works, what doesn't, what needs attention.
 
+## 2026-08-06 TASK-026 Current Validation
+
+- Real Docker/Vite E2E passed with `userA@test.local` and `userB@test.local` on an isolated temporary SQLite database.
+- All 22 business routers now inherit the session dependency at registration; anonymous router sentinels return 401.
+- Portfolio/report/thesis/alert list isolation passed both ways; cross-owner direct IDs return 404.
+- Vite now preserves Host so authenticated browser writes pass strict same-origin CSRF checks without weakening middleware.
+- Full gates: 369 backend tests / 83.45% coverage, Ruff clean, mypy clean, 30 frontend tests, Playwright 1/1, production build successful.
+- Evidence and exact checklist: `docs/ai/E2E_VALIDATION.md`.
+
+The historical sections below predate TASK-021–026 and contain stale counts/auth statements; use the snapshot above and current architecture docs as authoritative.
+
 ## Quick Base
 
 | Metric | Value |

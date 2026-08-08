@@ -215,7 +215,7 @@ export default function Thesis() {
                 <Title level={5}>核心论文</Title>
                 <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{selected.thesis}</Paragraph>
                 <Title level={5}>关键假设</Title>
-                {selected.assumptions.length ? selected.assumptions.map((item) => <Paragraph key={item}>• {item}</Paragraph>) : <Text type="secondary">未记录</Text>}
+                {selected.assumptions.length ? selected.assumptions.map((item, index) => <Paragraph key={`${index}:${item}`}>• {item}</Paragraph>) : <Text type="secondary">未记录</Text>}
               </Card>
 
               <Card title="论点状态看板" size="small">

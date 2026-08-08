@@ -7,6 +7,7 @@ from mcp.server import MCPServer
 
 from app.agent.tools import ToolRegistry
 from app.main import app
+from app.routers.auth import get_current_user
 from app.tools.mcp_bridge import (
     MCPBridge,
     MCPServerConfig,
@@ -151,28 +152,36 @@ async def test_registration_does_not_overwrite_existing_tool(bridge, isolated_re
 async def test_market_api_lists_parameters_and_toggles_runtime_access(bridge, isolated_registry):
     await bridge.register_tools(isolated_registry)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        market = (await client.get("/api/mcp/servers")).json()
-        assert market["total_servers"] == 1
-        assert market["total_tools"] == 2
-        assert market["items"][0]["name"] == "math"
-        assert market["items"][0]["transport"] == "http"
-        add = market["items"][0]["tools"][0]
-        assert add["name"] == "add"
-        assert add["parameters"]["properties"]["a"]["type"] == "number"
-        assert add["enabled"] is True
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": 1,
+        "email": "mcp@test.local",
+        "is_admin": False,
+    }
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            market = (await client.get("/api/mcp/servers")).json()
+            assert market["total_servers"] == 1
+            assert market["total_tools"] == 2
+            assert market["items"][0]["name"] == "math"
+            assert market["items"][0]["transport"] == "http"
+            add = market["items"][0]["tools"][0]
+            assert add["name"] == "add"
+            assert add["parameters"]["properties"]["a"]["type"] == "number"
+            assert add["enabled"] is True
 
-        disabled = await client.patch(f"/api/mcp/tools/{add['local_name']}", json={"enabled": False})
-        assert disabled.status_code == 200
-        assert disabled.json()["enabled"] is False
-        assert isolated_registry.get(add["local_name"]) is None
+            disabled = await client.patch(f"/api/mcp/tools/{add['local_name']}", json={"enabled": False})
+            assert disabled.status_code == 200
+            assert disabled.json()["enabled"] is False
+            assert isolated_registry.get(add["local_name"]) is None
 
-        enabled = await client.patch(f"/api/mcp/tools/{add['local_name']}", json={"enabled": True})
-        assert enabled.json()["enabled"] is True
-        assert isolated_registry.get(add["local_name"]) is not None
+            enabled = await client.patch(f"/api/mcp/tools/{add['local_name']}", json={"enabled": True})
+            assert enabled.json()["enabled"] is True
+            assert isolated_registry.get(add["local_name"]) is not None
 
-        missing = await client.patch("/api/mcp/tools/mcp__missing", json={"enabled": False})
-        assert missing.status_code == 404
+            missing = await client.patch("/api/mcp/tools/mcp__missing", json={"enabled": False})
+            assert missing.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.mark.asyncio

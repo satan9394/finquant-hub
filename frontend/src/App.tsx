@@ -188,7 +188,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   }, [clear, location.pathname, location.search, navigate]);
 
   if (status === 'idle' || status === 'loading') {
-    return <div className="auth-loading"><Spin size="large" tip="正在恢复登录状态…" /></div>;
+    return <div className="auth-loading"><Spin size="large" /></div>;
   }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;

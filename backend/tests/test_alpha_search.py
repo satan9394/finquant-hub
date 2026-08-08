@@ -2,7 +2,19 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.routers.auth import get_current_user
 from app.services.alpha_service import list_fields, search_alpha
+
+
+@pytest.fixture(autouse=True)
+def authenticated_user():
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": 1,
+        "email": "alpha@test.local",
+        "is_admin": False,
+    }
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_search_alpha_returns_matches_for_pe():
