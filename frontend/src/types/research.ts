@@ -124,6 +124,9 @@ export type BacktestCreatePayload = {
   initial_capital: number;
   commission_bps: number;
   slippage_bps: number;
+  sell_stamp_duty_bps: number;
+  minimum_commission_cny: number;
+  max_drawdown_stop_pct: number;
   benchmark: 'buy_and_hold';
   market_rules?: 'auto' | 'none';
   price_limit_ratio?: number | null;
@@ -139,6 +142,10 @@ export type BacktestTrade = {
   quantity: number;
   entry_fee: number;
   exit_fee: number;
+  entry_commission?: number;
+  exit_commission?: number;
+  entry_stamp_duty?: number;
+  exit_stamp_duty?: number;
   pnl: number;
   return: number;
   forced_exit: boolean;
@@ -181,6 +188,12 @@ export type BacktestRun = {
     assumptions: string[];
     period: string;
   };
+  risk_controls?: {
+    max_drawdown_stop_pct: number | null;
+    trigger_count: number;
+    trigger_dates: string[];
+    execution: string;
+  };
   validation?: {
     bootstrap: {
       confidence_interval: [number, number];
@@ -192,6 +205,7 @@ export type BacktestRun = {
       probability_loss: number;
       probability_bust: number;
       samples: number;
+      max_drawdown: { worst_confidence_tail: number; median: number };
     };
     walk_forward: {
       status: 'ok' | 'insufficient_data';

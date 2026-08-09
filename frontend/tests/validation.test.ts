@@ -11,6 +11,9 @@ const valid: BacktestFormValues = {
   initial_capital: 100000,
   commission_bps: 3,
   slippage_bps: 2,
+  sell_stamp_duty_bps: 0,
+  minimum_commission_cny: 0,
+  max_drawdown_stop_pct: 0,
   benchmark: 'buy_and_hold',
 };
 

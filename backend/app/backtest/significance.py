@@ -108,6 +108,9 @@ def walk_forward_ma_validation(
     period: str,
     market_rules: str,
     price_limit_ratio: float | None,
+    sell_stamp_duty_bps: float = 0,
+    minimum_commission_cny: float = 0,
+    max_drawdown_stop_pct: float = 0,
 ) -> JSONDict:
     """Expanding-window stability check for the fixed, predeclared MA parameters."""
     from .ma_crossover import run_ma_crossover
@@ -135,10 +138,13 @@ def walk_forward_ma_validation(
             initial_capital=initial_capital,
             commission_bps=commission_bps,
             slippage_bps=slippage_bps,
+            sell_stamp_duty_bps=sell_stamp_duty_bps,
+            minimum_commission_cny=minimum_commission_cny,
             symbol=symbol,
             period=period,
             market_rules=market_rules,
             price_limit_ratio=price_limit_ratio,
+            max_drawdown_stop_pct=max_drawdown_stop_pct,
         )
         curve = result["equity_curve"]
         start_value = float(curve[train_end - 1]["value"])
@@ -174,6 +180,9 @@ def validate_ma_strategy(
     period: str,
     market_rules: str,
     price_limit_ratio: float | None,
+    sell_stamp_duty_bps: float = 0,
+    minimum_commission_cny: float = 0,
+    max_drawdown_stop_pct: float = 0,
     samples: int = 500,
 ) -> JSONDict:
     equity = [float(point["value"]) for point in result["equity_curve"]]
@@ -187,9 +196,12 @@ def validate_ma_strategy(
             initial_capital=initial_capital,
             commission_bps=commission_bps,
             slippage_bps=slippage_bps,
+            sell_stamp_duty_bps=sell_stamp_duty_bps,
+            minimum_commission_cny=minimum_commission_cny,
             symbol=symbol,
             period=period,
             market_rules=market_rules,
             price_limit_ratio=price_limit_ratio,
+            max_drawdown_stop_pct=max_drawdown_stop_pct,
         ),
     }

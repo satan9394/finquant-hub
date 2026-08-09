@@ -34,10 +34,13 @@ def run_ma_crossover(
     initial_capital: float,
     commission_bps: float,
     slippage_bps: float,
+    sell_stamp_duty_bps: float = 0,
+    minimum_commission_cny: float = 0,
     symbol: str | None = None,
     period: str = "1d",
     market_rules: str = "auto",
     price_limit_ratio: float | None = None,
+    max_drawdown_stop_pct: float = 0,
 ) -> JSONDict:
     """Run a no-lookahead, next-open execution simulation.
 
@@ -51,8 +54,10 @@ def run_ma_crossover(
         raise ValueError("long_window 必须大于 short_window")
     if initial_capital <= 0:
         raise ValueError("initial_capital 必须大于 0")
-    if commission_bps < 0 or slippage_bps < 0:
-        raise ValueError("手续费和滑点不能为负数")
+    if min(commission_bps, slippage_bps, sell_stamp_duty_bps, minimum_commission_cny) < 0:
+        raise ValueError("交易成本不能为负数")
+    if not 0 <= max_drawdown_stop_pct < 1:
+        raise ValueError("回撤止损必须在 0% 到 100% 之间")
     validate_bars(bars, long_window)
     rules = execution_rules_for(
         symbol,
@@ -72,6 +77,13 @@ def run_ma_crossover(
 
     commission = commission_bps / 10_000.0
     slippage = slippage_bps / 10_000.0
+    stamp_duty = sell_stamp_duty_bps / 10_000.0 if rules.market == "CN" else 0.0
+    minimum_commission = minimum_commission_cny if rules.market == "CN" else 0.0
+
+    def commission_fee(notional: float) -> float:
+        if commission <= 0:
+            return 0.0
+        return max(notional * commission, minimum_commission)
     cash = float(initial_capital)
     shares = 0.0
     entry: JSONDict | None = None
@@ -80,13 +92,21 @@ def run_ma_crossover(
     rejected_orders: list[JSONDict] = []
     turnover_notional = 0.0
     equity_values: list[float] = []
+    peak_equity = float(initial_capital)
+    risk_stop_pending = False
+    risk_stop_locked = False
+    risk_stop_dates: list[str] = []
 
     for index, day in enumerate(days):
         target = int(targets[index - 1]) if index > 0 else 0
+        if risk_stop_pending:
+            target = 0
+        elif risk_stop_locked and target == 0:
+            risk_stop_locked = False
         open_price = float(opens[index])
         previous_close = float(closes[index - 1]) if index > 0 else None
 
-        if target == 1 and shares == 0:
+        if target == 1 and shares == 0 and not risk_stop_locked:
             allowed, reason = rules.check_fill(
                 "buy", bars[index], previous_close=previous_close
             )
@@ -96,8 +116,10 @@ def run_ma_crossover(
                 continue
             fill_price = open_price * (1.0 + slippage)
             shares = cash / (fill_price * (1.0 + commission))
+            if commission > 0 and minimum_commission > 0 and shares * fill_price * commission < minimum_commission:
+                shares = max(0.0, (cash - minimum_commission) / fill_price)
             notional = shares * fill_price
-            fee = notional * commission
+            fee = commission_fee(notional)
             cash -= notional + fee
             turnover_notional += notional
             entry = {
@@ -105,12 +127,15 @@ def run_ma_crossover(
                 "entry_price": fill_price,
                 "quantity": shares,
                 "entry_fee": fee,
+                "entry_commission": fee,
+                "entry_stamp_duty": 0.0,
                 "entry_notional": notional,
                 "entry_slippage_cost": shares * (fill_price - open_price),
             }
             order_marks.append({"time": day, "price": fill_price, "side": "buy"})
 
         elif target == 0 and shares > 0 and entry is not None:
+            stopped_for_drawdown = risk_stop_pending
             allowed, reason = rules.check_fill(
                 "sell",
                 bars[index],
@@ -123,7 +148,9 @@ def run_ma_crossover(
                 continue
             fill_price = open_price * (1.0 - slippage)
             notional = shares * fill_price
-            fee = notional * commission
+            commission_fee_value = commission_fee(notional)
+            stamp_duty_fee = notional * stamp_duty
+            fee = commission_fee_value + stamp_duty_fee
             cash += notional - fee
             turnover_notional += notional
             pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
@@ -132,17 +159,34 @@ def run_ma_crossover(
                 "exit_time": day,
                 "exit_price": fill_price,
                 "exit_fee": fee,
+                "exit_commission": commission_fee_value,
+                "exit_stamp_duty": stamp_duty_fee,
                 "exit_notional": notional,
                 "exit_slippage_cost": shares * (open_price - fill_price),
                 "pnl": pnl,
                 "return": pnl / (entry["entry_notional"] + entry["entry_fee"]),
                 "forced_exit": False,
+                "risk_stop_triggered": stopped_for_drawdown,
             })
             order_marks.append({"time": day, "price": fill_price, "side": "sell"})
             shares = 0.0
             entry = None
+            if stopped_for_drawdown:
+                risk_stop_pending = False
+                risk_stop_locked = True
 
-        equity_values.append(cash + shares * float(closes[index]))
+        equity_value = cash + shares * float(closes[index])
+        equity_values.append(equity_value)
+        peak_equity = max(peak_equity, equity_value)
+        if (
+            max_drawdown_stop_pct > 0
+            and shares > 0
+            and not risk_stop_pending
+            and not risk_stop_locked
+            and equity_value / peak_equity - 1.0 <= -max_drawdown_stop_pct
+        ):
+            risk_stop_pending = True
+            risk_stop_dates.append(day)
 
     warnings: list[str] = []
     if shares > 0 and entry is not None:
@@ -157,7 +201,9 @@ def run_ma_crossover(
         if allowed:
             fill_price = market_price * (1.0 - slippage)
             notional = shares * fill_price
-            fee = notional * commission
+            commission_fee_value = commission_fee(notional)
+            stamp_duty_fee = notional * stamp_duty
+            fee = commission_fee_value + stamp_duty_fee
             cash += notional - fee
             turnover_notional += notional
             pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
@@ -166,6 +212,8 @@ def run_ma_crossover(
                 "exit_time": days[-1],
                 "exit_price": fill_price,
                 "exit_fee": fee,
+                "exit_commission": commission_fee_value,
+                "exit_stamp_duty": stamp_duty_fee,
                 "exit_notional": notional,
                 "exit_slippage_cost": shares * (market_price - fill_price),
                 "pnl": pnl,
@@ -192,6 +240,8 @@ def run_ma_crossover(
     trade_metrics = calculate_trade_metrics([trade["pnl"] for trade in trades])
     if not trades:
         warnings.append("no_trades_in_period")
+    if risk_stop_dates:
+        warnings.append("max_drawdown_stop_triggered")
     if trade_metrics["profit_factor"] is None and any(trade["pnl"] > 0 for trade in trades):
         warnings.append("profit_factor_undefined_without_losses")
 
@@ -228,6 +278,12 @@ def run_ma_crossover(
         "order_marks": order_marks,
         "rejected_orders": rejected_orders,
         "execution_rules": {**rules.metadata(), "period": period},
+        "risk_controls": {
+            "max_drawdown_stop_pct": max_drawdown_stop_pct or None,
+            "trigger_count": len(risk_stop_dates),
+            "trigger_dates": risk_stop_dates,
+            "execution": "close_threshold_then_next_open_exit",
+        },
         "warnings": warnings,
     }
 

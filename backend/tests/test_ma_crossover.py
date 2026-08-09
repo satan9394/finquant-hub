@@ -54,6 +54,31 @@ def test_commission_and_slippage_reduce_returns():
     assert sum(t["entry_slippage_cost"] + t["exit_slippage_cost"] for t in costly["trades"]) > 0
 
 
+def test_cn_cost_profile_charges_sell_stamp_duty_and_minimum_commission():
+    result = run_ma_crossover(
+        make_bars([10, 9, 8, 9, 10, 11, 12, 13, 12, 11, 10, 9]),
+        short_window=2, long_window=3, initial_capital=10_000,
+        commission_bps=2.5, slippage_bps=0, symbol="600519",
+        sell_stamp_duty_bps=10, minimum_commission_cny=5,
+    )
+    trade = result["trades"][0]
+    assert trade["entry_commission"] >= 5
+    assert trade["entry_stamp_duty"] == 0
+    assert trade["exit_stamp_duty"] == pytest.approx(trade["exit_notional"] * 0.001)
+    assert trade["exit_fee"] == pytest.approx(trade["exit_commission"] + trade["exit_stamp_duty"])
+
+
+def test_max_drawdown_stop_exits_next_open_and_locks_reentry_until_bearish_signal():
+    result = run_ma_crossover(
+        make_bars([10, 9, 8, 9, 10, 11, 12, 10, 9, 8, 9, 10, 11]),
+        short_window=2, long_window=3, initial_capital=10_000,
+        commission_bps=0, slippage_bps=0, max_drawdown_stop_pct=0.05,
+    )
+    assert result["risk_controls"]["trigger_count"] >= 1
+    assert result["trades"][0]["risk_stop_triggered"] is True
+    assert "max_drawdown_stop_triggered" in result["warnings"]
+
+
 def test_window_and_price_validation():
     bars = make_bars([10, 11, 12, 13, 14, 15])
     with pytest.raises(ValueError, match="long_window"):

@@ -10,13 +10,14 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
-import { fetchQuote, searchStocks } from '../services/stockApi';
+import { fetchKLine, fetchQuote, searchStocks } from '../services/stockApi';
 import { useModelStore } from '../store/modelStore';
 import StockChart from '../components/StockChart';
 import ChinaMap from '../components/ChinaMap';
 import CountUp from '../components/CountUp';
 import Marquee from '../components/Marquee';
 import ScrollingTable from '../components/ScrollingTable';
+import MarketMoversPanel from '../components/MarketMoversPanel';
 import { fetchPortfolioSummary, fetchSignalSummary } from '../services/analysisApi';
 import type { DashboardStats, RealTimeQuote, SearchResult, PortfolioSummary, SignalSummary } from '../types';
 
@@ -148,10 +149,16 @@ export default function Dashboard() {
   }, []);
 
   // 跳转到分析页
-  const goToAnalysis = (code: string) => {
+  const goToAnalysis = async (code: string) => {
     setAnalysisQuery('');
     setAnalysisResults([]);
-    navigate(`/analysis/${code}`);
+    try {
+      const bars = await fetchKLine(code, '1d', 60);
+      if (bars.length < 30) throw new Error('历史数据不足');
+      navigate(`/analysis/${code}`);
+    } catch {
+      message.warning(`${code.toUpperCase()} 暂无足够历史 K 线，不能进入分析或回测；请换用“可回测”标的。`);
+    }
   };
 
   // 添加到自选股
@@ -340,8 +347,11 @@ export default function Dashboard() {
             />
           </div>
           <div className="big-screen-panel">
-            <h3>自选标的交易所所在地</h3>
-            <ChinaMap data={exchangeDistribution} />
+            <h3>自选标的交易市场覆盖</h3>
+            <ChinaMap data={exchangeDistribution} title="自选标的交易市场覆盖" />
+            <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+              用它核对自选是否只集中在沪、深、北或港的单一交易规则；它不代表公司经营地域，也不能替代行业分散化分析。
+            </Text>
           </div>
         </div>
         <div className="big-screen-overview__footer">
@@ -349,6 +359,12 @@ export default function Dashboard() {
           <button type="button" onClick={() => navigate('/portfolio')}>查看投资组合 <span aria-hidden="true">→</span></button>
         </div>
       </section>
+
+      <MarketMoversPanel
+        watchCodes={watchlist.map((item) => item.code)}
+        onAdd={addToWatchlist}
+        onAnalyze={goToAnalysis}
+      />
 
       {/* 统计卡片 */}
       <Row gutter={[16, 16]}>
@@ -605,6 +621,7 @@ export default function Dashboard() {
                       size="small"
                       hoverable
                       actions={[
+                        <Button key="backtest" type="link" size="small" onClick={() => navigate(`/strategy-lab/ma-crossover?symbol=${encodeURIComponent(item.code)}`)}>回测</Button>,
                         <Button type="link" size="small" danger onClick={() => removeFromWatchlist(item.code)}>删除</Button>
                       ]}
                     >

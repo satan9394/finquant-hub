@@ -37,8 +37,11 @@ class BacktestCreate(BaseModel):
     short_window: int = Field(default=20, ge=2, le=200)
     long_window: int = Field(default=50, ge=3, le=250)
     initial_capital: float = Field(default=100_000, gt=0, le=1_000_000_000)
-    commission_bps: float = Field(default=3, ge=0, le=1000)
+    commission_bps: float = Field(default=2.5, ge=0, le=1000)
     slippage_bps: float = Field(default=2, ge=0, le=1000)
+    sell_stamp_duty_bps: float = Field(default=0, ge=0, le=1000)
+    minimum_commission_cny: float = Field(default=0, ge=0, le=10_000)
+    max_drawdown_stop_pct: float = Field(default=0, ge=0, lt=1)
     benchmark: str = Field(default="buy_and_hold", pattern="^buy_and_hold$")
     market_rules: Literal["auto", "none"] = "auto"
     price_limit_ratio: float | None = Field(default=None, gt=0, le=0.5)
@@ -127,6 +130,9 @@ async def _run_job(run_id: int, market: MarketDataService, user_id: int) -> None
             initial_capital=params["initial_capital"],
             commission_bps=params["commission_bps"],
             slippage_bps=params["slippage_bps"],
+            sell_stamp_duty_bps=params.get("sell_stamp_duty_bps", 0),
+            minimum_commission_cny=params.get("minimum_commission_cny", 0),
+            max_drawdown_stop_pct=params.get("max_drawdown_stop_pct", 0),
             symbol=params["symbol"],
             period="1d",
             market_rules=params["market_rules"],
@@ -141,6 +147,9 @@ async def _run_job(run_id: int, market: MarketDataService, user_id: int) -> None
             initial_capital=params["initial_capital"],
             commission_bps=params["commission_bps"],
             slippage_bps=params["slippage_bps"],
+            sell_stamp_duty_bps=params.get("sell_stamp_duty_bps", 0),
+            minimum_commission_cny=params.get("minimum_commission_cny", 0),
+            max_drawdown_stop_pct=params.get("max_drawdown_stop_pct", 0),
             symbol=params["symbol"],
             period="1d",
             market_rules=params["market_rules"],

@@ -87,6 +87,43 @@ async def popular_stocks(request: Request, limit: int = Query(default=20, ge=1, 
         raise HTTPException(502, str(e)) from e
 
 
+@router.get("/movers")
+async def daily_movers(request: Request, limit: int = Query(default=12, ge=1, le=30)) -> dict[str, Any]:
+    try:
+        return await _overview(request).movers(limit)
+    except MarketError as e:
+        raise HTTPException(502, str(e)) from e
+
+
+@router.get("/pulse")
+async def market_pulse(
+    request: Request,
+    limit: int = Query(default=20, ge=5, le=50),
+    threshold_percent: float = Query(default=8, ge=1, le=30),
+    ths_limit: int = Query(default=20, ge=0, le=50),
+) -> dict[str, Any]:
+    """Batch public market dimensions with per-source coverage metadata."""
+    return await _overview(request).pulse(limit, threshold_percent, ths_limit)
+
+
+@router.get("/themes")
+async def market_themes(
+    request: Request,
+    keyword: str = Query(min_length=1, max_length=30),
+    limit: int = Query(default=8, ge=1, le=20),
+    stocks_per_theme: int = Query(default=10, ge=3, le=30),
+    ths_limit: int = Query(default=10, ge=0, le=30),
+    sort_by: Literal["change", "weekly", "capital", "turnover"] = "change",
+) -> dict[str, Any]:
+    """Classify a keyword through full board catalogs and constituent rankings."""
+    try:
+        return await _overview(request).themes(
+            keyword, limit, stocks_per_theme, ths_limit, sort_by,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("/limit-up")
 async def limit_up_pool(request: Request, trading_date: date = Query(alias="date")) -> dict[str, Any]:
     try:

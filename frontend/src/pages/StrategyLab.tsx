@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   Alert, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, List, Row, Space,
-  Statistic, Steps, Table, Tag, Typography, message,
+  Select, Statistic, Steps, Table, Tag, Typography, message,
 } from 'antd';
 import { ExperimentOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import BacktestCharts from '../components/research/BacktestCharts';
@@ -11,7 +11,9 @@ import { validateBacktestForm, type BacktestFormErrors, type BacktestFormValues 
 import {
   createBacktest, fetchBacktest, fetchInstrumentBars, listBacktests, saveBacktest,
 } from '../services/researchApi';
+import { fetchMarketPulse } from '../services/marketDiscoveryApi';
 import type { BacktestRun, BacktestTrade, Bar } from '../types/research';
+import type { WeeklyMarketMover } from '../types';
 
 const { Title, Text, Paragraph } = Typography;
 const runningStates = ['queued', 'loading_data', 'running', 'calculating_metrics'];
@@ -41,10 +43,32 @@ const initialValues = (symbol: string): BacktestFormValues => ({
   short_window: 20,
   long_window: 50,
   initial_capital: 100000,
-  commission_bps: 3,
+  commission_bps: 2.5,
   slippage_bps: 2,
+  sell_stamp_duty_bps: 10,
+  minimum_commission_cny: 5,
+  max_drawdown_stop_pct: 0,
   benchmark: 'buy_and_hold',
 });
+
+const feePresets = {
+  eastmoney_cn: {
+    label: '东方财富证券 A 股参考', commission_bps: 2.5, slippage_bps: 2,
+    sell_stamp_duty_bps: 10, minimum_commission_cny: 5,
+    note: '佣金万 2.5、卖出印花税千 1、单笔最低佣金 ¥5；实际佣金以账户交割单为准。',
+  },
+  custom: {
+    label: '自定义成本', commission_bps: 3, slippage_bps: 2,
+    sell_stamp_duty_bps: 0, minimum_commission_cny: 0,
+    note: '自定义值会写入本次回测参数。',
+  },
+} as const;
+
+const strategyPresets = {
+  steady: { label: '稳健 · MA30/90 · 回撤止损 12%', short_window: 30, long_window: 90, max_drawdown_stop_pct: 0.12 },
+  standard: { label: '标准 · MA20/50 · 不设止损', short_window: 20, long_window: 50, max_drawdown_stop_pct: 0 },
+  active: { label: '进取 · MA10/30 · 回撤止损 8%', short_window: 10, long_window: 30, max_drawdown_stop_pct: 0.08 },
+} as const;
 
 function pct(value: number | null | undefined) {
   return value == null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
@@ -59,6 +83,10 @@ export default function StrategyLab() {
   const [running, setRunning] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [history, setHistory] = useState<BacktestRun[]>([]);
+  const [feePreset, setFeePreset] = useState<keyof typeof feePresets>('eastmoney_cn');
+  const [strategyPreset, setStrategyPreset] = useState<keyof typeof strategyPresets>('standard');
+  const [referenceCandidates, setReferenceCandidates] = useState<WeeklyMarketMover[]>([]);
+  const [referenceLoading, setReferenceLoading] = useState(true);
   const pollToken = useRef(0);
 
   const loadHistory = async () => {
@@ -71,10 +99,62 @@ export default function StrategyLab() {
 
   useEffect(() => { void loadHistory(); }, []);
 
+  const loadReferences = async () => {
+    setReferenceLoading(true);
+    try {
+      const pulse = await fetchMarketPulse(12, 8, 0);
+      setReferenceCandidates([...(pulse.sections.weekly.items ?? [])]
+        .sort((a, b) => Math.abs(b.weekly_change_percent) - Math.abs(a.weekly_change_percent))
+        .slice(0, 6));
+    } catch {
+      setReferenceCandidates([]);
+    } finally {
+      setReferenceLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadReferences(); }, []);
+
   const update = <K extends keyof BacktestFormValues>(key: K, value: BacktestFormValues[K]) => {
     setValues((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
+
+  const chooseReference = async (item: WeeklyMarketMover) => {
+    try {
+      const history = await fetchInstrumentBars(item.code, 60);
+      if (history.items.length < 60) throw new Error('历史数据不足');
+      update('symbol', item.code.toUpperCase());
+      message.success(`已带入 ${item.name}，历史 K 线可用于回测`);
+    } catch {
+      message.warning(`${item.name} 当前公开历史 K 线不足，保留为观察候选，不带入回测。`);
+    }
+  };
+
+  const applyFeePreset = (preset: keyof typeof feePresets) => {
+    setFeePreset(preset);
+    const values = feePresets[preset];
+    setValues((current) => ({
+      ...current,
+      commission_bps: values.commission_bps,
+      slippage_bps: values.slippage_bps,
+      sell_stamp_duty_bps: values.sell_stamp_duty_bps,
+      minimum_commission_cny: values.minimum_commission_cny,
+    }));
+  };
+
+  const applyStrategyPreset = (preset: keyof typeof strategyPresets) => {
+    setStrategyPreset(preset);
+    const selected = strategyPresets[preset];
+    setValues((current) => ({ ...current, ...selected }));
+  };
+
+  const watchedSymbols = useMemo(() => {
+    try {
+      const items = JSON.parse(localStorage.getItem('finquant_watchlist') || '[]') as Array<{ code: string; name: string }>;
+      return items.slice(0, 12);
+    } catch { return []; }
+  }, []);
 
   const poll = async (id: number, token: number) => {
     for (let attempt = 0; attempt < 240 && pollToken.current === token; attempt += 1) {
@@ -146,6 +226,14 @@ export default function StrategyLab() {
     return Math.max(0, ['queued', 'loading_data', 'running', 'calculating_metrics', 'completed'].indexOf(run.status));
   }, [run]);
 
+  const decision = useMemo(() => {
+    if (run?.status !== 'completed' || !run.metrics) return null;
+    const robust = run.metrics.total_return > 0 && run.metrics.max_drawdown >= -0.2 && run.metrics.trade_count >= 5;
+    return robust
+      ? { type: 'success' as const, message: '可继续验证', description: '收益为正、回撤受控且交易样本足够；仍需结合稳健性统计和真实账户成本判断。' }
+      : { type: 'warning' as const, message: '暂不建议据此交易', description: '当前收益、回撤或交易样本未达到基础门槛；可比较策略预设和更长区间，而非据此下单。' };
+  }, [run]);
+
   const tradeColumns = [
     { title: '买入日', dataIndex: 'entry_time', key: 'entry_time' },
     { title: '卖出日', dataIndex: 'exit_time', key: 'exit_time' },
@@ -164,6 +252,37 @@ export default function StrategyLab() {
         <Title level={2}><ExperimentOutlined /> 双均线策略实验室</Title>
         <Paragraph>信号在当日收盘确认，下一交易日开盘执行；结果扣除佣金与滑点，不触发真实交易。</Paragraph>
       </section>
+
+      <Card
+        title="我的自选股"
+        className="surface-card"
+        style={{ marginBottom: 18 }}
+      >
+        <Paragraph type="secondary" style={{ marginTop: 0 }}>优先从已跟踪的标的开始；点击后会带入本次回测。</Paragraph>
+        <Space wrap>
+          {watchedSymbols.map((item) => <Button key={item.code} onClick={() => update('symbol', item.code.toUpperCase())}>{item.name} · {item.code.toUpperCase()}</Button>)}
+          {!watchedSymbols.length && <Text type="secondary">尚无自选股，可先从仪表盘搜索并添加。</Text>}
+        </Space>
+      </Card>
+
+      <Card
+        title="从市场雷达选择参考标的"
+        className="surface-card"
+        style={{ marginBottom: 18 }}
+        extra={<Button size="small" icon={<ReloadOutlined spin={referenceLoading} />} onClick={() => void loadReferences()}>刷新候选</Button>}
+      >
+        <Paragraph type="secondary" style={{ marginTop: 0 }}>
+          候选来自东方财富周异动公开数据，默认按一周绝对涨跌幅降序。它们只是研究起点；带入后仍需查看回测、回撤和稳健性。
+        </Paragraph>
+        <Space wrap>
+          {referenceCandidates.map((item) => (
+            <Button key={item.code} onClick={() => void chooseReference(item)}>
+              {item.name} · 周{pct(item.weekly_change_percent / 100)}
+            </Button>
+          ))}
+          {!referenceLoading && !referenceCandidates.length && <Text type="secondary">暂无可验证的周异动候选，可直接输入代码。</Text>}
+        </Space>
+      </Card>
 
       <Card title="回测参数" className="surface-card" data-testid="backtest-form">
         <Form layout="vertical">
@@ -188,6 +307,11 @@ export default function StrategyLab() {
                 <InputNumber aria-label="短均线" min={2} value={values.short_window} onChange={(value) => update('short_window', Number(value ?? 0))} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Form.Item label="策略预设">
+                <Select aria-label="策略预设" value={strategyPreset} onChange={applyStrategyPreset} options={Object.entries(strategyPresets).map(([value, preset]) => ({ value, label: preset.label }))} />
+              </Form.Item>
+            </Col>
             <Col xs={12} md={6} xl={3}>
               <Form.Item label="长均线" validateStatus={errors.long_window ? 'error' : ''} help={errors.long_window}>
                 <InputNumber aria-label="长均线" min={3} value={values.long_window} onChange={(value) => update('long_window', Number(value ?? 0))} style={{ width: '100%' }} />
@@ -199,13 +323,33 @@ export default function StrategyLab() {
               </Form.Item>
             </Col>
             <Col xs={12} md={6} xl={4}>
+              <Form.Item label="成本预设">
+                <Select aria-label="成本预设" value={feePreset} onChange={applyFeePreset} options={Object.entries(feePresets).map(([value, preset]) => ({ value, label: preset.label }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={6} xl={4}>
               <Form.Item label="手续费（bps）" validateStatus={errors.commission_bps ? 'error' : ''} help={errors.commission_bps}>
-                <InputNumber aria-label="手续费" min={0} value={values.commission_bps} onChange={(value) => update('commission_bps', Number(value ?? 0))} style={{ width: '100%' }} />
+                <InputNumber aria-label="手续费" min={0} step={0.1} value={values.commission_bps} onChange={(value) => { setFeePreset('custom'); update('commission_bps', Number(value ?? 0)); }} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={12} md={6} xl={4}>
               <Form.Item label="滑点（bps）" validateStatus={errors.slippage_bps ? 'error' : ''} help={errors.slippage_bps}>
-                <InputNumber aria-label="滑点" min={0} value={values.slippage_bps} onChange={(value) => update('slippage_bps', Number(value ?? 0))} style={{ width: '100%' }} />
+                <InputNumber aria-label="滑点" min={0} value={values.slippage_bps} onChange={(value) => { setFeePreset('custom'); update('slippage_bps', Number(value ?? 0)); }} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={6} xl={4}>
+              <Form.Item label="卖出印花税（bps）" validateStatus={errors.sell_stamp_duty_bps ? 'error' : ''} help={errors.sell_stamp_duty_bps}>
+                <InputNumber aria-label="卖出印花税" min={0} value={values.sell_stamp_duty_bps} onChange={(value) => { setFeePreset('custom'); update('sell_stamp_duty_bps', Number(value ?? 0)); }} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={6} xl={4}>
+              <Form.Item label="最低佣金（¥）" validateStatus={errors.minimum_commission_cny ? 'error' : ''} help={errors.minimum_commission_cny}>
+                <InputNumber aria-label="最低佣金" min={0} value={values.minimum_commission_cny} onChange={(value) => { setFeePreset('custom'); update('minimum_commission_cny', Number(value ?? 0)); }} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={6} xl={4}>
+              <Form.Item label="回撤止损（%）" validateStatus={errors.max_drawdown_stop_pct ? 'error' : ''} help={errors.max_drawdown_stop_pct}>
+                <InputNumber aria-label="回撤止损" min={0} max={99} value={values.max_drawdown_stop_pct * 100} onChange={(value) => update('max_drawdown_stop_pct', Number(value ?? 0) / 100)} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={12} md={6} xl={5}>
@@ -220,6 +364,7 @@ export default function StrategyLab() {
             </Col>
           </Row>
         </Form>
+        <Text type="secondary">{feePresets[feePreset].note} 印花税与最低佣金仅对 A 股规则生效；回撤止损为 0 时关闭，开启后收盘触发、下一交易日开盘尝试退出。</Text>
       </Card>
 
       <Card title="已保存回测" className="surface-card" style={{ marginTop: 18 }} data-testid="saved-backtests">
@@ -259,6 +404,8 @@ export default function StrategyLab() {
               {run.is_saved ? '已保存' : '保存结果'}
             </Button>
           </div>
+
+          {decision && <Alert type={decision.type} showIcon message={decision.message} description={decision.description} style={{ marginBottom: 14 }} />}
 
           <Row gutter={[12, 12]}>
             {[
@@ -333,7 +480,13 @@ export default function StrategyLab() {
                   <Descriptions.Item label="标的">{run.symbol}</Descriptions.Item>
                   <Descriptions.Item label="区间">{run.params.start_date} 至 {run.params.end_date}</Descriptions.Item>
                   <Descriptions.Item label="均线">MA{run.params.short_window} / MA{run.params.long_window}</Descriptions.Item>
-                  <Descriptions.Item label="费用">佣金 {run.params.commission_bps} bps + 滑点 {run.params.slippage_bps} bps</Descriptions.Item>
+                <Descriptions.Item label="费用">佣金 {run.params.commission_bps} bps + 滑点 {run.params.slippage_bps} bps</Descriptions.Item>
+                  <Descriptions.Item label="A股税费">卖出印花税 {run.params.sell_stamp_duty_bps ?? 0} bps · 最低佣金 ¥{run.params.minimum_commission_cny ?? 0}</Descriptions.Item>
+                  <Descriptions.Item label="回撤控制">
+                    {run.risk_controls?.max_drawdown_stop_pct
+                      ? `${pct(run.risk_controls.max_drawdown_stop_pct)} · 触发 ${run.risk_controls.trigger_count} 次`
+                      : '关闭（仅报告回撤）'}
+                  </Descriptions.Item>
                   <Descriptions.Item label="交易规则">
                     {run.execution_rules?.market === 'CN'
                       ? `A股 T+1 · 禁做空 · 涨跌停 ${pct(run.execution_rules.price_limit_ratio)}`
@@ -348,7 +501,7 @@ export default function StrategyLab() {
               </Card>
               <Card title="回测警告" className="surface-card" style={{ marginTop: 18 }}>
                 <Space wrap>{(run.warnings?.length ? run.warnings : ['none']).map((warning) => (
-                  <Tag key={warning} color={warning === 'none' ? 'green' : 'gold'}>{warning === 'none' ? '无警告' : warningLabels[warning] ?? warning}</Tag>
+                  <Tag key={warning} color={warning === 'none' ? 'green' : 'gold'}>{warning === 'none' ? '无警告' : warning === 'max_drawdown_stop_triggered' ? '回撤止损已触发' : warningLabels[warning] ?? warning}</Tag>
                 ))}</Space>
               </Card>
             </Col>

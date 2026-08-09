@@ -858,13 +858,16 @@ class TestQuantResearchV2:
         body = {
             "symbol": "AAPL", "start_date": "2026-01-01", "end_date": "2026-05-30",
             "short_window": 5, "long_window": 15, "initial_capital": 100000,
-            "commission_bps": 3, "slippage_bps": 2, "benchmark": "buy_and_hold",
+            "commission_bps": 3, "slippage_bps": 2, "sell_stamp_duty_bps": 10,
+            "minimum_commission_cny": 5, "benchmark": "buy_and_hold",
         }
         created = await client.post("/api/backtests", json=body)
         assert created.status_code == 202
         detail = (await client.get(f"/api/backtests/{created.json()['id']}")).json()
         assert detail["status"] == "completed"
         assert detail["metrics"]["trade_count"] > 0
+        assert detail["params"]["sell_stamp_duty_bps"] == 10
+        assert detail["params"]["minimum_commission_cny"] == 5
         assert len(detail["equity_curve"]) == 120
         assert detail["provenance"]["provider"] == "test_provider"
         trades = (await client.get(f"/api/backtests/{detail['id']}/trades")).json()["items"]
@@ -1055,6 +1058,18 @@ class TestCoverageCriticalRoutes:
         async def popular(self, limit):
             return {"items": [{"rank": 1, "code": "sh600519"}]}
 
+        async def pulse(self, limit, threshold_percent, ths_limit):
+            return {
+                "status": "ok", "limit": limit,
+                "threshold_percent": threshold_percent, "ths_limit": ths_limit,
+            }
+
+        async def themes(self, keyword, limit, stocks_per_theme, ths_limit, sort_by):
+            return {
+                "keyword": keyword, "limit": limit, "stocks_per_theme": stocks_per_theme,
+                "ths_limit": ths_limit, "sort_by": sort_by, "themes": [],
+            }
+
         async def limit_up(self, trading_date):
             return {"date": trading_date.isoformat(), "items": []}
 
@@ -1076,6 +1091,8 @@ class TestCoverageCriticalRoutes:
         monkeypatch.setattr(MarketOverviewService, "overview", overview)
         monkeypatch.setattr(MarketOverviewService, "sectors", sectors)
         monkeypatch.setattr(MarketOverviewService, "popular", popular)
+        monkeypatch.setattr(MarketOverviewService, "pulse", pulse)
+        monkeypatch.setattr(MarketOverviewService, "themes", themes)
         monkeypatch.setattr(MarketOverviewService, "limit_up", limit_up)
         monkeypatch.setattr(app.state.market, "prefetch_quotes", prefetch)
         monkeypatch.setattr(market_router, "create_market_review", create_review)
@@ -1085,6 +1102,14 @@ class TestCoverageCriticalRoutes:
         assert (await client.get("/api/market/overview?market=us")).json()["market"] == "us"
         assert (await client.get("/api/market/sectors?kind=concept&limit=3")).json()["kind"] == "concept"
         assert (await client.get("/api/market/popular?limit=3")).json()["items"][0]["rank"] == 1
+        pulse_response = await client.get(
+            "/api/market/pulse?limit=10&threshold_percent=6&ths_limit=4"
+        )
+        assert pulse_response.json()["ths_limit"] == 4
+        theme_response = await client.get(
+            "/api/market/themes?keyword=机器人&limit=4&stocks_per_theme=6&ths_limit=2&sort_by=capital"
+        )
+        assert theme_response.json()["sort_by"] == "capital"
         assert (await client.get("/api/market/limit-up?date=2026-07-31")).json()["date"] == "2026-07-31"
         assert (await client.post("/api/market/prefetch", json={"tickers": ["AAPL"]})).status_code == 200
 
