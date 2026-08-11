@@ -52,6 +52,7 @@ async def test_get_client_uses_database_key_and_defaults(monkeypatch):
     assert client.api_key == "database-secret"
     assert client.temperature == 0.7
     assert client.max_tokens == 4096
+    assert client.proxy_url == (model_router.config.LLM_PROXY_URL or None)
 
 
 @pytest.mark.asyncio

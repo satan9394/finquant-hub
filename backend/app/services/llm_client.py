@@ -29,6 +29,7 @@ class LLMClient:
         max_tokens: int = 4096,
         timeout: float = 120.0,
         context_budget: int = DEFAULT_CONTEXT_BUDGET,
+        proxy_url: str | None = None,
     ):
         if context_budget < 256:
             raise ValueError("context_budget 不能小于 256")
@@ -39,6 +40,7 @@ class LLMClient:
         self.max_tokens = max_tokens
         self.timeout = timeout
         self.context_budget = context_budget
+        self.proxy_url = proxy_url
 
     def _payload(self, messages: list[JSONDict], stream: bool) -> JSONDict:
         payload = {
@@ -66,11 +68,19 @@ class LLMClient:
             "Authorization": f"Bearer {self.api_key}",
         }
 
+    def _http_client(self) -> httpx.AsyncClient:
+        """Use the configured LLM proxy without inheriting unrelated proxy ports."""
+        return httpx.AsyncClient(
+            timeout=self.timeout,
+            proxy=self.proxy_url or None,
+            trust_env=not bool(self.proxy_url),
+        )
+
     async def chat(self, messages: list[JSONDict]) -> tuple[str, int | None]:
         """非流式调用，返回 (全文, total_tokens)。"""
         url = f"{self.base_url}/chat/completions"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as http:
+            async with self._http_client() as http:
                 resp = await http.post(url, json=self._payload(messages, False), headers=self._headers())
         except httpx.HTTPError as e:
             raise LLMError(f"网络错误：{e}") from e
@@ -101,7 +111,7 @@ class LLMClient:
             payload["tools"] = tools
         url = f"{self.base_url}/chat/completions"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as http:
+            async with self._http_client() as http:
                 resp = await http.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as e:
             raise LLMError(f"网络错误：{e}") from e
@@ -148,7 +158,7 @@ class LLMClient:
             payload["tools"] = tools
         url = f"{self.base_url}/chat/completions"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as http:
+            async with self._http_client() as http:
                 resp = await http.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as e:
             raise LLMError(f"网络错误：{e}") from e
@@ -259,7 +269,7 @@ class LLMClient:
         url = f"{self.base_url}/chat/completions"
         usage: JSONDict = {}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as http:
+            async with self._http_client() as http:
                 async with http.stream(
                     "POST", url, json=self._payload(messages, True), headers=self._headers()
                 ) as resp:

@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app import config, database, main as main_module
 from app.routers import analysis as analysis_router
+from app.routers import discussion as discussion_router
 from app.routers import research as research_router
 from app.routers import swarm as swarm_router
 from app.main import app
@@ -324,6 +325,24 @@ class TestDiscussion:
         r = await client.post("/api/discussion/rooms", json={
             "topic": "测试", "role_keys": ["value_investor", "tech_analyst"], "total_rounds": 1})
         assert r.status_code == 422  # MULTI-01 至少 3 个角色
+
+    @pytest.mark.asyncio
+    async def test_discussion_failure_is_persisted_and_can_be_retried(self, client, monkeypatch):
+        async def failed_stream(_room, _model_id):
+            yield {"event": "error", "data": json.dumps({"error": "网络错误：上游断开"}, ensure_ascii=False)}
+
+        monkeypatch.setattr(discussion_router, "stream_discussion", failed_stream)
+        created = await client.post("/api/discussion/rooms", json={
+            "topic": "失败状态测试", "role_keys": ["value_investor", "tech_analyst", "risk_manager"],
+            "total_rounds": 1,
+        })
+        room_id = created.json()["id"]
+        async with client.stream("POST", f"/api/discussion/rooms/{room_id}/start") as response:
+            events = await _collect_sse(response)
+
+        assert events == [("error", {"error": "网络错误：上游断开", "message": "网络错误：上游断开"})]
+        detail = (await client.get(f"/api/discussion/rooms/{room_id}")).json()
+        assert detail["room"]["current_phase"] == "failed"
 
 
 class TestDashboard:

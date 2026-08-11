@@ -129,7 +129,9 @@ export default function Discussion() {
       await readSSE<DiscussionStreamData>(response.body, ({ event, data }) => {
         if (event === 'agent_start') accumulatedContent = '';
         if (event === 'error') {
-          message.error(data.error ?? data.message ?? '讨论请求失败');
+          const errorText = data.error ?? data.message ?? '讨论请求失败';
+          setRoomDetail((prev) => prev ? { ...prev, current_phase: 'failed' } : prev);
+          message.error(errorText);
           return;
         }
         if (data.agent && data.name && data.round !== undefined) {
@@ -213,8 +215,8 @@ export default function Discussion() {
                 <div style={{ fontSize: 11, color: '#888' }}>
                   {room.participants.map((p) => p.name).join('、')} · Round {room.total_rounds}
                 </div>
-                <Tag color={room.current_phase === 'done' ? 'green' : 'blue'} style={{ marginTop: 4 }}>
-                  {room.current_phase === 'done' ? '已完成' : '进行中'}
+                <Tag color={room.current_phase === 'done' ? 'green' : room.current_phase === 'failed' ? 'red' : 'blue'} style={{ marginTop: 4 }}>
+                  {room.current_phase === 'done' ? '已完成' : room.current_phase === 'failed' ? '失败，可重试' : '进行中'}
                 </Tag>
               </div>
             </List.Item>

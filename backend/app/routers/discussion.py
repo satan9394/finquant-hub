@@ -94,6 +94,10 @@ async def start_room(room_id: int, user: CurrentUser) -> EventSourceResponse:
                 if event.get("event") == "error":
                     data = json.loads(event["data"])
                     message = data.get("error") or data.get("message") or "讨论编排错误"
+                    await database.execute(
+                        "UPDATE discussion_rooms SET current_phase='failed' WHERE id=? AND user_id=?",
+                        (room_id, user_id),
+                    )
                     yield {
                         "event": "error",
                         "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),

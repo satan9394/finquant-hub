@@ -22,6 +22,8 @@ def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash")
+LLM_PROXY_URL = os.getenv("LLM_PROXY_URL", "").strip()
+NEWS_PROXY_URL = os.getenv("NEWS_PROXY_URL", "").strip()
 
 DB_PATH = BASE_DIR / "data" / "finquant.db"
 HOST = os.getenv("HOST", "127.0.0.1")

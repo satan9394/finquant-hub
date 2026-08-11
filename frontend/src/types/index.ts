@@ -137,7 +137,7 @@ export interface DiscussionRoom {
   topic: string;
   participants: DiscussionParticipant[];
   total_rounds: number;
-  current_phase: 'active' | 'done';
+  current_phase: 'active' | 'done' | 'failed';
   summary: string | null;
   created_at: string;
 }

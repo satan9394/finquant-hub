@@ -43,6 +43,44 @@ async def test_aggregate_normalizes_and_deduplicates_multiple_sources(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_google_news_rss_normalizes_source_and_description():
+    rss = """<?xml version='1.0'?><rss><channel><item>
+    <title>茅台公告</title><link>https://news.example/item</link><pubDate>Sun, 10 Aug 2026 08:00:00 GMT</pubDate>
+    <description>&lt;b&gt;摘要&lt;/b&gt;</description><source>财经媒体</source>
+    </item></channel></rss>"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url).startswith("https://news.google.com/rss/search")
+        return httpx.Response(200, content=rss.encode(), headers={"content-type": "application/xml"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        service = NewsSearchService(http, providers=("google_news",))
+        result = await service.search("贵州茅台")
+
+    assert result["providers_used"] == ["google_news"]
+    assert result["news"] == [{
+        "title": "茅台公告", "source": "财经媒体", "published_at": "Sun, 10 Aug 2026 08:00:00 GMT",
+        "url": "https://news.example/item", "snippet": "摘要", "provider": "google_news",
+    }]
+
+
+@pytest.mark.asyncio
+async def test_google_news_retries_transient_status_once():
+    responses = [httpx.Response(503), httpx.Response(200, content=b"<rss><channel /></rss>")]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        service = NewsSearchService(http, providers=("google_news",))
+        result = await service.search("贵州茅台")
+
+    assert result["providers_used"] == []
+    assert result["errors"] == {}
+    assert len(responses) == 0
+
+
+@pytest.mark.asyncio
 async def test_fallback_records_failure_then_uses_next_provider(monkeypatch):
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "secret")
 

@@ -69,7 +69,7 @@ export default function DiscussionTimeline({ room, messages, currentAgent }: Dis
         <Text strong>{room.topic}</Text>
         <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
           参与角色: {room.participants.map((p) => p.name).join('、')}
-          · 共 {room.total_rounds} 轮 · 状态: {room.current_phase === 'done' ? '已完成' : '进行中'}
+          · 共 {room.total_rounds} 轮 · 状态: {room.current_phase === 'done' ? '已完成' : room.current_phase === 'failed' ? '失败，可重试' : '进行中'}
         </div>
         {room.summary && (
           <div style={{ marginTop: 8, padding: 8, background: '#fffbe6', borderRadius: 4, fontSize: 13 }}>

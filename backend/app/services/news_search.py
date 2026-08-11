@@ -5,12 +5,15 @@ import asyncio
 import html
 import os
 import re
+import xml.etree.ElementTree as ET
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
 
-_PROVIDERS = ("tavily", "serpapi", "bocha", "brave", "searxng", "sina")
+from .. import config
+
+_PROVIDERS = ("tavily", "serpapi", "bocha", "brave", "searxng", "google_news", "sina")
 _TIMEOUT = httpx.Timeout(12.0, connect=5.0)
 NewsItem = dict[str, Any]
 
@@ -40,10 +43,13 @@ class NewsSearchService:
         self.credentials = credentials or {}
         self.http = http or httpx.AsyncClient(timeout=_TIMEOUT, trust_env=False)
         self._owns_http = http is None
+        self._google_http: httpx.AsyncClient | None = None
 
     async def aclose(self) -> None:
         if self._owns_http:
             await self.http.aclose()
+        if self._google_http is not None:
+            await self._google_http.aclose()
 
     def _enabled(self, provider: str) -> bool:
         requirements = {
@@ -131,6 +137,7 @@ class NewsSearchService:
             "bocha": self._bocha,
             "brave": self._brave,
             "searxng": self._searxng,
+            "google_news": self._google_news,
             "sina": self._sina,
         }
         return await handlers[provider](keyword, limit)
@@ -177,6 +184,42 @@ class NewsSearchService:
         )
         response.raise_for_status()
         return self._normalize("searxng", response.json().get("results", [])[:limit])
+
+    async def _google_news(self, keyword: str, limit: int) -> list[NewsItem]:
+        """Use Google News RSS as a keyless fallback while retaining source links."""
+        http = self.http
+        if self._owns_http and config.NEWS_PROXY_URL:
+            if self._google_http is None:
+                self._google_http = httpx.AsyncClient(
+                    timeout=_TIMEOUT,
+                    trust_env=False,
+                    proxy=config.NEWS_PROXY_URL,
+                )
+            http = self._google_http
+        for attempt in range(2):
+            response = await http.get(
+                "https://news.google.com/rss/search",
+                params={"q": keyword, "hl": "zh-CN", "gl": "CN", "ceid": "CN:zh-Hans"},
+                headers={"User-Agent": "FinQuantHub/1.0"},
+            )
+            try:
+                response.raise_for_status()
+                break
+            except httpx.HTTPStatusError:
+                if attempt == 1 or response.status_code not in {429, 500, 502, 503, 504}:
+                    raise
+                await asyncio.sleep(0.25)
+        root = ET.fromstring(response.content)
+        items = []
+        for item in root.findall("./channel/item")[:limit]:
+            items.append({
+                "title": item.findtext("title"),
+                "source": item.findtext("source") or item.findtext("{https://news.google.com/rss}source") or "Google News",
+                "published_at": item.findtext("pubDate"),
+                "url": item.findtext("link"),
+                "content": item.findtext("description"),
+            })
+        return self._normalize("google_news", items)
 
     async def _sina(self, keyword: str, limit: int) -> list[NewsItem]:
         response = await self.http.get(

@@ -24,6 +24,25 @@ def test_client_payload_headers_and_context_validation():
 
 
 @pytest.mark.asyncio
+async def test_client_uses_explicit_proxy_without_inheriting_environment(monkeypatch):
+    captured = {}
+    original = httpx.AsyncClient
+
+    def handler(_request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    def factory(*args, **kwargs):
+        captured.update(kwargs)
+        return original(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", factory)
+    client = LLMClient("https://llm.test", "key", "model", proxy_url="http://127.0.0.1:7890")
+    assert (await client.chat([]))[0] == "ok"
+    assert captured["proxy"] == "http://127.0.0.1:7890"
+    assert captured["trust_env"] is False
+
+
+@pytest.mark.asyncio
 async def test_chat_success_and_api_error(monkeypatch):
     recorded = []
     responses = [

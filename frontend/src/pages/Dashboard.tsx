@@ -507,8 +507,8 @@ export default function Dashboard() {
                   onClick={() => navigate('/discussion')}
                 >
                   <Text ellipsis>{item.topic}</Text>
-                  <Tag color={item.current_phase === 'done' ? 'green' : 'blue'}>
-                    {item.current_phase === 'done' ? '已完成' : '进行中'}
+                  <Tag color={item.current_phase === 'done' ? 'green' : item.current_phase === 'failed' ? 'red' : 'blue'}>
+                    {item.current_phase === 'done' ? '已完成' : item.current_phase === 'failed' ? '失败，可重试' : '进行中'}
                   </Tag>
                 </List.Item>
               )}

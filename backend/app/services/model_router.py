@@ -5,7 +5,7 @@ API Key 解析优先级：数据库 api_key 字段 > 环境变量（api_key_env 
 import os
 from typing import Any
 
-from .. import database
+from .. import config, database
 from .auth import current_user_id
 from .credential_store import get_credential
 from .llm_client import LLMClient, LLMError
@@ -45,5 +45,6 @@ async def get_client(model_id: int | None = None, *, user_id: int | None = None)
         model=cfg["model_name"],
         temperature=cfg.get("temperature") or 0.7,
         max_tokens=cfg.get("max_tokens") or 4096,
+        proxy_url=config.LLM_PROXY_URL or None,
     )
     return client, cfg
