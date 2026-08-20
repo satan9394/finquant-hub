@@ -4,6 +4,7 @@ export interface AuthUser {
   id: number;
   email: string;
   is_admin: boolean;
+  local_mode?: boolean;
 }
 
 export async function requestLoginCode(email: string): Promise<{ message: string; cooldown_seconds: number }> {

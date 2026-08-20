@@ -3,7 +3,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.routers.auth import get_current_user
-from app.services.alpha_service import list_fields, search_alpha
+from app.services.alpha_service import catalogue_metadata, list_fields, search_alpha
 
 
 @pytest.fixture(autouse=True)
@@ -32,20 +32,19 @@ def test_search_alpha_does_not_score_partial_chinese_characters():
 def test_search_alpha_bounds_empty_query_by_default():
     results = search_alpha("")
 
-    assert len(results) == 10
-    assert len(list_fields()) > len(results)
+    assert len(results) == min(10, len(list_fields()))
     assert search_alpha(None) == results
 
 
 def test_search_alpha_limits_empty_query_when_requested():
     results = search_alpha("", max_results=10)
 
-    assert len(results) == 10
+    assert len(results) == min(10, len(list_fields()))
     assert results == search_alpha(None, max_results=10)
 
 
 def test_search_alpha_caps_direct_callers():
-    assert len(search_alpha("", max_results=10_000)) == 100
+    assert len(search_alpha("", max_results=10_000)) == min(100, len(list_fields()))
 
 
 @pytest.mark.asyncio
@@ -55,6 +54,7 @@ async def test_search_endpoint_bounds_empty_query():
 
     assert response.status_code == 200
     assert response.json()["total"] == 7
+    assert response.json()["catalogue"]["schema_version"] == "alpha-catalogue/v1"
 
 
 @pytest.mark.asyncio
@@ -69,8 +69,26 @@ async def test_template_and_local_simulation_endpoints():
 
     assert templates.status_code == 200
     assert templates.json()["total"] == 5
+    expected_redistribution = (
+        "UNKNOWN" if catalogue_metadata()["mode"] == "BUNDLED_EXTERNAL" else "PROJECT_AUTHORED"
+    )
+    assert templates.json()["catalogue"]["redistribution_status"] == expected_redistribution
     assert simulation.status_code == 200
     assert simulation.json()["period_returns"] == pytest.approx([0.02])
+
+
+@pytest.mark.asyncio
+async def test_starter_catalogue_keeps_templates_available(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.alpha_service._WQ_FIELDS_PATH", tmp_path / "missing.json")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        categories = await client.get("/api/wq/categories")
+        templates = await client.get("/api/wq/templates")
+
+    assert categories.json()["catalogue"]["data_status"] == "PARTIAL"
+    assert categories.json()["catalogue"]["source"] == "finquant.starter"
+    assert templates.json()["total"] == 5
+    assert templates.json()["catalogue"]["mode"] == "FINQUANT_STARTER"
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any
+from typing import Any, Protocol, TypedDict, cast
 
 from .. import database
 
@@ -13,6 +13,31 @@ _QUERY_RUN = re.compile(
 _MAX_QUERY_CHARS = 500
 _MAX_MATCH_TERMS = 24
 _MAX_RESULT_LIMIT = 10
+
+
+class MemoryCandidate(TypedDict):
+    message_id: int
+    conversation_id: int
+    conversation_title: str | None
+    mode: str
+    role: str
+    agent_name: str | None
+    content: str
+    created_at: str
+    rank: float
+
+
+class MemoryProvider(Protocol):
+    async def search(
+        self,
+        query: str,
+        *,
+        user_id: int,
+        exclude_conversation_id: int | None = None,
+        limit: int = 4,
+    ) -> list[MemoryCandidate]: ...
+
+    def render_context(self, candidates: list[MemoryCandidate], *, char_budget: int = 2400) -> str: ...
 
 
 def normalize_for_search(value: str | None) -> str:
@@ -54,7 +79,7 @@ async def search_cross_session_memory(
     user_id: int,
     exclude_conversation_id: int | None = None,
     limit: int = 4,
-) -> list[dict[str, Any]]:
+) -> list[MemoryCandidate]:
     """检索历史单聊与讨论消息，并可排除当前会话。"""
     if not 1 <= limit <= _MAX_RESULT_LIMIT:
         raise ValueError(f"limit 必须在 1 到 {_MAX_RESULT_LIMIT} 之间")
@@ -90,11 +115,11 @@ async def search_cross_session_memory(
         """,
         params,
     )
-    return rows
+    return [cast(MemoryCandidate, row) for row in rows]
 
 
 def render_memory_context(
-    hits: list[dict[str, Any]],
+    hits: list[MemoryCandidate] | list[dict[str, Any]],
     *,
     char_budget: int = 2400,
 ) -> str:
@@ -126,3 +151,28 @@ def render_memory_context(
         lines.append(line)
         used += len(line) + 1
     return header + "\n".join(lines) if lines else ""
+
+
+class NativeFTSMemoryProvider:
+    """Project-owned adapter over the current SQLite FTS5 behavior."""
+
+    async def search(
+        self,
+        query: str,
+        *,
+        user_id: int,
+        exclude_conversation_id: int | None = None,
+        limit: int = 4,
+    ) -> list[MemoryCandidate]:
+        return await search_cross_session_memory(
+            query,
+            user_id=user_id,
+            exclude_conversation_id=exclude_conversation_id,
+            limit=limit,
+        )
+
+    def render_context(self, candidates: list[MemoryCandidate], *, char_budget: int = 2400) -> str:
+        return render_memory_context(candidates, char_budget=char_budget)
+
+
+native_memory_provider: MemoryProvider = NativeFTSMemoryProvider()

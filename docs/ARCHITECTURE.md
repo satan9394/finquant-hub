@@ -10,19 +10,19 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 ┌─────────────────────────────────────────────────────────┐
 │                       浏览器层                           │
 │  React 18 + Ant Design 5 + lightweight-charts           │
-│  15 页面 | axios 统一代理 | React.lazy 代码分割            │
+│  17 路由页面 | axios 统一代理 | React.lazy 代码分割         │
 │  单 api.ts 实例 (/api/*)                               │
 ├─────────────────────────────────────────────────────────┤
 │                    Vite 开发代理 (5173 → 8000)            │
 ├─────────────────────────────────────────────────────────┤
-│                     路由层 (20 个 APIRouter)              │
-│  /api/chat  /api/discussion  /api/market  /api/analysis  │
-│  /api/research  /api/portfolio  /api/backtest(s)        │
-│  /api/agents  /api/models  /api/screening               │
-│  /api/instruments  /api/dashboard  /api/wq               │
+│                     路由层 (23 个 APIRouter)              │
+│  /api/auth  /api/me/credentials  /api/models  /api/agents│
+│  /api/chat  /api/discussion  /api/market  /api/dashboard │
+│  /api/analysis  /api/portfolio  /api/wq  /api/research   │
+│  /api/screening  /api/backtest(s)  /api/instruments     │
 │  /api/swarm /api/notifications /api/alerts /api/mcp      │
-│  /api/settings                                            │
-│  全部在 main.py 单循环注册，无自动发现                    │
+│  /api/settings  /api/usage  /api/thesis                  │
+│  auth 独立注册，其余路由统一附加认证依赖；无自动发现       │
 ├─────────────────────────────────────────────────────────┤
 │                     服务层                                │
 │  ┌──────────────────────────────────────────────────┐   │
@@ -54,7 +54,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 │  ToolRegistry 单例 + BaseTool 抽象基类                  │
 ├─────────────────────────────────────────────────────────┤
 │                     数据层                                │
-│  aiosqlite 单连接 + WAL + database.py 统一初始化 28 张表  │
+│  aiosqlite 单连接 + WAL + schema v23（52 张逻辑表）       │
 │  database.query_one/query_all/execute 直接 SQL 调用     │
 ├─────────────────────────────────────────────────────────┤
 │                     外部API                               │
@@ -72,12 +72,13 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 
 **实现位置**：`backend/app/main.py`
 
-所有 20 个路由器通过一个 for 循环扁平注册，无嵌套挂载、无前缀冲突检测、无自动发现机制。每个路由器各自定义 `prefix` 和 `tags`。
+`auth.router` 独立注册；其余 22 个业务路由器通过一个 for 循环扁平注册，并统一附加 `authenticated_context`。系统无嵌套挂载、无前缀冲突检测、无自动发现机制。每个路由器各自定义 `prefix` 和 `tags`。
 
 ```python
 # 核心逻辑（实际代码）
-for r in (models_crud.router, agents.router, chat.router, ...):
-    app.include_router(r)
+app.include_router(auth.router)
+for r in (credentials.router, models_crud.router, agents.router, ...):
+    app.include_router(r, dependencies=[Depends(auth.authenticated_context)])
 ```
 
 **关键特征**：
@@ -204,11 +205,33 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 **关键意义**：v2 不仅把长计算移到异步状态机，还承担真实市场执行约束与稳健性验证。v1 保留为兼容入口，不应作为 A 股可成交性结论依据。涨跌停价从板块规则与前收盘推导，ST、上市初期例外需显式传入 `price_limit_ratio`；复权行情可能扭曲历史涨跌停推断，结果会公开该假设。
 
+`strategy-ir/v1` 位于 v2 router 前的纯解析边界：它只把明确的单标的日线 MA crossover 描述映射为有限枚举、有界窗口、逐条件解释和 canonical key。`ma-crossover-draft/v1` 仅把 canonical IR 可逆映射为 symbol、快慢窗口和固定的 close -> next open / long-only 口径；日期、资金、成本、基准和风控不进入 parameters，仍需显式确认。两者均不调用 LLM、不生成代码、不运行或保存回测；Strategy Lab 只有用户点击应用后才更新三个可映射表单字段。
+
+`thesis-validation-experiment/v1` 是 Thesis 到 Strategy Lab 的只读 handoff。API 先用当前用户读取 Thesis，intent 只携带 id/title/规范 ticker、固定 MA crossover 能力和执行口径；均线及所有金融参数保持待确认。URL 只保存 Thesis ID，刷新时重新走 owner-scoped API，不能靠客户端载荷绕过归属检查；创建、恢复和查看均不运行或保存回测。
+
 ### 2.8 统一研究报告模式
 
 **实现位置**：`backend/app/services/report_builder.py` + `prompts/research_memo_prompt.py`
 
 基础研究的 4 位并行 Agent 完成后，由 team-lead 读取全部结果并输出结构化评审。所有研究管线最终收敛到同一个 13 章 `schema_version=2` 报告，保留旧顶层字段兼容历史页面与导出。结构化附录包含四维评分、Bull/Bear、六关 Checklist、长短期四维评分、六维稀缺性和五级挑刺结果；证据不足使用 `unknown`/`null`，不得用占位结论冒充事实。
+
+### 2.9 Paper Portfolio 模拟复盘
+
+`portfolio.py` 在独立 Paper 账本之上提供只读复盘草稿：复用 owner-scoped typed hypothesis 与现有行情估值，模拟收益明确标记为 `COMPUTED_RESULT`，并保留公式、价格/FX 来源、时点和 `OK/PARTIAL/UNKNOWN/UPSTREAM_ERROR`。保存动作必须由用户显式选择 outcome、填写理由/观察窗口/幂等键，并复用 `memory_records.review_outcome` 写成 `USER_HYPOTHESIS`；它不修改原 hypothesis、Thesis 或 confidence，且固定 `causal_proof=false`。非 OK 估值只能保存 inconclusive。
+
+### 2.10 单机 scheduler 恢复语义
+
+schema v23 在既有 `scheduled_research_runs` 上增加稳定 idempotency identity、有限 lease owner/expiry/heartbeat，并以 `scheduled_research_run_events` 保存 append-only claim、heartbeat、recovery、retry 和终态事件。状态转换与事件在同一 SQLite 事务提交；有效 lease 不重复认领。重启时，已有 completed report 的过期 run 只做终态 reconciliation，不重新生成 report/memory/evidence；未完成 run 标为 failed/`UPSTREAM_ERROR`，保留同一 identity 与 retry lineage 后由本机 scheduler 重试。该设计只覆盖单进程 SQLite 恢复，不承诺分布式 exactly-once 或横向扩展。
+
+AIOS-061 的三次临时 SQLite deterministic fixture 基准均通过预设本地 SLO；最差 lifecycle P95 为 4.6498 ms、20-job batch 为 84.3661 ms、20-run recovery 为 8.2897 ms，重复关键写入为 0，失败/恢复记录完整率为 100%。该结果仅度量 scheduler/数据库 bookkeeping，不包含 LLM、行情、网络、真实多人并发或跨进程恢复，因此未触发 PostgreSQL 或 durable queue 决策门。可复核口径见 `docs/ai/SCHEDULER_SLO_BASELINE.md`。
+
+### 2.11 SQLite 备份、恢复与逻辑一致性
+
+AIOS-064 提供离线维护 runner，以 SQLite backup API 从只读 source 创建不可覆盖的新 backup，再恢复到另一个不可覆盖的新文件。source/backup/restore 都执行物理完整性、外键、schema、logical fingerprint 和 row-count 对比；额外审计 canonical evidence input mirror、scheduled run 的 evidence/memory JSON refs、Thesis review evidence refs 及 run/report 双向链接的悬挂、重复与跨 owner 状态。runner 只报告有限定位和计数，不输出业务正文、不自动修复，也不替换权威数据库。实际切换仍要求停止应用并取得单独的破坏性操作授权；详见 `docs/ai/DATABASE_RECOVERY_RUNBOOK.md`。
+
+### 2.12 私有分享预览边界
+
+`share-preview/v1` 由 Thesis 与 saved completed strategy 的 authenticated owner-scoped GET 动态生成，不持久化。Thesis 只输出 `USER_HYPOTHESIS` allowlist 与 metadata-only canonical evidence；strategy 只输出有限参数、`COMPUTED_RESULT` 指标和 persisted provenance，不含 trades/curves/raw bars。用户文本经过 credential/email/JWT 脱敏及输出后二次扫描；许可、时效、质量和 UNKNOWN 状态原样可见。所有响应固定 private/unpublished、无 URL/token/写入，publication gate 始终 BLOCKED，前端只有关闭/重试动作。公开分享仍由 AIOS-071 的隐私、许可和法律决定阻塞；详见 `docs/ai/PRIVATE_SHARE_PREVIEW_CONTRACT.md`。
 
 ## 3. 架构不变量
 
@@ -217,8 +240,8 @@ model_router.get_client(model_id) → (LLMClient, config)
 ### 数据库层
 - **不存在 ORM**：所有数据库操作为原生 SQL，没有 SQLAlchemy 或其他 ORM 层。
 - **不存在连接池**：`aiosqlite` 单连接，`get_db()` 断言全局 `_db` 不为 None。
-- **不存在 ORM 建模入口**：28 张表由 `database.py` 的 `SCHEMA` 与集中初始化步骤创建，仍通过原生 SQL 管理。
-- **不存在迁移框架**：`_migrate_schema()` 使用 `PRAGMA table_info` + `ALTER TABLE ADD COLUMN` 的朴素方式实现向后兼容。
+- **不存在 ORM 建模入口**：schema v23 的 52 张逻辑表由 `database.py` 的 `SCHEMA` 与集中迁移步骤创建，仍通过原生 SQL 管理；其中 `memory_fts` 是 FTS5 虚拟表。
+- **不存在外部迁移框架**：`_migrate_schema()` 按 `PRAGMA user_version` 顺序执行显式迁移；简单变更使用 `ALTER TABLE`，需要调整唯一约束时重建目标表。
 
 ### 服务层
 - **不存在独立的 Data Access Layer / Repository**：路由函数直接调用 `database.query_one/query_all/execute`。
@@ -228,7 +251,8 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 ### 前端
 - **不存在每个服务的独立 API 客户端**：所有前端请求通过单一 `api.ts` 的 axios 实例。
-- **邮箱免密认证**：验证码 + HttpOnly Cookie 会话，无密码存储；用户数据完全隔离（各表强制 user_id 归属）；凭据 Fernet 加密。详见 `docs/ai/AUTH_DESIGN.md`。
+- **邮箱免密认证**：验证码 + HttpOnly Cookie 会话，无密码存储；42 张用户业务表强制 `user_id` 归属，`user_credentials` 也按用户隔离且使用 Fernet 加密。目录/系统表按设计共享。详见 `docs/ai/AUTH_DESIGN.md`。
+- **本地单用户模式**：显式设置 `LOCAL_ONLY_MODE=true` 时，development 自动使用单一内部所有者，不创建登录会话、不提供邮箱验证码；production 启动会拒绝该开关。该模式仍保留 `user_id` 归属和凭据加密，只能通过绑定 `127.0.0.1` 的本地 Docker 入口使用。
 - **不存在服务端渲染**：纯 CSR，Vite 仅作开发代理和生产构建。
 
 ### Agent
@@ -372,7 +396,7 @@ main.py (lifespan + router registration)
   │   ├── alerts.py        → alerts service, market_data
   │   ├── mcp.py           → mcp_bridge, mcp_runtime
   │   ├── settings.py      → system_settings
-  │   ├── dashboard.py     → database
+  │   ├── dashboard.py     → decision_inbox → database
   │   ├── models_crud.py   → database
   │   └── agents.py        → database
   └── app.state.market = MarketDataService()
@@ -400,8 +424,8 @@ Router → ticker.py → MarketDataService → 腾讯API
    - `resolve_ticker()` 已复用 `MarketDataService`；`external_symbol()` 仍承担 instruments provider 格式转换。
    - 方案：明确 canonical ticker 与 provider symbol 的边界，避免路由层新增第四套转换。
 
-2. **为集中建表补版本化迁移纪律**
-   - 28 张表已集中到 `database.py`；`llm_usage` 使用 schema version 7 的显式增量步骤，迁移入口仍是 `_migrate_schema()`。
+2. **维持集中建表的版本化迁移纪律**
+   - 52 张逻辑表已集中到 `database.py`；当前目标 schema version 为 23，迁移入口仍是 `_migrate_schema()`。
    - 方案：继续保持单入口，并为不可逆结构变化引入显式 schema version 步骤。
 
 3. **维持 SSE 可观测性纪律**
@@ -442,6 +466,7 @@ Router → ticker.py → MarketDataService → 腾讯API
 
 2. **认证与授权体系（TASK-021～025 已完成）**
    - 当前使用邮箱验证码 + HttpOnly 服务端会话，所有用户数据按 `user_id` 隔离，个人凭据使用 Fernet 加密。
+   - 个人本机运行可使用显式 local-only profile：内部所有者取代登录流程，但不删除生产认证实现或数据归属约束。
    - 后续仅在确有第三方身份联合需求时评估 OAuth；不得用 JWT 或重型认证框架替换现有会话而没有新的架构决策。
 
 3. **WebSocket 替代 SSE（高频率场景）**

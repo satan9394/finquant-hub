@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Button,
+  Alert,
   Card,
   Col,
   Empty,
@@ -29,6 +30,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import apiClient from '../services/api';
 import {
   createAlertRule,
   deleteAlertRule,
@@ -94,6 +96,23 @@ function DirectionTag({ direction }: { direction: AlertDirection | null }) {
 }
 
 export default function Alerts() {
+  const [searchParams] = useSearchParams();
+  const prefillTicker = searchParams.get('ticker')?.trim().toUpperCase() || '';
+  const prefillName = searchParams.get('name')?.trim() || '';
+  const sourceThesisId = Number(searchParams.get('thesis'));
+  const genericTargetId = Number(searchParams.get('target'));
+  const monitorTarget = Number.isInteger(sourceThesisId) && sourceThesisId > 0
+    ? { target_type: 'thesis', target_id: sourceThesisId }
+    : (['portfolio', 'strategy'].includes(searchParams.get('source') || '') && Number.isInteger(genericTargetId) && genericTargetId > 0
+      ? { target_type: searchParams.get('source') as 'portfolio' | 'strategy', target_id: genericTargetId }
+      : null);
+  const portfolioSource = searchParams.get('source') === 'portfolio' ? {
+    name: searchParams.get('portfolio')?.trim() || '未命名组合',
+    metric: searchParams.get('metric')?.trim() || '风险指标',
+    value: searchParams.get('value')?.trim() || 'UNKNOWN',
+    asOf: searchParams.get('as_of')?.trim() || 'UNKNOWN',
+  } : null;
+  const shouldPrefill = searchParams.get('new') === '1' && Boolean(prefillTicker);
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [triggers, setTriggers] = useState<AlertTrigger[]>([]);
   const [signalTypes, setSignalTypes] = useState<string[]>([]);
@@ -102,6 +121,7 @@ export default function Alerts() {
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
+  const [monitorDraft, setMonitorDraft] = useState<any>(null);
   const [triggerFilters, setTriggerFilters] = useState<TriggerFilters>({ limit: 50 });
   const [ruleForm] = Form.useForm<AlertRuleInput>();
   const [filterForm] = Form.useForm<TriggerFilters>();
@@ -136,6 +156,13 @@ export default function Alerts() {
       .catch((error: any) => message.error(error.message));
   }, [loadRules, loadTriggers]);
 
+  useEffect(() => {
+    if (shouldPrefill) {
+      setEditingRule(null);
+      setModalOpen(true);
+    }
+  }, [shouldPrefill]);
+
   const hydrateRuleForm = () => {
     if (editingRule) {
       ruleForm.setFieldsValue({
@@ -148,11 +175,12 @@ export default function Alerts() {
       return;
     }
     ruleForm.resetFields();
-    ruleForm.setFieldsValue({ signal_type: '*', direction: null, is_enabled: true });
+    ruleForm.setFieldsValue({ name: prefillName, ticker: prefillTicker, signal_type: monitorTarget ? undefined : '*', direction: null, is_enabled: true });
   };
 
   const openRuleModal = (rule?: AlertRule) => {
     setEditingRule(rule ?? null);
+    setMonitorDraft(null);
     setModalOpen(true);
   };
 
@@ -169,6 +197,23 @@ export default function Alerts() {
       if (editingRule) {
         await updateAlertRule(editingRule.id, input);
         message.success('预警规则已更新');
+      } else if (monitorTarget) {
+        const payload = {
+          target_type: monitorTarget.target_type,
+          target_id: monitorTarget.target_id,
+          ticker: input.ticker,
+          name: input.name,
+          signal_type: input.signal_type,
+          direction: input.direction,
+        };
+        if (!monitorDraft) {
+          const response = await apiClient.post('/alerts/monitor-targets/draft', payload);
+          setMonitorDraft(response.data);
+          message.info('草稿已生成，请核对后显式确认');
+          return;
+        }
+        await apiClient.post('/alerts/monitor-targets/confirm', payload);
+        message.success('对象监控已确认并启用');
       } else {
         await createAlertRule(input);
         message.success('预警规则已创建');
@@ -386,13 +431,40 @@ export default function Alerts() {
         title={editingRule ? '编辑预警规则' : '新增预警规则'}
         open={modalOpen}
         confirmLoading={saving}
-        okText="保存"
+        okText={monitorDraft ? '确认并启用' : monitorTarget ? '生成草稿' : '保存'}
         cancelText="取消"
         onOk={saveRule}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { setModalOpen(false); setMonitorDraft(null); }}
         afterOpenChange={(open) => { if (open) hydrateRuleForm(); }}
         destroyOnHidden
       >
+        {monitorDraft ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="待显式确认的监控草稿"
+            description={`${monitorDraft.target.title} · ${signalLabel(monitorDraft.condition.signal_type)} · 来源 ${monitorDraft.condition.source} · 质量 ${monitorDraft.condition.quality_status}。${monitorDraft.execution_boundary}`}
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
+        {Number.isInteger(sourceThesisId) && sourceThesisId > 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            message={<>来源：<Link to={`/thesis?id=${sourceThesisId}`}>投资论文 #{sourceThesisId}</Link></>}
+            description="当前预警表不保存论文外键；此处仅携带标的和规则名称，保存后按所选技术信号扫描。"
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
+        {portfolioSource ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={`来源：${portfolioSource.name}风险体检`}
+            description={`${portfolioSource.metric === 'concentration' ? '集中度' : portfolioSource.metric} · 当前值 ${portfolioSource.value} · 数据截至 ${portfolioSource.asOf}。当前预警表没有组合风险指标合同；保存后创建的仍是技术信号规则，请先选择适合该标的的真实信号。`}
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
         <Form
           key={editingRule ? `edit-${editingRule.id}` : 'new'}
           form={ruleForm}
@@ -405,6 +477,8 @@ export default function Alerts() {
             direction: editingRule.direction,
             is_enabled: editingRule.is_enabled,
           } : {
+            name: prefillName,
+            ticker: prefillTicker,
             signal_type: '*',
             direction: null,
             is_enabled: true,

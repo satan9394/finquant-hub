@@ -59,9 +59,15 @@ export type BarsResponse = Provenance & {
 export type FundamentalItem = {
   metric: string;
   value: number;
-  as_of: string;
+  as_of: string | null;
   currency: string | null;
   period_type: string | null;
+  provider?: string | null;
+  source?: string | null;
+  is_ttm?: boolean;
+  components?: string[];
+  methodology?: string;
+  quality_flags?: string[];
 };
 
 export type FundamentalsResponse = Provenance & {
@@ -110,9 +116,52 @@ export type ResearchWorkspace = {
   instrument?: Instrument;
   evidence: EvidenceItem[];
   snapshot?: SnapshotResponse | null;
-  saved: boolean;
+  saved?: boolean;
   created_at?: string;
   updated_at?: string;
+};
+
+export type ResearchReportVersion = {
+  id: number;
+  ticker: string;
+  company_name?: string;
+  model_id?: number | null;
+  status: 'running' | 'completed' | 'failed';
+  created_at: string;
+  updated_at?: string | null;
+};
+
+export type ResearchReportDetail = ResearchReportVersion & {
+  report_data: Record<string, unknown>;
+  agent_results?: Record<string, unknown>;
+};
+
+export type ResearchHistoryGroup = {
+  ticker: string;
+  company_name?: string;
+  run_count: number;
+  completed_count: number;
+  failed_count: number;
+  latest_at: string;
+  runs: ResearchReportVersion[];
+};
+
+export type ResearchDiscussionSummary = {
+  id: number;
+  topic: string;
+  current_phase: 'active' | 'done' | 'failed';
+  summary: string | null;
+  created_at: string;
+};
+
+export type ResearchThesisSummary = {
+  id: number;
+  ticker: string;
+  title: string;
+  status: 'open' | 'closed' | 'invalidated';
+  drift_status: 'unknown' | 'stable' | 'drifted';
+  updated_at: string;
+  source_report_id?: number | null;
 };
 
 export type BacktestCreatePayload = {
@@ -169,8 +218,27 @@ export type BacktestRun = {
     sortino_ratio: number | null;
     calmar_ratio: number | null;
     information_ratio: number | null;
+    annualized_volatility?: number | null;
+    annualized_downside_volatility?: number | null;
+    max_drawdown_duration_periods?: number;
+    max_drawdown_recovery_periods?: number | null;
+    max_drawdown_recovered?: boolean;
+    beta?: number | null;
+    alpha?: number | null;
+    r_squared?: number | null;
+    tracking_error?: number | null;
     win_rate: number | null;
     profit_factor: number | null;
+    trade_expectancy?: number | null;
+    average_win?: number | null;
+    average_loss?: number | null;
+    average_holding_periods?: number | null;
+    market_exposure?: number;
+    total_commission_cost?: number;
+    total_stamp_duty_cost?: number;
+    total_slippage_cost?: number;
+    total_trading_cost?: number;
+    trading_cost_ratio?: number;
     turnover: number;
     trade_count: number;
   };
@@ -215,4 +283,73 @@ export type BacktestRun = {
     };
   };
   warnings?: string[];
+};
+
+export type SharePreview = {
+  schema_version: 'share-preview/v1';
+  visibility: 'private';
+  published: false;
+  publish_action_available: false;
+  generated_at: string;
+  object: {
+    type: 'thesis' | 'strategy_backtest';
+    id: number;
+    title: string;
+    subject_id: string;
+    status: string;
+    version?: number;
+    updated_at?: string | null;
+  };
+  content: {
+    result_kind: 'USER_HYPOTHESIS' | 'COMPUTED_RESULT';
+    causal_proof: false;
+    judgment?: string;
+    confidence?: number | null;
+    assumptions?: string[];
+    claims?: string[];
+    invalidation_conditions?: string[];
+    observed_at?: string | null;
+    method?: string;
+    parameters?: Record<string, unknown>;
+    metrics?: Record<string, number>;
+  };
+  evidence?: Array<{
+    evidence_id: string;
+    relation: string;
+    kind: string;
+    data_status: string;
+    source?: string | null;
+    vendor?: string | null;
+    as_of?: string | null;
+    retrieved_at?: string | null;
+    quality_flags: string[];
+    license_scope?: string | null;
+    public_reuse_permitted: boolean;
+  }>;
+  provenance?: {
+    provider?: string | null;
+    as_of?: string | null;
+    timezone?: string | null;
+    currency?: string | null;
+    adjustment?: string | null;
+    frequency?: string | null;
+    quality_flags: string[];
+    license_scope?: string | null;
+    license_status: string;
+    public_reuse_permitted: boolean;
+  };
+  audit: {
+    provenance: { status: string; [key: string]: unknown };
+    freshness: { status: string; [key: string]: unknown };
+    license: { status: string; [key: string]: unknown };
+    quality: { status: string };
+    redaction: {
+      status: 'PASS' | 'FAIL';
+      redacted_count: number;
+      redacted_field_paths: string[];
+      output_scan_passed: boolean;
+    };
+    disclaimer: { status: 'PRESENT'; text: string };
+  };
+  publication_gate: { status: 'BLOCKED'; reasons: string[]; requires: string };
 };

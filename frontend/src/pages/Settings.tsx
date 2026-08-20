@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Alert, Card, Col, Table, Button, Modal, Form, Input, Row, Select, Popconfirm,
-  Statistic, message, Tabs, Typography, Tag, Space,
+  Statistic, message, Tabs, Typography, Tag, Space, Switch, Empty,
 } from 'antd';
 import type { FormInstance } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons';
@@ -14,6 +14,7 @@ import type { AgentPreset } from '../types';
 import MCPServerSettingsPanel from '../components/settings/MCPServerSettingsPanel';
 import SystemSettingsPanel from '../components/settings/SystemSettingsPanel';
 import FundamentalsSourcePanel from '../components/settings/FundamentalsSourcePanel';
+import ProfessionalPreferencesPanel from '../components/settings/ProfessionalPreferencesPanel';
 
 
 interface UsageSummary {
@@ -43,6 +44,162 @@ interface CredentialStatus {
   has_key: boolean;
   provider: string;
   updated_at?: string;
+}
+
+interface ScheduledResearchJob {
+  id: number; name: string; ticker: string; last_status: string; last_error?: string | null;
+}
+
+interface ScheduledResearchRun {
+  id: number; attempt: number; retry_of_run_id?: number | null; report_id?: number | null;
+  status: string; evidence_status: string; evidence_ids: string[]; memory_record_ids: number[];
+  error?: string | null; started_at: string; completed_at?: string | null;
+}
+
+export function ScheduledResearchLinkagePanel() {
+  const [jobs, setJobs] = useState<ScheduledResearchJob[]>([]);
+  const [runs, setRuns] = useState<ScheduledResearchRun[]>([]);
+  const [selected, setSelected] = useState<ScheduledResearchJob | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadJobs = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const response = await apiClient.get('/settings/research-jobs');
+      setJobs(response.data.items);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '定时研究任务读取失败');
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void loadJobs(); }, [loadJobs]);
+
+  const showRuns = async (job: ScheduledResearchJob) => {
+    setSelected(job); setLoading(true); setError('');
+    try {
+      const response = await apiClient.get(`/settings/research-jobs/${job.id}/runs`);
+      setRuns(response.data.items);
+    } catch (reason: unknown) {
+      setRuns([]); setError(reason instanceof Error ? reason.message : '运行链路读取失败');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <Card title="定时研究运行链路" loading={loading} extra={<Button onClick={() => void loadJobs()}>刷新</Button>}>
+      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+      <Table rowKey="id" pagination={false} dataSource={jobs} locale={{ emptyText: '暂无定时研究任务' }} columns={[
+        { title: '任务', dataIndex: 'name' }, { title: '标的', dataIndex: 'ticker' },
+        { title: '状态', dataIndex: 'last_status', render: (value: string) => <Tag>{value}</Tag> },
+        { title: '操作', render: (_: unknown, job: ScheduledResearchJob) => <Button onClick={() => void showRuns(job)}>运行历史</Button> },
+      ]} />
+      {selected ? <Table style={{ marginTop: 16 }} rowKey="id" pagination={false} dataSource={runs} locale={{ emptyText: '暂无运行历史' }} columns={[
+        { title: '尝试', dataIndex: 'attempt', render: (value: number, run: ScheduledResearchRun) => `#${value}${run.retry_of_run_id ? ` · 重试 ${run.retry_of_run_id}` : ''}` },
+        { title: '运行状态', dataIndex: 'status' },
+        { title: '证据质量', dataIndex: 'evidence_status', render: (value: string) => <Tag color={value === 'OK' ? 'green' : value === 'UPSTREAM_ERROR' ? 'red' : 'default'}>{value}</Tag> },
+        { title: '回链', render: (_: unknown, run: ScheduledResearchRun) => `报告 ${run.report_id ?? 'UNKNOWN'} · evidence ${run.evidence_ids.length} · memory ${run.memory_record_ids.length}` },
+        { title: '错误', dataIndex: 'error', render: (value: string | null) => value || '—' },
+      ]} /> : null}
+    </Card>
+  );
+}
+
+interface ProductMetricsSummary {
+  enabled: boolean;
+  retention_days: number;
+  events_total: number;
+  counts: {
+    result_saved: number;
+    workflow_continued: number;
+    repeat_research: number;
+    repeat_research_within_7d: number;
+  };
+  ttfv: {
+    count: number;
+    median_ms?: number | null;
+    p90_ms?: number | null;
+    insufficient_sample: boolean;
+  };
+}
+
+export function ProductMetricsPanel() {
+  const [summary, setSummary] = useState<ProductMetricsSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const response = await apiClient.get('/settings/product-metrics');
+      setSummary(response.data as ProductMetricsSummary);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '本地产品指标读取失败');
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const toggle = async (enabled: boolean) => {
+    setSaving(true); setError('');
+    try {
+      const response = await apiClient.patch('/settings/product-metrics', { enabled });
+      setSummary(response.data as ProductMetricsSummary);
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '本地产品指标设置失败');
+    } finally { setSaving(false); }
+  };
+
+  const clear = async () => {
+    setSaving(true); setError('');
+    try {
+      await apiClient.delete('/settings/product-metrics/events');
+      await load();
+      message.success('当前用户的本地产品事件已清除');
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '本地产品指标清除失败');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Card
+      title="本地产品指标"
+      loading={loading}
+      extra={<Space><Typography.Text>记录</Typography.Text><Switch aria-label="启用本地产品指标" checked={Boolean(summary?.enabled)} loading={saving} onChange={(checked) => void toggle(checked)} /></Space>}
+    >
+      <Alert
+        type="info"
+        showIcon
+        message="默认关闭，仅保存在本机当前用户下"
+        description="只记录 TTFV 毫秒、保存/继续计数和重复研究天数；不记录 ticker、对象 ID、查询、金融正文、模型回答或凭据。"
+        style={{ marginBottom: 12 }}
+      />
+      {error ? <Alert type="error" showIcon message="本地产品指标不可用" description={error} style={{ marginBottom: 12 }} /> : null}
+      {!summary?.enabled ? <Alert type="warning" showIcon message="指标已关闭，事件写入为零" /> : summary.events_total === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无本地产品事件" />
+      ) : (
+        <>
+          {summary.ttfv.insufficient_sample ? <Alert type="warning" showIcon message={`TTFV 样本 ${summary.ttfv.count} 条；少于 10 条时不显示中位数或 P90。`} style={{ marginBottom: 12 }} /> : null}
+          <Row gutter={[12, 12]}>
+            <Col xs={12} md={6}><Statistic title="事件数" value={summary.events_total} /></Col>
+            <Col xs={12} md={6}><Statistic title="TTFV 中位数" value={summary.ttfv.median_ms ?? '样本不足'} suffix={summary.ttfv.median_ms == null ? undefined : 'ms'} /></Col>
+            <Col xs={12} md={6}><Statistic title="保存" value={summary.counts.result_saved} /></Col>
+            <Col xs={12} md={6}><Statistic title="继续工作流" value={summary.counts.workflow_continued} /></Col>
+            <Col xs={12} md={6}><Statistic title="重复研究" value={summary.counts.repeat_research} /></Col>
+            <Col xs={12} md={6}><Statistic title="7 日内重复" value={summary.counts.repeat_research_within_7d} /></Col>
+          </Row>
+        </>
+      )}
+      <Popconfirm
+        title="清除当前用户的全部本地产品事件？"
+        description="开关状态保留；事件删除后不可恢复。"
+        okText="确认清除"
+        cancelText="取消"
+        onConfirm={() => void clear()}
+        disabled={!summary?.events_total || saving}
+      >
+        <Button danger disabled={!summary?.events_total || saving} style={{ marginTop: 16 }}>清除本地指标</Button>
+      </Popconfirm>
+    </Card>
+  );
 }
 
 const CREDENTIAL_SERVICES = [
@@ -356,6 +513,11 @@ export default function Settings() {
 
   const tabItems = [
     {
+      key: 'professional-preferences',
+      label: '专业偏好',
+      children: <ProfessionalPreferencesPanel />,
+    },
+    {
       key: 'system',
       label: '系统配置',
       children: <SystemSettingsPanel />,
@@ -398,6 +560,16 @@ export default function Settings() {
       children: <UsagePanel />,
     },
     {
+      key: 'scheduled-research',
+      label: '定时研究',
+      children: <ScheduledResearchLinkagePanel />,
+    },
+    {
+      key: 'product-metrics',
+      label: '本地指标',
+      children: <ProductMetricsPanel />,
+    },
+    {
       key: 'appearance',
       label: '外观',
       children: (
@@ -412,7 +584,7 @@ export default function Settings() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Tabs items={tabItems} />
+      <Tabs defaultActiveKey="system" items={tabItems} />
 
       {/* 编辑角色 Modal */}
       <Modal

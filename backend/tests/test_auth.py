@@ -121,3 +121,30 @@ async def test_session_expiry_and_first_user_is_only_admin(client, caplog, monke
 
     await database.execute("UPDATE sessions SET expires_at=datetime('now', '-1 second')")
     assert (await client.get("/api/auth/me")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_local_only_mode_uses_one_automatic_owner_without_login(client, monkeypatch):
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", True)
+
+    me = await client.get("/api/auth/me")
+    assert me.status_code == 200
+    user = me.json()["user"]
+    assert user["is_admin"] is True
+    assert user["local_mode"] is True
+    assert "finquant_session" not in me.cookies
+
+    assert (await client.get("/api/models")).status_code == 200
+    assert (
+        await client.post("/api/auth/request-code", json={"email": "unused@example.com"})
+    ).status_code == 404
+    assert (
+        await client.post(
+            "/api/auth/verify-code",
+            json={"email": "unused@example.com", "code": "123456"},
+        )
+    ).status_code == 404
+
+    assert (await client.post("/api/auth/logout")).json() == {"ok": True}
+    assert (await client.get("/api/auth/me")).json()["user"]["id"] == user["id"]
+    assert await database.query_one("SELECT COUNT(*) AS n FROM users") == {"n": 1}

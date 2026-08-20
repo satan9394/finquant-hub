@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
 import type { BarsResponse } from '../../types/research';
+import LazyEChart from '../LazyEChart';
 
 const colors = { red: '#d84a4a', green: '#0e8b72', blue: '#3f6fc9', amber: '#e59b27', violet: '#7c5fc5', slate: '#64748b', cyan: '#0891b2' };
 const maSeries = [
@@ -16,9 +16,25 @@ const base = {
   textStyle: { color: '#586276', fontFamily: "Inter, 'PingFang SC', sans-serif" },
   tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
 };
+const numberText = (value: number | null | undefined) => value == null ? 'UNKNOWN' : value.toFixed(2);
+const latestValue = (values: (number | null)[] | undefined) => {
+  if (!values) return null;
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    if (values[index] != null) return values[index];
+  }
+  return null;
+};
 
 export default function ResearchCharts({ payload }: { payload: BarsResponse }) {
   const dates = payload.items.map((item) => item.day);
+  const firstBar = payload.items[0];
+  const lastBar = payload.items[payload.items.length - 1];
+  const periodChange = firstBar && lastBar && firstBar.close
+    ? (lastBar.close / firstBar.close - 1) * 100
+    : null;
+  const priceSummary = firstBar && lastBar
+    ? `价格图文字摘要：${firstBar.day} 至 ${lastBar.day}，共 ${payload.items.length} 个日频观察；首日收盘 ${numberText(firstBar.close)}，末日收盘 ${numberText(lastBar.close)}，区间变化 ${numberText(periodChange)}%；来源 ${payload.provider ?? 'UNKNOWN'}，截止 ${payload.as_of ?? 'UNKNOWN'}，复权 ${payload.adjustment ?? 'UNKNOWN'}。`
+    : '价格图文字摘要：没有可用日线观察，不展示价格或成交量结论。';
   const priceOption = useMemo(() => ({
     ...base,
     legend: { top: 2, data: ['K线', 'MA5', 'MA20', 'MA60', 'MA120', 'MA250', '成交量'] },
@@ -50,6 +66,9 @@ export default function ResearchCharts({ payload }: { payload: BarsResponse }) {
   }), [dates, payload]);
 
   const macd = payload.indicators.macd;
+  const macdSummary = macd
+    ? `MACD 图文字摘要：最新 DIF ${numberText(latestValue(macd.dif))}，DEA ${numberText(latestValue(macd.dea))}，柱值 ${numberText(latestValue(macd.hist))}；参数为 12、26、9。`
+    : 'MACD 图文字摘要：提供方没有返回可用 MACD 序列。';
   const macdOption = useMemo(() => ({
     ...base,
     legend: { top: 2, data: ['DIF', 'DEA', 'MACD'] },
@@ -75,13 +94,14 @@ export default function ResearchCharts({ payload }: { payload: BarsResponse }) {
       name, type: 'line', symbol: 'none', connectNulls: true, data: payload.indicators.rsi?.[key] ?? [], lineStyle: { color },
     })),
   }), [dates, payload.indicators.rsi]);
+  const rsiSummary = `RSI 图文字摘要：最新 RSI6 ${numberText(latestValue(payload.indicators.rsi?.rsi6))}，RSI12 ${numberText(latestValue(payload.indicators.rsi?.rsi12))}，RSI24 ${numberText(latestValue(payload.indicators.rsi?.rsi24))}；缺失值保持 UNKNOWN。`;
 
   return (
     <div className="research-charts" data-testid="research-charts">
-      <div className="chart-section"><div className="chart-label">价格 · 成交量 · MA5 / MA20 / MA60 / MA120 / MA250</div><ReactECharts option={priceOption} style={{ height: 430 }} notMerge /></div>
+      <div className="chart-section" role="img" aria-label={priceSummary}><div className="chart-label">价格 · 成交量 · MA5 / MA20 / MA60 / MA120 / MA250</div><p className="chart-text-summary">{priceSummary}</p><LazyEChart option={priceOption} style={{ height: 430 }} notMerge /></div>
       <div className="chart-grid-two">
-        <div className="chart-section"><div className="chart-label">MACD (12, 26, 9)</div><ReactECharts option={macdOption} style={{ height: 360 }} notMerge /></div>
-        <div className="chart-section"><div className="chart-label">RSI (6, 12, 24)</div><ReactECharts option={rsiOption} style={{ height: 360 }} notMerge /></div>
+        <div className="chart-section" role="img" aria-label={macdSummary}><div className="chart-label">MACD (12, 26, 9)</div><p className="chart-text-summary">{macdSummary}</p><LazyEChart option={macdOption} style={{ height: 360 }} notMerge /></div>
+        <div className="chart-section" role="img" aria-label={rsiSummary}><div className="chart-label">RSI (6, 12, 24)</div><p className="chart-text-summary">{rsiSummary}</p><LazyEChart option={rsiOption} style={{ height: 360 }} notMerge /></div>
       </div>
     </div>
   );

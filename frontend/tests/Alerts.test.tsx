@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
   updateRule: vi.fn(),
   deleteRule: vi.fn(),
   fetchTriggers: vi.fn(),
+  apiPost: vi.fn(),
 }));
+
+vi.mock('../src/services/api', () => ({ default: { post: mocks.apiPost } }));
 
 vi.mock('../src/services/alertApi', () => ({
   fetchAlertSignalTypes: mocks.fetchSignalTypes,
@@ -56,10 +59,16 @@ beforeEach(() => {
   mocks.createRule.mockResolvedValue(rule);
   mocks.updateRule.mockResolvedValue(rule);
   mocks.deleteRule.mockResolvedValue(undefined);
+  mocks.apiPost.mockResolvedValue({ data: {
+    status: 'READY', ready_to_confirm: true, confirmation_key: 'abc',
+    target: { title: '需求修复论文', ticker: 'sh600519' },
+    condition: { signal_type: '*', source: 'user_selection', quality_status: 'UNKNOWN' },
+    execution_boundary: '确认前不创建或启用规则。',
+  } });
 });
 
-function renderPage() {
-  return render(<MemoryRouter><Alerts /></MemoryRouter>);
+function renderPage(initialEntry = '/alerts') {
+  return render(<MemoryRouter initialEntries={[initialEntry]}><Alerts /></MemoryRouter>);
 }
 
 describe('Alert center', () => {
@@ -107,5 +116,25 @@ describe('Alert center', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: '苹果金叉启用状态' }));
     await waitFor(() => expect(mocks.updateRule).toHaveBeenCalledWith(1, { is_enabled: false }));
+  });
+
+  test('prefills thesis context without creating a rule', async () => {
+    renderPage('/alerts?new=1&ticker=600519&thesis=7&name=%E9%9C%80%E6%B1%82%E4%BF%AE%E5%A4%8D%E8%AE%BA%E6%96%87%20%C2%B7%20%E6%8A%80%E6%9C%AF%E4%BF%A1%E5%8F%B7%E6%A0%B8%E9%AA%8C');
+
+    expect(await screen.findByText('投资论文 #7')).toBeTruthy();
+    expect(screen.getByDisplayValue('需求修复论文 · 技术信号核验')).toBeTruthy();
+    expect(screen.getByDisplayValue('600519')).toBeTruthy();
+    expect(screen.getByText(/当前预警表不保存论文外键/)).toBeTruthy();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /生成草稿/ })).toBeTruthy();
+  });
+
+  test('shows portfolio risk evidence as prefill context without creating a rule', async () => {
+    renderPage('/alerts?new=1&ticker=600519&name=%E6%B5%8B%E8%AF%95%E7%BB%84%E5%90%88%20%C2%B7%20%E9%9B%86%E4%B8%AD%E5%BA%A6%E5%A4%8D%E6%A0%B8&source=portfolio&portfolio=%E6%B5%8B%E8%AF%95%E7%BB%84%E5%90%88&metric=concentration&value=50.00%25&as_of=2026-08-07');
+
+    expect(await screen.findByText('来源：测试组合风险体检')).toBeTruthy();
+    expect(screen.getByText(/集中度 · 当前值 50.00% · 数据截至 2026-08-07/)).toBeTruthy();
+    expect(screen.getByText(/保存后创建的仍是技术信号规则/)).toBeTruthy();
+    expect(mocks.createRule).not.toHaveBeenCalled();
   });
 });

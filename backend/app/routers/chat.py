@@ -15,7 +15,8 @@ from ..services.context import estimate_tokens
 from ..services import model_router
 from ..services.llm_client import LLMError
 from ..services.llm_usage import reset_usage_context, set_usage_context
-from ..services.memory import render_memory_context, search_cross_session_memory
+from ..services.memory import native_memory_provider
+from ..services.memory_rollout import MemoryRollout, finalize_memory_rollout, prepare_memory_rollout
 from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(authenticated_context)])
@@ -140,6 +141,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
 
     async def stream() -> AsyncIterator[dict[str, str]]:
         full = ""
+        rollout = MemoryRollout()
         usage_token = set_usage_context("chat", session_id, user_id)
         try:
             client, _ = await model_router.get_client(session.get("model_id"), user_id=user_id)
@@ -158,14 +160,22 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                 (session_id, user_id, HISTORY_LIMIT),
             )
             llm_messages = [{"role": "system", "content": system}]
-            memory_hits = await search_cross_session_memory(
+            memory_hits = await native_memory_provider.search(
                 content,
                 user_id=user_id,
                 exclude_conversation_id=session_id,
             )
-            memory_context = render_memory_context(memory_hits)
+            memory_context = native_memory_provider.render_context(memory_hits)
             if memory_context:
                 llm_messages.append({"role": "system", "content": memory_context})
+            rollout = await prepare_memory_rollout(
+                content,
+                user_id=user_id,
+                surface="chat",
+                native_candidate_count=len(memory_hits),
+            )
+            if rollout.context:
+                llm_messages.append({"role": "system", "content": rollout.context})
             llm_messages += [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
             registry = ToolRegistry()
@@ -193,6 +203,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
             await database.execute(
                 "UPDATE conversations SET updated_at=datetime('now') WHERE id=? AND user_id=?", (session_id, user_id)
             )
+            await finalize_memory_rollout(rollout, response=full)
             yield {
                 "event": "done",
                 "data": json.dumps(
@@ -203,6 +214,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                 ),
             }
         except LLMError as e:
+            await finalize_memory_rollout(rollout, response=None, outcome="upstream_error")
             LOGGER.exception(
                 "Chat SSE LLM request failed",
                 extra={"event": "chat.stream.llm_error", "session_id": session_id},
@@ -214,6 +226,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
             }
             return
         except Exception as e:  # 兜底：任何异常都要以 error 事件收尾，不能静默断流
+            await finalize_memory_rollout(rollout, response=None, outcome="upstream_error")
             LOGGER.exception(
                 "Chat SSE pipeline failed",
                 extra={"event": "chat.stream.error", "session_id": session_id},

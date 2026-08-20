@@ -143,6 +143,10 @@ def test_portfolio_backtest_supports_multiple_assets_and_periods():
     assert "mixed_period_annualized_metrics_unavailable" in result["warnings"]
     assert result["risk_xray"]["concentration"]["effective_asset_count"] > 1
     assert result["risk_xray"]["diversification"]["status"] == "unsupported_mixed_frequency"
+    assert result["metrics"]["turnover"] == pytest.approx(sum(
+        asset["weight"] * asset["metrics"]["turnover"] for asset in result["assets"]
+    ))
+    assert isinstance(result["metrics"]["trade_count"], int)
 
 
 def test_portfolio_backtest_rejects_missing_out_of_sample_history():
@@ -156,3 +160,28 @@ def test_portfolio_backtest_rejects_missing_out_of_sample_history():
             [asset], optimizer="equal_weight", optimization_lookback=20,
             initial_capital=100_000, commission_bps=0, slippage_bps=0,
         )
+
+
+def test_portfolio_backtest_supports_zero_weight_assets_from_mean_variance():
+    assets = [
+        {
+            "asset_id": "steady@1d", "symbol": "STEADY", "period": "1d",
+            "short_window": 3, "long_window": 8, "bars": make_bars(90, 0.4),
+            "provenance": {"currency": "USD", "provider": "fake"},
+        },
+        {
+            "asset_id": "volatile@1d", "symbol": "VOLATILE", "period": "1d",
+            "short_window": 3, "long_window": 8, "bars": make_bars(90, 1.5),
+            "provenance": {"currency": "USD", "provider": "fake"},
+        },
+    ]
+
+    result = run_portfolio_backtest(
+        assets, optimizer="mean_variance", optimization_lookback=20,
+        initial_capital=100_000, commission_bps=3, slippage_bps=2,
+    )
+
+    assert 0.0 in result["weights"].values()
+    assert result["equity_curve"]
+    assert result["metrics"]["turnover"] >= 0
+    assert "zero_weight_assets_excluded_from_portfolio_metrics" in result["warnings"]

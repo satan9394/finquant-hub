@@ -13,6 +13,14 @@ from ..services.alpha_brain import AlphaBrainClient, AlphaBrainError
 router = APIRouter(prefix="/api/wq", tags=["wq"])
 
 
+def _catalogue_response(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "items": items,
+        "total": len(items),
+        "catalogue": alpha_service.catalogue_metadata(),
+    }
+
+
 class CorrelationIn(BaseModel):
     series_a: list[float] = Field(min_length=3, description="序列A")
     series_b: list[float] = Field(min_length=3, description="序列B")
@@ -55,27 +63,27 @@ async def search_alpha(
 ) -> dict[str, Any]:
     """搜索 Alpha 因子库，返回匹配的因子列表。"""
     results = alpha_service.search_alpha(q, max_results=max_results)
-    return {"items": results, "total": len(results)}
+    return _catalogue_response(results)
 
 
 @router.get("/categories")
 async def list_categories() -> dict[str, Any]:
     """返回按类别组织的 Alpha 因子概览。"""
-    return {"items": alpha_service.list_categories()}
+    return _catalogue_response(alpha_service.list_categories())
 
 
 @router.get("/fields")
 async def list_custom_fields() -> dict[str, Any]:
     """返回项目实际打包的 WorldQuant 字段目录。"""
     items = alpha_service.list_fields()
-    return {"items": items, "total": len(items)}
+    return _catalogue_response(items)
 
 
 @router.get("/templates")
 async def list_factor_templates() -> dict[str, Any]:
     """Generate usable templates from fields that exist in the bundled catalogue."""
     items = generate_factor_templates()
-    return {"items": items, "total": len(items)}
+    return _catalogue_response(items)
 
 
 @router.post("/simulate/local")

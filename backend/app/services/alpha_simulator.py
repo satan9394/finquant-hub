@@ -9,6 +9,91 @@ from typing import Any, cast
 from ..backtest.metrics import calculate_performance
 
 
+_MIN_IC_ASSETS = 5
+_MIN_IC_PERIODS = 5
+
+
+def _correlation(left: list[float], right: list[float]) -> float | None:
+    left_mean = sum(left) / len(left)
+    right_mean = sum(right) / len(right)
+    left_centered = [value - left_mean for value in left]
+    right_centered = [value - right_mean for value in right]
+    denominator = math.sqrt(
+        sum(value * value for value in left_centered)
+        * sum(value * value for value in right_centered)
+    )
+    if denominator <= 1e-15:
+        return None
+    return sum(a * b for a, b in zip(left_centered, right_centered, strict=True)) / denominator
+
+
+def _ranks(values: list[float]) -> list[float]:
+    ranks = [0.0] * len(values)
+    ordered = sorted(enumerate(values), key=lambda item: (item[1], item[0]))
+    start = 0
+    while start < len(ordered):
+        end = start + 1
+        while end < len(ordered) and ordered[end][1] == ordered[start][1]:
+            end += 1
+        average_rank = (start + 1 + end) / 2
+        for index in range(start, end):
+            ranks[ordered[index][0]] = average_rank
+        start = end
+    return ranks
+
+
+def _factor_analysis(grouped: Mapping[str, list[tuple[str, float, float]]]) -> dict[str, Any]:
+    periods: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for date in sorted(grouped):
+        rows = grouped[date]
+        if len(rows) < _MIN_IC_ASSETS:
+            excluded.append({"date": date, "assets": len(rows), "reason": "insufficient_cross_section"})
+            continue
+        factors = [factor for _, factor, _ in rows]
+        forward_returns = [forward_return for _, _, forward_return in rows]
+        ic = _correlation(factors, forward_returns)
+        rank_ic = _correlation(_ranks(factors), _ranks(forward_returns))
+        if ic is None or rank_ic is None:
+            excluded.append({"date": date, "assets": len(rows), "reason": "zero_variance"})
+            continue
+        periods.append({"date": date, "assets": len(rows), "ic": ic, "rank_ic": rank_ic})
+
+    rank_ics = [float(period["rank_ic"]) for period in periods]
+    ics = [float(period["ic"]) for period in periods]
+    mean_rank_ic = sum(rank_ics) / len(rank_ics) if rank_ics else None
+    mean_ic = sum(ics) / len(ics) if ics else None
+    rank_ic_std = None
+    icir = None
+    if len(rank_ics) > 1 and mean_rank_ic is not None:
+        rank_ic_std = math.sqrt(
+            sum((value - mean_rank_ic) ** 2 for value in rank_ics) / (len(rank_ics) - 1)
+        )
+        if rank_ic_std > 1e-15:
+            icir = mean_rank_ic / rank_ic_std
+
+    if not periods and all(len(rows) < _MIN_IC_ASSETS for rows in grouped.values()):
+        status = "insufficient_cross_section"
+    elif len(periods) < _MIN_IC_PERIODS:
+        status = "insufficient_periods"
+    else:
+        status = "ok"
+    return {
+        "status": status,
+        "method": "cross_sectional_pearson_and_spearman",
+        "total_periods": len(grouped),
+        "valid_periods": len(periods),
+        "minimum_assets_per_period": _MIN_IC_ASSETS,
+        "minimum_valid_periods": _MIN_IC_PERIODS,
+        "mean_ic": mean_ic,
+        "mean_rank_ic": mean_rank_ic,
+        "rank_ic_std": rank_ic_std,
+        "icir": icir,
+        "excluded_periods": excluded,
+        "periods": periods,
+    }
+
+
 def simulate_factor(
     observations: Iterable[Mapping[str, Any]],
     *,
@@ -81,4 +166,9 @@ def simulate_factor(
             "positive_period_rate": sum(value > 0 for value in daily_returns) / len(daily_returns),
         }
     )
-    return {"equity_curve": equity_curve, "period_returns": daily_returns, "metrics": metrics}
+    return {
+        "equity_curve": equity_curve,
+        "period_returns": daily_returns,
+        "metrics": metrics,
+        "factor_analysis": _factor_analysis(grouped),
+    }

@@ -37,6 +37,196 @@ export interface RealTimeQuote {
   timestamp: number;
 }
 
+export interface MarketMover {
+  code: string;
+  name: string;
+  price: number | null;
+  change: number | null;
+  change_percent: number | null;
+  weekly_change_percent: number | null;
+  turnover_rate: number | null;
+  amount: number | null;
+  amplitude: number | null;
+  volume_ratio: number | null;
+  industry: string | null;
+  reason_tags: string[];
+}
+
+export interface MarketMoversResponse {
+  source: string;
+  scope: 'a_share_market' | 'tech_watch_pool';
+  as_of: string;
+  status: 'ok' | 'partial' | 'stale';
+  stale: boolean;
+  error?: string;
+  note?: string;
+  gainers: MarketMover[];
+  decliners: MarketMover[];
+}
+
+export interface MarketBreadth {
+  status: 'ok' | 'unavailable';
+  total?: number;
+  provider_total?: number;
+  advancers?: number;
+  decliners?: number;
+  unchanged?: number;
+  unknown?: number;
+  error?: string;
+}
+
+export interface MarketSector {
+  code: string;
+  name: string;
+  price: number | null;
+  change_percent: number | null;
+  turnover_rate: number | null;
+  advancers: number | null;
+  decliners: number | null;
+  leader: string | null;
+  leader_change_percent: number | null;
+}
+
+export interface CapitalFlowItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_percent: number | null;
+  main_net_inflow: number | null;
+  main_net_inflow_rate: number | null;
+  super_large_net_inflow: number | null;
+  super_large_net_inflow_rate: number | null;
+  large_net_inflow: number | null;
+  large_net_inflow_rate: number | null;
+  medium_net_inflow: number | null;
+  medium_net_inflow_rate: number | null;
+  small_net_inflow: number | null;
+  small_net_inflow_rate: number | null;
+}
+
+export interface WeeklyMarketMover {
+  code: string;
+  name: string;
+  price: number | null;
+  weekly_change_percent: number;
+  change_percent: number | null;
+  turnover_rate: number | null;
+  amount: number | null;
+  amplitude: number | null;
+  volume_ratio: number | null;
+  industry: string | null;
+  ths_main_net_inflow: number | null;
+  ths_main_net_inflow_unit: 'wan_cny';
+  ths_industry: string | null;
+  source_status: { eastmoney: boolean; tonghuashun: boolean };
+  reason_tags: string[];
+  eastmoney_url: string;
+  tonghuashun_url: string;
+}
+
+export interface MarketPulseResponse {
+  as_of: string;
+  market: 'cn';
+  scope: 'public_market_dimensions';
+  status: 'ok' | 'partial';
+  sources: string[];
+  sections: {
+    breadth: MarketBreadth;
+    movers: Partial<MarketMoversResponse> & { status: string; error?: string };
+    industry: { status?: string; source?: string; items?: MarketSector[]; error?: string };
+    concept: { status?: string; source?: string; items?: MarketSector[]; error?: string };
+    sector_flow: { status?: string; source?: string; items?: CapitalFlowItem[]; error?: string };
+    stock_flow: { status?: string; source?: string; items?: CapitalFlowItem[]; error?: string };
+    weekly: {
+      status: string;
+      threshold_percent?: number;
+      coverage?: {
+        eastmoney_candidates: number;
+        tonghuashun_requested: number;
+        tonghuashun_succeeded: number;
+        tonghuashun_failed: number;
+        tonghuashun_rate: number;
+      };
+      items?: WeeklyMarketMover[];
+      error?: string;
+    };
+    popular: {
+      status?: string;
+      items?: Array<{
+        rank: number | null;
+        code: string;
+        name: string;
+        price: number | null;
+        change_percent: number | null;
+      }>;
+      error?: string;
+    };
+  };
+}
+
+export type ThemeSort = 'change' | 'weekly' | 'capital' | 'turnover';
+
+export interface ThemeCatalogItem {
+  keyword: string;
+  category: string;
+  expanded_terms: string[];
+}
+
+export interface ThemeStock {
+  code: string;
+  name: string;
+  price: number | null;
+  change_percent: number | null;
+  weekly_change_percent: number | null;
+  turnover_rate: number | null;
+  amount: number | null;
+  amplitude: number | null;
+  volume_ratio: number | null;
+  industry: string | null;
+  main_net_inflow: number | null;
+  main_net_inflow_rate: number | null;
+  ths_main_net_inflow: number | null;
+  ths_main_net_inflow_unit: 'wan_cny';
+  ths_industry: string | null;
+  source_status: { eastmoney: boolean; tonghuashun: boolean };
+  reason_tags: string[];
+  theme_names?: string[];
+  eastmoney_url: string;
+  tonghuashun_url: string;
+}
+
+export interface ClassifiedTheme extends MarketSector {
+  kind: 'industry' | 'concept';
+  match_score: number;
+  matched_term: string;
+  market_cap: number | null;
+  stocks: ThemeStock[];
+}
+
+export interface MarketThemesResponse {
+  keyword: string;
+  category: string;
+  expanded_terms: string[];
+  sort_by: ThemeSort;
+  source: string[];
+  scope: 'public_board_catalog_and_constituents';
+  as_of: string;
+  status: 'ok' | 'partial' | 'empty';
+  catalog: ThemeCatalogItem[];
+  matched_theme_count: number;
+  returned_theme_count: number;
+  coverage: {
+    industry_boards_scanned: number;
+    concept_boards_scanned: number;
+    tonghuashun_requested: number;
+    tonghuashun_succeeded: number;
+    tonghuashun_failed: number;
+    tonghuashun_rate: number;
+  };
+  themes: ClassifiedTheme[];
+  candidates: ThemeStock[];
+}
+
 export interface KLineDataPoint {
   day: string;
   open: number;
@@ -70,6 +260,7 @@ export interface ModelConfig {
   model_name: string;
   api_key_env: string | null;
   has_api_key: boolean;
+  credential_source: 'stored' | 'environment' | 'none';
   temperature: number;
   max_tokens: number;
   is_default: number;
@@ -157,6 +348,19 @@ export interface DashboardStats {
   default_model: { id: number; name: string; model_name: string } | null;
   recent_conversations: Session[];
   recent_rooms: DiscussionRoom[];
+  capabilities: {
+    contract_version: 'local-capabilities/v1';
+    runtime_mode: 'LOCAL_ONLY' | 'AUTHENTICATED';
+    local_core: { status: 'AVAILABLE'; quality_status: 'OK' };
+    model_ai: {
+      status: 'UNCONFIGURED' | 'CONFIGURED_UNVERIFIED';
+      quality_status: 'UNKNOWN';
+      credential_source: 'stored' | 'environment' | 'none';
+      model_id: number | null;
+      action_path: '/models';
+    };
+    market_data: { status: 'RUNTIME_CHECK_REQUIRED'; quality_status: 'UNKNOWN' };
+  };
 }
 
 // ==================== SSE ====================
@@ -243,14 +447,6 @@ export interface SignalBadge {
   strength?: number;
 }
 
-export interface SignalSummary {
-  total: number;
-  bullish: number;
-  bearish: number;
-  neutral: number;
-  signals: SignalBadge[];
-}
-
 // ==================== 股票分析 ====================
 
 export interface AnalysisRequest {
@@ -318,6 +514,196 @@ export interface PortfolioAllocation {
   weight: number;
   items: { name: string; weight: number; code?: string }[];
 }
+
+export interface PaperPortfolio {
+  id: number;
+  name: string;
+  base_currency: 'CNY' | 'HKD' | 'USD';
+  initial_cash: number;
+  status: 'ACTIVE' | 'ARCHIVED';
+  account_kind: 'PAPER';
+  execution_kind: 'SIMULATED';
+  ledger_count?: number;
+  capabilities: {
+    real_account: false;
+    real_orders: false;
+    automatic_trading: false;
+    simulated_ledger: true;
+  };
+}
+
+export interface PaperValuationPosition {
+  symbol: string;
+  quantity: number;
+  book_cost_base: number;
+  data_status: 'OK' | 'PARTIAL' | 'UNKNOWN' | 'UPSTREAM_ERROR';
+  current_price: number | null;
+  market_value: number | null;
+  quote_currency?: string | null;
+  source?: string | null;
+  as_of?: string | null;
+}
+
+export interface PaperPortfolioValuation extends PaperPortfolio {
+  cash: number;
+  valuation_status: 'OK' | 'PARTIAL' | 'UNKNOWN' | 'UPSTREAM_ERROR';
+  valuation_reasons: string[];
+  total_value: number | null;
+  total_return: number | null;
+  valuation_positions: PaperValuationPosition[];
+}
+
+export interface PaperHypothesisMemory {
+  id: number;
+  subject_type: string;
+  subject_id: string;
+  memory_type: 'hypothesis';
+  information_kind: string;
+  content: Record<string, unknown>;
+  status: string;
+}
+
+export interface PaperReviewMemory {
+  id: number;
+  memory_type: 'review_outcome';
+  information_kind: 'USER_HYPOTHESIS';
+  content: {
+    hypothesis_memory_id: number;
+    outcome: 'supported' | 'refuted' | 'inconclusive';
+    reason: string;
+    observed_from: string;
+    observed_to: string;
+    simulation_result: {
+      information_kind: 'COMPUTED_RESULT';
+      total_value: number | null;
+      total_return: number | null;
+      valuation_status: PaperPortfolioValuation['valuation_status'];
+    };
+    causal_proof: false;
+    warning: string;
+  };
+  created_at: string;
+}
+
+export interface PaperReviewContext {
+  schema_version: 'paper-portfolio-review-context/v1';
+  paper_portfolio: PaperPortfolio;
+  hypotheses: PaperHypothesisMemory[];
+  reviews: PaperReviewMemory[];
+  causal_proof: false;
+}
+
+export interface PaperReviewDraft {
+  schema_version: 'paper-portfolio-review-draft/v1';
+  paper_portfolio_id: number;
+  hypothesis: PaperHypothesisMemory;
+  simulation_result: {
+    information_kind: 'COMPUTED_RESULT';
+    initial_cash: number;
+    cash: number;
+    total_value: number | null;
+    total_return: number | null;
+    valuation_status: PaperPortfolioValuation['valuation_status'];
+    valuation_reasons: string[];
+    positions: PaperValuationPosition[];
+    formula: string;
+    fee_formula: string;
+  };
+  outcome_options: Array<'supported' | 'refuted' | 'inconclusive'>;
+  recommended_outcome: null;
+  information_kind: 'USER_HYPOTHESIS';
+  causal_proof: false;
+  warning: string;
+}
+
+export type PortfolioBacktestPayload = {
+  assets: Array<{
+    symbol: string;
+    period: '1d';
+    short_window: number;
+    long_window: number;
+    market_rules: 'auto';
+  }>;
+  optimizer: 'equal_weight' | 'risk_parity' | 'mean_variance' | 'inverse_volatility';
+  optimization_lookback: number;
+  count: number;
+  initial_capital: number;
+  commission_bps: number;
+  slippage_bps: number;
+};
+
+export type PortfolioBacktestResult = {
+  strategy: string;
+  optimizer: string;
+  optimization_lookback: number;
+  weights: Record<string, number>;
+  metrics: {
+    total_return: number;
+    benchmark_return: number;
+    excess_return: number;
+    max_drawdown: number;
+    turnover?: number | null;
+    trade_count: number;
+    win_rate: number | null;
+    profit_factor: number | null;
+  };
+  equity_curve: Array<{ time: string; value: number }>;
+  benchmark_curve: Array<{ time: string; value: number }>;
+  assets: Array<{
+    asset_id: string;
+    symbol: string;
+    period: string;
+    weight: number;
+    provenance: {
+      provider?: string | null;
+      as_of?: string | null;
+      market?: string | null;
+      currency?: string | null;
+      quality_flags?: string[];
+    };
+  }>;
+  risk_xray: {
+    concentration: {
+      hhi: number;
+      effective_asset_count: number;
+      largest_weight: number;
+      top3_weight: number;
+      level: string;
+    };
+    drawdown: { max: number; current: number };
+    tail_risk: {
+      status: string;
+      observations: number;
+      minimum_required?: number;
+      confidence: number;
+      var: number | null;
+      expected_shortfall: number | null;
+      var_amount: number | null;
+      expected_shortfall_amount: number | null;
+    };
+    diversification: {
+      status: string;
+      observations?: number;
+      average_correlation: number | null;
+      benefit: number | null;
+      correlation_matrix?: {
+        status: string;
+        observations?: number | null;
+        asset_ids: string[];
+        values: number[][] | null;
+      };
+      risk_contribution?: {
+        status: string;
+        observations?: number | null;
+        minimum_required: number;
+        method: string;
+        portfolio_volatility: number | null;
+        items: Array<{ asset_id: string; weight: number; contribution: number }>;
+      };
+    };
+  };
+  warnings: string[];
+};
 
 // ==================== 深度研究 ====================
 

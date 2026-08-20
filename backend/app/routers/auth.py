@@ -28,6 +28,8 @@ def _client_ip(request: Request) -> str:
 async def get_current_user(
     session_token: Annotated[str | None, Cookie(alias=config.AUTH_COOKIE_NAME)] = None,
 ) -> dict[str, Any]:
+    if config.LOCAL_ONLY_MODE:
+        return await auth_service.local_user()
     user = await auth_service.user_for_session(session_token)
     if user is None:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
@@ -47,6 +49,8 @@ async def authenticated_context(user: CurrentUser) -> AsyncIterator[None]:
 
 @router.post("/request-code")
 async def request_code(body: EmailIn, request: Request) -> dict[str, Any]:
+    if config.LOCAL_ONLY_MODE:
+        raise HTTPException(status_code=404, detail="本地模式不提供邮箱登录")
     request_ip = _client_ip(request)
     try:
         cooldown = await auth_service.request_login_code(body.email, request_ip)
@@ -70,6 +74,8 @@ async def request_code(body: EmailIn, request: Request) -> dict[str, Any]:
 
 @router.post("/verify-code")
 async def verify_code(body: VerifyCodeIn, request: Request, response: Response) -> dict[str, Any]:
+    if config.LOCAL_ONLY_MODE:
+        raise HTTPException(status_code=404, detail="本地模式不提供邮箱登录")
     request_ip = _client_ip(request)
     try:
         result = await auth_service.verify_login_code(body.email, body.code)
@@ -101,6 +107,8 @@ async def logout(
     response: Response,
     session_token: Annotated[str | None, Cookie(alias=config.AUTH_COOKIE_NAME)] = None,
 ) -> dict[str, bool]:
+    if config.LOCAL_ONLY_MODE:
+        return {"ok": True}
     user = await auth_service.user_for_session(session_token)
     await auth_service.revoke_session(session_token)
     response.delete_cookie(config.AUTH_COOKIE_NAME, path="/", secure=config.AUTH_COOKIE_SECURE, httponly=True, samesite="strict")

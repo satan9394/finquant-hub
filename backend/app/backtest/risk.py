@@ -6,6 +6,7 @@ from typing import Any
 import numpy as np
 
 JSONDict = dict[str, Any]
+_MIN_RISK_CONTRIBUTION_OBSERVATIONS = 20
 
 
 def _returns(points: list[JSONDict]) -> np.ndarray:
@@ -43,12 +44,37 @@ def _tail_risk(returns: np.ndarray, current_value: float, confidence: float) -> 
     }
 
 
+def _unavailable_diversification(status: str, observations: int | None = None) -> JSONDict:
+    result: JSONDict = {
+        "status": status,
+        "average_correlation": None,
+        "benefit": None,
+        "correlation_matrix": {
+            "status": status,
+            "observations": observations,
+            "asset_ids": [],
+            "values": None,
+        },
+        "risk_contribution": {
+            "status": status,
+            "observations": observations,
+            "minimum_required": _MIN_RISK_CONTRIBUTION_OBSERVATIONS,
+            "method": "sample_covariance_component_share",
+            "portfolio_volatility": None,
+            "items": [],
+        },
+    }
+    if observations is not None:
+        result["observations"] = observations
+    return result
+
+
 def _diversification(asset_results: list[JSONDict], weights: Mapping[str, float]) -> JSONDict:
     if len(asset_results) < 2:
-        return {"status": "insufficient_assets", "average_correlation": None, "benefit": None}
+        return _unavailable_diversification("insufficient_assets")
     periods = {asset.get("period") for asset in asset_results}
     if len(periods) != 1:
-        return {"status": "unsupported_mixed_frequency", "average_correlation": None, "benefit": None}
+        return _unavailable_diversification("unsupported_mixed_frequency")
 
     point_maps = {
         asset["asset_id"]: {point["time"]: float(point["value"]) for point in asset["equity_curve"]}
@@ -56,7 +82,7 @@ def _diversification(asset_results: list[JSONDict], weights: Mapping[str, float]
     }
     common_times = sorted(set.intersection(*(set(points) for points in point_maps.values())))
     if len(common_times) < 3:
-        return {"status": "insufficient_overlap", "average_correlation": None, "benefit": None}
+        return _unavailable_diversification("insufficient_overlap", max(0, len(common_times) - 1))
     matrices = []
     ordered_ids = []
     for asset_id, points in point_maps.items():
@@ -64,20 +90,60 @@ def _diversification(asset_results: list[JSONDict], weights: Mapping[str, float]
         matrices.append(np.diff(values) / values[:-1])
         ordered_ids.append(asset_id)
     matrix = np.asarray(matrices, dtype=float)
-    correlation = np.corrcoef(matrix)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        correlation = np.atleast_2d(np.corrcoef(matrix)).astype(float)
+    observations = int(matrix.shape[1])
+    if not np.isfinite(correlation).all():
+        return _unavailable_diversification("constant_series", observations)
     upper = correlation[np.triu_indices(len(matrix), k=1)]
-    finite_upper = upper[np.isfinite(upper)]
-    average_correlation = float(np.mean(finite_upper)) if len(finite_upper) else None
+    average_correlation = float(np.mean(upper)) if len(upper) else None
     asset_volatility = np.std(matrix, axis=1)
     weight_vector = np.asarray([weights[asset_id] for asset_id in ordered_ids], dtype=float)
     standalone = float(np.sum(weight_vector * asset_volatility))
     portfolio = float(np.std(weight_vector @ matrix))
     benefit = max(0.0, 1.0 - portfolio / standalone) if standalone > 0 else None
+    risk_contribution: JSONDict = {
+        "status": "insufficient_data",
+        "observations": observations,
+        "minimum_required": _MIN_RISK_CONTRIBUTION_OBSERVATIONS,
+        "method": "sample_covariance_component_share",
+        "portfolio_volatility": None,
+        "items": [],
+    }
+    if observations >= _MIN_RISK_CONTRIBUTION_OBSERVATIONS:
+        covariance = np.atleast_2d(np.cov(matrix, rowvar=True, ddof=1)).astype(float)
+        portfolio_variance = float(weight_vector @ covariance @ weight_vector)
+        if np.isfinite(covariance).all() and portfolio_variance > 1e-16:
+            marginal = covariance @ weight_vector
+            contributions = weight_vector * marginal / portfolio_variance
+            if np.isfinite(contributions).all():
+                risk_contribution = {
+                    **risk_contribution,
+                    "status": "ok",
+                    "portfolio_volatility": float(np.sqrt(portfolio_variance)),
+                    "items": [
+                        {
+                            "asset_id": asset_id,
+                            "weight": float(weight),
+                            "contribution": float(contribution),
+                        }
+                        for asset_id, weight, contribution in zip(
+                            ordered_ids, weight_vector, contributions, strict=True
+                        )
+                    ],
+                }
     return {
-        "status": "ok" if average_correlation is not None else "constant_series",
-        "observations": matrix.shape[1],
+        "status": "ok",
+        "observations": observations,
         "average_correlation": average_correlation,
         "benefit": benefit,
+        "correlation_matrix": {
+            "status": "ok",
+            "observations": observations,
+            "asset_ids": ordered_ids,
+            "values": correlation.tolist(),
+        },
+        "risk_contribution": risk_contribution,
     }
 
 

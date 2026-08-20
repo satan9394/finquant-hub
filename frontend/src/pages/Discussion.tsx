@@ -34,6 +34,7 @@ type DiscussionStreamData = {
 export default function Discussion() {
   const [searchParams] = useSearchParams();
   const starterTopic = searchParams.get('topic')?.trim();
+  const requestedRoomId = Number(searchParams.get('room'));
   const {
     rooms, currentRoomId, messages, streamingContent, isStreaming,
     setRooms, addRoom, setCurrentRoomId, setMessages, addMessage, setIsStreaming,
@@ -56,6 +57,12 @@ export default function Discussion() {
     apiClient.get('/discussion/rooms').then((res) => setRooms(res.data.items)).catch(() => {});
     apiClient.get('/agents').then((res) => setAgents(res.data.items)).catch(() => {});
   }, [setRooms]);
+
+  useEffect(() => {
+    if (Number.isInteger(requestedRoomId) && rooms.some((room) => room.id === requestedRoomId)) {
+      setCurrentRoomId(requestedRoomId);
+    }
+  }, [requestedRoomId, rooms, setCurrentRoomId]);
 
   useEffect(() => {
     if (!starterTopic || agents.length < 3) return;
@@ -238,6 +245,9 @@ export default function Discussion() {
             {/* 启动/停止按钮 */}
             {roomDetail?.current_phase !== 'done' && (
               <div style={{ marginBottom: 16, textAlign: 'center' }}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                  模型额度：开始后按所选角色和轮次多次调用模型；仅打开房间不会运行。
+                </Text>
                 {isStreaming ? (
                   <Button danger onClick={handleStop}>停止讨论</Button>
                 ) : (
@@ -273,6 +283,7 @@ export default function Discussion() {
         cancelText="取消"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Text type="secondary">创建只保存房间；点击房间内“开始讨论”后才会调用多个模型角色。</Text>
           <div>
             <Text strong>讨论主题</Text>
             <TextArea

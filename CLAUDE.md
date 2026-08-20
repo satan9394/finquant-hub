@@ -36,6 +36,7 @@ FastAPI lifespan → aiosqlite WAL single connection → 20 routers (see `docs/R
 - **No separate DAL**: routers call database.query_one/query_all/execute directly
 - **No WebSocket**: all real-time comm via SSE (sse-starlette), 7 public endpoints across 6 pipelines
 - **Email magic-link auth**: 邮箱免密登录（验证码 + HttpOnly Cookie 会话），无密码存储；用户数据完全隔离；详见 `docs/ai/AUTH_DESIGN.md`
+- **Explicit local-only profile**: `LOCAL_ONLY_MODE=true` 仅允许 development；自动使用单一本地所有者，不提供邮箱登录/session，且 Docker 入口只绑定 `127.0.0.1`
 - **No SSR**: pure CSR — Vite proxy dev, static build prod
 - **Base research agents are independent**: `research_orch` has no debate/cross-ref; Swarm DAG teams may pass prior-node context
 - **No DI container**: MarketDataService injected via request.app.state.market (manual)

@@ -1,4 +1,5 @@
 """模型配置 CRUD + 连通性测试 + 默认模型切换。"""
+import os
 import time
 from typing import Any, cast
 
@@ -17,7 +18,16 @@ router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(
 def _public_model(row: dict[str, Any]) -> dict[str, Any]:
     """Never send stored API secrets back to the browser."""
     data = dict(row)
-    data["has_api_key"] = bool(data.get("has_stored_credential") or data.get("api_key_env"))
+    has_stored_credential = bool(data.get("has_stored_credential"))
+    api_key_env = str(data.get("api_key_env") or "").strip()
+    try:
+        has_environment_credential = bool(api_key_env and os.getenv(api_key_env, ""))
+    except ValueError:
+        has_environment_credential = False
+    data["has_api_key"] = has_stored_credential or has_environment_credential
+    data["credential_source"] = (
+        "stored" if has_stored_credential else "environment" if has_environment_credential else "none"
+    )
     data.pop("api_key", None)
     data.pop("has_stored_credential", None)
     return data

@@ -3,9 +3,9 @@
  * 功能：ticker 输入 + 4-agent 进度动画 + 富文本 Markdown 报告输出（SSE）
  * ============================================================ */
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Input, Button, Typography, Row, Col, List, Spin, Tag, message, Empty, Collapse, Space,
+  Alert, Card, Collapse, Col, Descriptions, Empty, Input, List, Popconfirm, Row, Space, Spin, Tag, Typography, Button, message,
 } from 'antd';
 import {
   PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
@@ -15,6 +15,7 @@ import type { AgentStatus, ResearchAgent } from '../types';
 import apiClient from '../services/api';
 import { readSSE } from '../services/sse';
 import { useModelStore } from '../store/modelStore';
+import ResultLayer from '../components/ResultLayer';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -91,20 +92,31 @@ function MarkdownContent({ content }: { content: string }) {
   const lines = content.split('\n');
   const elements = lines.map((line, i) => {
     // 标题
-    if (line.startsWith('### ')) return <div key={i} style={{ fontSize: 15, fontWeight: 600, marginTop: 12, marginBottom: 6 }}>{line.slice(4)}</div>;
-    if (line.startsWith('## ')) return <div key={i} style={{ fontSize: 17, fontWeight: 700, marginTop: 16, marginBottom: 8 }}>{line.slice(3)}</div>;
-    if (line.startsWith('# ')) return <div key={i} style={{ fontSize: 20, fontWeight: 700, marginTop: 20, marginBottom: 10 }}>{line.slice(2)}</div>;
+    if (line.startsWith('### ')) return <h4 className="research-report-prose__heading research-report-prose__heading--minor" key={i}>{line.slice(4)}</h4>;
+    if (line.startsWith('## ')) return <h3 className="research-report-prose__heading research-report-prose__heading--section" key={i}>{line.slice(3)}</h3>;
+    if (line.startsWith('# ')) return <h2 className="research-report-prose__heading research-report-prose__heading--chapter" key={i}>{line.slice(2)}</h2>;
     // 列表
-    if (line.startsWith('- ')) return <div key={i} style={{ paddingLeft: 16, marginBottom: 2 }}>• {line.slice(2)}</div>;
-    if (/^\d+\.\s/.test(line)) return <div key={i} style={{ paddingLeft: 16, marginBottom: 2 }}>{line}</div>;
+    if (line.startsWith('- ')) return <div className="research-report-prose__list-item" key={i}>• {renderInlineMarkdown(line.slice(2))}</div>;
+    if (/^\d+\.\s/.test(line)) return <div className="research-report-prose__list-item" key={i}>{renderInlineMarkdown(line)}</div>;
     // 分隔线
-    if (line.startsWith('---')) return <div key={i} style={{ borderTop: '1px solid #eee', margin: '12px 0' }} />;
+    if (line.startsWith('---')) return <hr className="research-report-prose__divider" key={i} />;
     // 空行
-    if (!line.trim()) return <div key={i} style={{ height: 8 }} />;
+    if (!line.trim()) return <div className="research-report-prose__gap" key={i} />;
     // 普通段落
-    return <Paragraph key={i} style={{ marginBottom: 4, whiteSpace: 'pre-wrap' }}>{renderInlineMarkdown(line)}</Paragraph>;
+    return <Paragraph className="research-report-prose__paragraph" key={i}>{renderInlineMarkdown(line)}</Paragraph>;
   });
-  return <div>{elements}</div>;
+  return <div className="research-report-prose">{elements}</div>;
+}
+
+function splitReportLayers(content: string): { summary: string; evidence: string } {
+  const blocks = content.split(/(?=^##\s)/m).map((block) => block.trim()).filter(Boolean);
+  if (!blocks.length) return { summary: '', evidence: '' };
+  const summaryBlocks = blocks.filter((block) => /^##\s+(执行摘要|综合结论|风险提示)/.test(block));
+  const selectedSummary = summaryBlocks.length ? summaryBlocks : blocks.slice(0, 1);
+  return {
+    summary: selectedSummary.join('\n\n'),
+    evidence: blocks.filter((block) => !selectedSummary.includes(block)).join('\n\n'),
+  };
 }
 
 // ==================== Agent 进度卡片 ====================
@@ -138,7 +150,9 @@ function AgentCard({ agent, status, progress }: { agent: string; status: AgentSt
 
 // ==================== 页面组件 ====================
 export default function Research() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const requestedReportId = Number(searchParams.get('report'));
   const currentModelId = useModelStore((state) => state.currentModelId);
   const [ticker, setTicker] = useState(searchParams.get('symbol') ?? '');
   const [running, setRunning] = useState(false);
@@ -194,6 +208,10 @@ export default function Research() {
     }
   }, []);
 
+  useEffect(() => {
+    if (Number.isInteger(requestedReportId) && requestedReportId > 0) void openStoredReport(requestedReportId);
+  }, [openStoredReport, requestedReportId]);
+
   const downloadReport = useCallback(async (format: 'html' | 'md' | 'pdf' | 'docx') => {
     if (!selectedReportId) return;
     try {
@@ -221,10 +239,11 @@ export default function Research() {
     try {
       const response = await apiClient.post(`/thesis/from-report/${selectedReportId}`);
       message.success(`已存为投资论文 #${response.data.id}`);
+      navigate(`/thesis?id=${response.data.id}`);
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '存为投资论文失败');
     }
-  }, [selectedReportId]);
+  }, [navigate, selectedReportId]);
 
   // 开始研究
   const handleStart = useCallback(async () => {
@@ -331,16 +350,24 @@ export default function Research() {
     setRunning(false);
   };
 
+  const reportLayers = splitReportLayers(reportContent);
+
   // ==================== 渲染 ====================
   return (
-    <div style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
-      <Title level={4} style={{ marginBottom: 4 }}>深度研究</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+    <div className="research-report-page">
+      <Title className="research-report-page__title" level={4}>深度研究</Title>
+      <Text className="research-report-page__subtitle" type="secondary">
         输入股票代码，由多智能体协同完成基本面、技术面综合分析并生成报告
       </Text>
 
       {/* 输入区 */}
       <Card size="small" style={{ marginBottom: 16 }}>
+        <Alert
+          type="warning"
+          showIcon
+          message="模型额度：开始后将调用多个研究角色并整合报告，消耗相对较高；打开或预填本页不会运行。"
+          style={{ marginBottom: 12 }}
+        />
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
             placeholder="输入股票代码，如 600519"
@@ -379,46 +406,70 @@ export default function Research() {
 
       {/* 报告输出 */}
       {(running || done || reportContent) ? (
-        <Card
-          size="small"
-          title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <RobotOutlined />
-              <span>{reportTitle || '研究报告中...'}</span>
-              <Tag color="purple">MODEL_OUTPUT</Tag>
-              {running && <Spin size="small" />}
-            </div>
-          }
-          extra={
-            <Space size={4} wrap>
-              {selectedReportId && done && (
-                <>
-                  <Button size="small" icon={<FileTextOutlined />} onClick={() => void saveAsThesis()}>存为论文</Button>
-                  <Button size="small" icon={<DownloadOutlined />} onClick={() => void downloadReport('html')}>HTML</Button>
-                  <Button size="small" onClick={() => void downloadReport('md')}>MD</Button>
-                  <Button size="small" onClick={() => void downloadReport('pdf')}>PDF</Button>
-                  <Button size="small" onClick={() => void downloadReport('docx')}>Word</Button>
-                </>
-              )}
-              {done ? <Tag color="green">已完成</Tag> : running ? <Tag color="processing">生成中</Tag> : null}
-            </Space>
-          }
-          style={{
-            minHeight: 300,
-            borderTop: `3px solid ${done ? '#52c41a' : running ? '#1890ff' : '#d9d9d9'}`,
-          }}
-        >
-          <div style={{ padding: '0 4px' }}>
-            {reportContent ? (
-              <MarkdownContent content={reportContent} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: 60, color: '#aaa' }}>
-                <Spin />
-                <div style={{ marginTop: 12 }}>等待智能体返回数据...</div>
-              </div>
-            )}
+        <div className="research-report-layout">
+          <div className="research-report-layout__content">
+          <ResultLayer
+            layer="summary"
+            title="深度研究摘要"
+            description="优先展示执行摘要、风险提示和综合结论。"
+            actions={selectedReportId && done ? (
+              <Space size={4} wrap>
+                <Popconfirm
+                  title="从这份报告创建投资论文？"
+                  description="将保存报告核心结论，并生成价格、持仓、基本面和报告变化验证条件；创建后仍可编辑。"
+                  okText="创建并查看"
+                  cancelText="取消"
+                  onConfirm={() => void saveAsThesis()}
+                >
+                  <Button size="small" icon={<FileTextOutlined />}>创建论文与验证条件</Button>
+                </Popconfirm>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => void downloadReport('html')}>HTML</Button>
+                <Button size="small" onClick={() => void downloadReport('md')}>MD</Button>
+                <Button size="small" onClick={() => void downloadReport('pdf')}>PDF</Button>
+                <Button size="small" onClick={() => void downloadReport('docx')}>Word</Button>
+              </Space>
+            ) : undefined}
+          >
+            <Card
+              size="small"
+              title={<Space wrap><RobotOutlined /><span>{reportTitle || '研究报告中...'}</span><Tag color="purple">MODEL_OUTPUT</Tag>{done ? <Tag color="green">已完成</Tag> : running ? <Tag color="processing">生成中</Tag> : null}</Space>}
+              style={{ borderTop: `3px solid ${done ? '#52c41a' : running ? '#1890ff' : '#d9d9d9'}` }}
+            >
+              {reportLayers.summary ? <MarkdownContent content={reportLayers.summary} /> : <div style={{ textAlign: 'center', padding: 40 }}><Spin /><div style={{ marginTop: 12 }}>等待智能体返回摘要...</div></div>}
+            </Card>
+          </ResultLayer>
+
+          <ResultLayer layer="evidence" title="报告证据与分析正文">
+            <Card size="small">
+              {reportLayers.evidence ? <MarkdownContent content={reportLayers.evidence} /> : <Empty description="报告尚未返回独立证据章节" />}
+            </Card>
+          </ResultLayer>
+
+          <ResultLayer layer="method">
+            <Card size="small">
+              <Descriptions column={{ xs: 1, md: 3 }} size="small">
+                <Descriptions.Item label="标的">{ticker || '未知'}</Descriptions.Item>
+                <Descriptions.Item label="报告版本">{selectedReportId ? `#${selectedReportId}` : '尚未保存'}</Descriptions.Item>
+                <Descriptions.Item label="模型">{currentModelId ? `#${currentModelId}` : '当前默认模型'}</Descriptions.Item>
+                <Descriptions.Item label="参与角色">{agents.filter((agent) => agent.status === 'completed').length}/{AGENT_KEYS.length} 完成</Descriptions.Item>
+                <Descriptions.Item label="内容类型">MODEL_OUTPUT</Descriptions.Item>
+                <Descriptions.Item label="状态">{done ? '已完成' : running ? '生成中' : '未完成'}</Descriptions.Item>
+              </Descriptions>
+              <Alert type="warning" showIcon message="报告中的事实、来源和截止时间需按正文逐条核对；MODEL_OUTPUT 不能替代原始数据证据。" />
+            </Card>
+          </ResultLayer>
           </div>
-        </Card>
+          <aside className="research-report-rail" aria-label="报告阅读导航">
+            <span className="research-report-rail__eyebrow">REPORT READING</span>
+            <h2>先结论，后证据</h2>
+            <ol>
+              <li><strong>01 摘要</strong><span>执行摘要、综合结论与风险提示。</span></li>
+              <li><strong>02 证据</strong><span>逐段展开分析、数据和来源线索。</span></li>
+              <li><strong>03 方法</strong><span>确认版本、模型、角色与待核验项。</span></li>
+            </ol>
+            <p>数值、来源和不确定状态会保留在正文中，不用视觉美化掩盖数据边界。</p>
+          </aside>
+        </div>
       ) : (
         <Card size="small" style={{ minHeight: 200 }}>
           <Empty description={'输入股票代码并点击「开始研究」以生成深度分析报告'} />

@@ -11,6 +11,65 @@ from typing import Any
 
 
 _WQ_FIELDS_PATH = Path(__file__).resolve().parents[1] / "data" / "wq_fields.json"
+_CATALOGUE_SCHEMA_VERSION = "alpha-catalogue/v1"
+_STARTER_FIELDS: tuple[dict[str, Any], ...] = (
+    {
+        "id": "operating_income",
+        "description": "Operating income supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Fundamental"},
+    },
+    {
+        "id": "equity",
+        "description": "Shareholders' equity supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Fundamental"},
+    },
+    {
+        "id": "free_cash_flow_reported_value",
+        "description": "Reported free cash flow supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Fundamental"},
+    },
+    {
+        "id": "est_eps",
+        "description": "Estimated earnings per share supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Estimate"},
+    },
+    {
+        "id": "close",
+        "description": "Close price supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Price and volume"},
+    },
+    {
+        "id": "open",
+        "description": "Open price supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Price and volume"},
+    },
+    {
+        "id": "volume",
+        "description": "Trading volume supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Price and volume"},
+    },
+    {
+        "id": "vwap",
+        "description": "Volume-weighted average price supplied by the user's research dataset.",
+        "coverage": None,
+        "dataset": {"name": "FinQuant starter"},
+        "category": {"name": "Price and volume"},
+    },
+)
 
 
 @lru_cache(maxsize=1)
@@ -23,13 +82,40 @@ def _read_wq_fields(mtime_ns: int, size: int) -> tuple[dict[str, Any], ...]:
     return tuple(item for item in data if isinstance(item, dict) and item.get("id"))
 
 
-def _load_wq_fields() -> tuple[dict[str, Any], ...]:
-    """Load the catalogue, including files created after module import."""
+def _load_external_wq_fields() -> tuple[dict[str, Any], ...]:
+    """Load the optional local catalogue, including files created after import."""
     try:
         stat = _WQ_FIELDS_PATH.stat()
     except OSError:
         return ()
     return _read_wq_fields(stat.st_mtime_ns, stat.st_size)
+
+
+def _load_wq_fields() -> tuple[dict[str, Any], ...]:
+    """Return the optional local catalogue or the project-authored starter."""
+    return _load_external_wq_fields() or _STARTER_FIELDS
+
+
+def catalogue_metadata() -> dict[str, Any]:
+    """Describe content availability separately from redistribution permission."""
+    external_fields = _load_external_wq_fields()
+    if external_fields:
+        return {
+            "schema_version": _CATALOGUE_SCHEMA_VERSION,
+            "mode": "BUNDLED_EXTERNAL",
+            "data_status": "OK",
+            "source": "local_bundled_file",
+            "redistribution_status": "UNKNOWN",
+            "field_count": len(external_fields),
+        }
+    return {
+        "schema_version": _CATALOGUE_SCHEMA_VERSION,
+        "mode": "FINQUANT_STARTER",
+        "data_status": "PARTIAL",
+        "source": "finquant.starter",
+        "redistribution_status": "PROJECT_AUTHORED",
+        "field_count": len(_STARTER_FIELDS),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -42,15 +128,21 @@ def _read_wq_search_rows(mtime_ns: int, size: int) -> tuple[tuple[dict[str, Any]
 
 
 def _load_wq_search_rows() -> tuple[tuple[dict[str, Any], str], ...]:
+    rows: tuple[tuple[dict[str, Any], str], ...]
     try:
         stat = _WQ_FIELDS_PATH.stat()
     except OSError:
-        return ()
-    return _read_wq_search_rows(stat.st_mtime_ns, stat.st_size)
+        rows = ()
+    else:
+        rows = _read_wq_search_rows(stat.st_mtime_ns, stat.st_size)
+    return rows or tuple(
+        (item, " ".join(str(item.get(key, "")) for key in ("id", "description", "type", "region")).casefold())
+        for item in _STARTER_FIELDS
+    )
 
 
 def list_fields() -> list[dict[str, Any]]:
-    """Return the real bundled WorldQuant field catalogue, not a fake summary."""
+    """Return the optional local catalogue or the PARTIAL project starter."""
     return list(_load_wq_fields())
 
 # 典型 Alpha 因子库（名称/表达式/描述）

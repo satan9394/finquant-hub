@@ -1,10 +1,11 @@
 """仪表盘统计。"""
 import json
+import os
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from .. import database
+from .. import config, database
 from ..services.import_service import (
     MAX_CANDIDATES,
     ImportFormatError,
@@ -12,10 +13,16 @@ from ..services.import_service import (
     parse_file,
     parse_text,
 )
+from ..services.decision_inbox import build_decision_inbox
 from ..services.market_data import MarketDataService
 from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(authenticated_context)])
+
+
+@router.get("/decision-inbox")
+async def decision_inbox(user: CurrentUser) -> dict[str, Any]:
+    return await build_decision_inbox(int(user["id"]))
 
 
 @router.post("/watchlist/import")
@@ -65,7 +72,12 @@ async def stats(user: CurrentUser) -> dict[str, Any]:
         "SELECT COUNT(*) AS n FROM messages WHERE user_id=?", (user_id,)
     ))["n"]
     default_model = await database.query_one(
-        "SELECT id, name, model_name FROM model_configs WHERE is_default=1 AND user_id=? LIMIT 1", (user_id,))
+        "SELECT m.id, m.name, m.model_name, m.api_key_env, "
+        "EXISTS(SELECT 1 FROM user_credentials c "
+        "WHERE c.user_id=m.user_id AND c.service='model:' || m.id) AS has_stored_credential "
+        "FROM model_configs m WHERE m.is_default=1 AND m.user_id=? LIMIT 1",
+        (user_id,),
+    )
     recent_conversations = await database.query_all(
         "SELECT c.*, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id AND m.user_id=c.user_id) AS message_count "
         "FROM conversations c WHERE c.mode='single' AND c.status='active' AND c.user_id=? "
@@ -74,12 +86,51 @@ async def stats(user: CurrentUser) -> dict[str, Any]:
         "SELECT * FROM discussion_rooms WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (user_id,))
     for r in recent_rooms:
         r["participants"] = json.loads(r["participants"])
+    public_default_model = None
+    credential_source = "none"
+    if default_model is not None:
+        api_key_env = str(default_model.get("api_key_env") or "").strip()
+        try:
+            has_environment_credential = bool(api_key_env and os.getenv(api_key_env, ""))
+        except ValueError:
+            has_environment_credential = False
+        credential_source = (
+            "stored" if default_model.get("has_stored_credential")
+            else "environment" if has_environment_credential
+            else "none"
+        )
+        public_default_model = {
+            "id": default_model["id"],
+            "name": default_model["name"],
+            "model_name": default_model["model_name"],
+        }
+    model_status = "CONFIGURED_UNVERIFIED" if credential_source != "none" else "UNCONFIGURED"
+
     return {
         "model_count": model_count,
         "conversation_count": conv_count,
         "discussion_count": disc_count,
         "message_count": msg_count,
-        "default_model": default_model,
+        "default_model": public_default_model,
         "recent_conversations": recent_conversations,
         "recent_rooms": recent_rooms,
+        "capabilities": {
+            "contract_version": "local-capabilities/v1",
+            "runtime_mode": "LOCAL_ONLY" if config.LOCAL_ONLY_MODE else "AUTHENTICATED",
+            "local_core": {
+                "status": "AVAILABLE",
+                "quality_status": "OK",
+            },
+            "model_ai": {
+                "status": model_status,
+                "quality_status": "UNKNOWN",
+                "credential_source": credential_source,
+                "model_id": public_default_model["id"] if public_default_model else None,
+                "action_path": "/models",
+            },
+            "market_data": {
+                "status": "RUNTIME_CHECK_REQUIRED",
+                "quality_status": "UNKNOWN",
+            },
+        },
     }

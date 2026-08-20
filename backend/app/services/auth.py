@@ -19,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 _EMAIL_RE = re.compile(r"^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$", re.IGNORECASE)
 _AUTH_LOCK = asyncio.Lock()
 _CURRENT_USER: ContextVar[dict[str, Any] | None] = ContextVar("current_user", default=None)
+_LOCAL_USER_EMAIL = "local@finquant.invalid"
 
 
 class InvalidEmailError(ValueError):
@@ -77,6 +78,51 @@ def current_user_id() -> int:
     if user is None:
         raise RuntimeError("authenticated user context is required")
     return int(user["id"])
+
+
+def _public_user(row: dict[str, Any], *, local_mode: bool = False) -> dict[str, Any]:
+    user = {"id": row["id"], "email": row["email"], "is_admin": bool(row["is_admin"])}
+    if local_mode:
+        user["local_mode"] = True
+    return user
+
+
+async def ensure_local_user() -> dict[str, Any]:
+    """Return the single local ownership identity; it is not a login account."""
+    async with _AUTH_LOCK:
+        user = await database.query_one(
+            "SELECT id, email, is_admin FROM users WHERE email=? AND is_active=1",
+            (_LOCAL_USER_EMAIL,),
+        )
+        if user is None:
+            # Preserve the original owner's data when an authenticated database is reused locally.
+            user = await database.query_one(
+                "SELECT id, email, is_admin FROM users WHERE is_admin=1 AND is_active=1 ORDER BY id LIMIT 1"
+            )
+        if user is None:
+            user_id = await database.execute(
+                "INSERT INTO users (email, is_admin, last_login_at) VALUES (?, 1, datetime('now'))",
+                (_LOCAL_USER_EMAIL,),
+            )
+            user = await database.query_one(
+                "SELECT id, email, is_admin FROM users WHERE id=?",
+                (user_id,),
+            )
+        assert user is not None
+        await database.claim_unowned_data(int(user["id"]))
+        await database.seed_models_for_user(int(user["id"]))
+        await migrate_legacy_model_api_keys(int(user["id"]))
+    return _public_user(user, local_mode=True)
+
+
+async def local_user() -> dict[str, Any]:
+    user = await database.query_one(
+        "SELECT id, email, is_admin FROM users "
+        "WHERE is_active=1 AND (email=? OR is_admin=1) "
+        "ORDER BY CASE WHEN email=? THEN 0 ELSE 1 END, id LIMIT 1",
+        (_LOCAL_USER_EMAIL, _LOCAL_USER_EMAIL),
+    )
+    return _public_user(user, local_mode=True) if user is not None else await ensure_local_user()
 
 
 def normalize_email(value: str) -> str:
@@ -203,7 +249,7 @@ async def verify_login_code(email_value: str, code: str) -> SessionResult:
             "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
             (user["id"], _hash_token(token), _db_time(datetime.now(UTC) + timedelta(days=config.AUTH_SESSION_DAYS))),
         )
-    return SessionResult(token=token, user={"id": user["id"], "email": user["email"], "is_admin": bool(user["is_admin"])})
+    return SessionResult(token=token, user=_public_user(user))
 
 
 async def user_for_session(token: str | None) -> dict[str, Any] | None:
@@ -216,7 +262,7 @@ async def user_for_session(token: str | None) -> dict[str, Any] | None:
     )
     if row is None:
         return None
-    return {"id": row["id"], "email": row["email"], "is_admin": bool(row["is_admin"])}
+    return _public_user(row)
 
 
 async def revoke_session(token: str | None) -> None:

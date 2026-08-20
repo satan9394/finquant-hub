@@ -72,6 +72,21 @@ async def test_fundamentals_preserve_as_of_and_currency():
 
 
 @pytest.mark.asyncio
+async def test_yahoo_fundamentals_transport_failure_is_a_market_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.RemoteProtocolError("upstream disconnected")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = MarketDataService(http=http)
+    try:
+        with pytest.raises(MarketError, match="无法获取 AAPL 的基本面数据") as exc_info:
+            await service.fundamentals("AAPL")
+        assert "yahoo:RemoteProtocolError" in str(exc_info.value)
+    finally:
+        await service.aclose()
+
+
+@pytest.mark.asyncio
 async def test_yahoo_fundamentals_derives_auditable_core_ratios(monkeypatch):
     async def no_domestic_data(symbol, adapters=None):
         return []
@@ -93,6 +108,9 @@ async def test_yahoo_fundamentals_derives_auditable_core_ratios(monkeypatch):
         series("trailingTotalRevenue", 1000),
         series("trailingGrossProfit", 600),
         series("trailingNetIncome", 250),
+        series("trailingOperatingCashFlow", 300),
+        series("trailingFreeCashFlow", 150),
+        series("trailingMarketCap", 3_000),
         series("quarterlyTotalAssets", 2000, "3M"),
         series("quarterlyTotalLiabilitiesNetMinorityInterest", 500, "3M"),
     ], "error": None}}
@@ -111,6 +129,10 @@ async def test_yahoo_fundamentals_derives_auditable_core_ratios(monkeypatch):
     assert metrics["gross_margin"]["value"] == 60
     assert metrics["net_profit_margin"]["value"] == 25
     assert metrics["debt_to_assets"]["value"] == 25
+    assert metrics["cfo_to_net_income"]["value"] == 120
+    assert metrics["fcf_margin"]["value"] == 15
+    assert metrics["fcf_yield"]["value"] == 5
+    assert metrics["fcf_yield"]["methodology"] == "deterministic_ratio"
     assert metrics["gross_margin"]["components"] == [
         "gross_profit", "total_revenue",
     ]

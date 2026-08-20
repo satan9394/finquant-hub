@@ -37,6 +37,12 @@ async def _fake_get_client(model_id=None, **_kwargs):
     return FakeLLMClient(), {"id": 1, "name": "FakeModel"}
 
 
+async def _fake_resolve_research_target(raw, _service):
+    if raw == "600519":
+        return "sh600519", "贵州茅台"
+    return "usAAPL", "Apple Inc."
+
+
 @pytest_asyncio.fixture
 async def client(tmp_path, monkeypatch):
     """每个测试独立 SQLite 库 + Fake LLM。"""
@@ -157,6 +163,22 @@ class TestModelCRUD:
         assert created.json()["has_api_key"] is True
         listed = (await client.get("/api/models")).json()["items"]
         assert all("api_key" not in item for item in listed)
+
+    @pytest.mark.asyncio
+    async def test_declared_environment_name_is_not_reported_as_loaded_key(self, client, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        models = (await client.get("/api/models")).json()["items"]
+        default_model = next(model for model in models if model["is_default"])
+        assert default_model["api_key_env"] == "DEEPSEEK_API_KEY"
+        assert default_model["has_api_key"] is False
+        assert default_model["credential_source"] == "none"
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "configured-but-not-tested")
+        response = await client.get("/api/models")
+        loaded = next(model for model in response.json()["items"] if model["is_default"])
+        assert loaded["has_api_key"] is True
+        assert loaded["credential_source"] == "environment"
+        assert "configured-but-not-tested" not in response.text
 
 
 class TestAgentCRUD:
@@ -347,14 +369,64 @@ class TestDiscussion:
 
 class TestDashboard:
     @pytest.mark.asyncio
+    async def test_decision_inbox_shape(self, client):
+        response = await client.get("/api/dashboard/decision-inbox")
+        assert response.status_code == 200
+        assert response.json() == {
+            "engine_version": "decision-inbox/v1",
+            "generated_at": response.json()["generated_at"],
+            "items": [],
+            "total": 0,
+        }
+
+    @pytest.mark.asyncio
     async def test_stats_shape(self, client):
         r = await client.get("/api/dashboard/stats")
         assert r.status_code == 200
         d = r.json()
         for key in ("model_count", "conversation_count", "discussion_count",
-                    "message_count", "default_model", "recent_conversations", "recent_rooms"):
+                    "message_count", "default_model", "recent_conversations", "recent_rooms", "capabilities"):
             assert key in d
         assert d["default_model"]["model_name"] == "deepseek-v4-flash"
+
+    @pytest.mark.asyncio
+    async def test_stats_capabilities_preserve_configuration_and_upstream_unknowns(self, client, monkeypatch):
+        monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        created = await client.post("/api/models", json={
+            "name": "Capability model",
+            "base_url": "https://api.example.com",
+            "model_name": "example",
+            "api_key_env": "DEEPSEEK_API_KEY",
+        })
+        model_id = created.json()["id"]
+        await client.post(f"/api/models/{model_id}/set-default")
+        initial = (await client.get("/api/dashboard/stats")).json()["capabilities"]
+        assert initial == {
+            "contract_version": "local-capabilities/v1",
+            "runtime_mode": "AUTHENTICATED",
+            "local_core": {"status": "AVAILABLE", "quality_status": "OK"},
+            "model_ai": {
+                "status": "UNCONFIGURED",
+                "quality_status": "UNKNOWN",
+                "credential_source": "none",
+                "model_id": model_id,
+                "action_path": "/models",
+            },
+            "market_data": {"status": "RUNTIME_CHECK_REQUIRED", "quality_status": "UNKNOWN"},
+        }
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "configured-but-unverified")
+        listed = (await client.get("/api/models")).json()["items"]
+        listed_default = next(model for model in listed if model["is_default"])
+        assert listed_default["credential_source"] == "environment"
+        response = await client.get("/api/dashboard/stats")
+        configured = response.json()["capabilities"]
+        assert configured["model_ai"]["status"] == "CONFIGURED_UNVERIFIED"
+        assert configured["model_ai"]["quality_status"] == "UNKNOWN"
+        assert configured["model_ai"]["credential_source"] == "environment"
+        assert configured["market_data"]["status"] == "RUNTIME_CHECK_REQUIRED"
+        assert "configured-but-unverified" not in response.text
 
     @pytest.mark.asyncio
     async def test_watchlist_import_multipart(self, client, monkeypatch):
@@ -388,7 +460,7 @@ class TestThesis:
     @pytest.mark.asyncio
     async def test_manual_create_edit_filter_and_claim_update(self, client, monkeypatch):
         async def fake_quote(_ticker):
-            return {"price": 88.0}
+            return {"price": 88.0, "code": "sz000858", "source": "fixture", "currency": "CNY"}
 
         async def fake_fundamentals(_ticker):
             return [{"metric": "total_revenue", "value": 90_000_000_000.0}]
@@ -447,7 +519,11 @@ class TestThesis:
         market_state = {"price": 100.0}
 
         async def fake_quote(_ticker):
-            return {"price": market_state["price"]}
+            return {
+                "price": market_state["price"], "code": "sh600519",
+                "source": "fixture", "currency": "CNY", "market": "A",
+                "license_scope": "fixture-only",
+            }
 
         async def fake_fundamentals(_ticker):
             return []
@@ -458,7 +534,11 @@ class TestThesis:
             "executive_summary": "品牌护城河稳固，现金流持续增长，长期逻辑成立。",
             "verdict": "长期关注",
             "team_lead_review": {"bull_case": "高端需求保持韧性", "bear_case": "渠道库存上升"},
-            "fundamental_evidence": {"items": [{"metric": "total_revenue", "value": 100.0}]},
+            "fundamental_evidence": {"items": [{
+                "metric": "total_revenue", "value": 100.0, "source": "fixture",
+                "provider": "fixture", "as_of": "2025-12-31", "period_type": "annual",
+                "license_scope": "fixture-only",
+            }]},
         }
         report_id = await database.execute(
             "INSERT INTO research_reports (ticker, company_name, report_data, status, user_id) "
@@ -478,7 +558,11 @@ class TestThesis:
         drifted_report = {
             "executive_summary": "核心需求和竞争地位发生明显变化，原长期逻辑需要重估。",
             "verdict": "谨慎",
-            "fundamental_evidence": {"items": [{"metric": "total_revenue", "value": 70.0}]},
+            "fundamental_evidence": {"items": [{
+                "metric": "total_revenue", "value": 70.0, "source": "fixture",
+                "provider": "fixture", "as_of": "2026-06-30", "period_type": "quarterly",
+                "license_scope": "fixture-only",
+            }]},
         }
         await database.execute(
             "INSERT INTO research_reports (ticker, company_name, report_data, status, user_id) "
@@ -494,6 +578,11 @@ class TestThesis:
         assert statuses["price"] == "violated"
         assert statuses["fundamental"] == "violated"
         assert statuses["position"] == "unknown"
+
+        challenge = await client.post(f"/api/thesis/{thesis_id}/challenge")
+        assert challenge.status_code == 200
+        assert challenge.json()["result_kind"] == "AI_INFERENCE"
+        assert challenge.json()["strongest_counter_evidence"][0]["evidence_refs"]
 
         duplicate = await client.post(f"/api/thesis/from-report/{report_id}")
         assert duplicate.status_code == 409
@@ -511,6 +600,7 @@ class TestResearchHistory:
             }
 
         monkeypatch.setattr(research_router, "run_research", fake_research)
+        monkeypatch.setattr(research_router, "resolve_research_target", _fake_resolve_research_target)
         async with client.stream("POST", "/api/research", json={"ticker": "600519", "model_id": 1}) as response:
             assert response.status_code == 200
             events = await _collect_sse(response)
@@ -567,6 +657,7 @@ class TestResearchHistory:
             yield "error", {"role_key": "risk_manager", "error": "API rate limit exceeded"}
 
         monkeypatch.setattr(research_router, "run_research", fake_research)
+        monkeypatch.setattr(research_router, "resolve_research_target", _fake_resolve_research_target)
         async with client.stream("POST", "/api/research", json={"ticker": "AAPL"}) as response:
             events = await _collect_sse(response)
 
@@ -599,6 +690,7 @@ class TestResearchHistory:
 
         monkeypatch.setattr(research_router, "run_research", fake_research)
         monkeypatch.setattr(research_router, "_complete_report", fail_completion)
+        monkeypatch.setattr(research_router, "resolve_research_target", _fake_resolve_research_target)
 
         async with client.stream("POST", "/api/research", json={"ticker": "AAPL"}) as response:
             events = await _collect_sse(response)
@@ -710,6 +802,30 @@ class TestNotifications:
 
 
 class TestAlerts:
+    @pytest.mark.asyncio
+    async def test_monitor_target_requires_draft_then_confirms_idempotently(self, client):
+        thesis_id = await database.execute(
+            "INSERT INTO thesis (ticker, title, thesis, user_id) "
+            "VALUES ('usMSFT', 'Microsoft thesis', 'Judgment', 1)"
+        )
+        payload = {
+            "target_type": "thesis", "target_id": thesis_id,
+            "name": "Microsoft death cross", "signal_type": "death_cross", "direction": "bearish",
+        }
+        draft = await client.post("/api/alerts/monitor-targets/draft", json=payload)
+        assert draft.status_code == 200
+        assert draft.json()["ready_to_confirm"] is True
+        assert await database.query_one(
+            "SELECT id FROM alert_rules WHERE target_type='thesis' AND target_id=?", (thesis_id,)
+        ) is None
+
+        first = await client.post("/api/alerts/monitor-targets/confirm", json=payload)
+        second = await client.post("/api/alerts/monitor-targets/confirm", json=payload)
+        assert first.status_code == 201
+        assert first.json()["created"] is True
+        assert second.json()["created"] is False
+        assert first.json()["rule"]["id"] == second.json()["rule"]["id"]
+
     @pytest.mark.asyncio
     async def test_rule_api_evaluates_latest_signal_idempotently(self, client, monkeypatch):
         created = await client.post("/api/alerts/rules", json={
@@ -938,6 +1054,8 @@ class TestQuantResearchV2:
         assert {period for _, period, _ in requested} == {"60m", "1d"}
         assert sum(payload["weights"].values()) == pytest.approx(1.0)
         assert payload["metrics"]["annualized_return"] is None
+        assert {item["provenance"]["market"] for item in payload["assets"]} == {"US", "HK"}
+        assert {item["provenance"]["currency"] for item in payload["assets"]} == {"USD", "HKD"}
         assert "cross_currency_returns_normalized_without_fx" in payload["warnings"]
         assert payload["capabilities"]["optimizers"] == [
             "equal_weight", "risk_parity", "mean_variance", "inverse_volatility",
@@ -955,6 +1073,167 @@ class TestQuantResearchV2:
 
 
 class TestCoverageCriticalRoutes:
+    @pytest.mark.asyncio
+    async def test_paper_portfolio_lifecycle_is_explicit_simulated_and_idempotent(self, client, monkeypatch):
+        created = await client.post("/api/portfolio/paper", json={
+            "name": "Paper US",
+            "base_currency": "USD",
+            "initial_cash": 1000,
+        })
+        assert created.status_code == 201
+        payload = created.json()
+        paper_id = payload["id"]
+        assert payload["account_kind"] == "PAPER"
+        assert payload["execution_kind"] == "SIMULATED"
+        assert payload["capabilities"] == {
+            "real_account": False,
+            "real_orders": False,
+            "automatic_trading": False,
+            "simulated_ledger": True,
+        }
+        assert (await client.get("/api/portfolio/paper")).json()["items"][0]["id"] == paper_id
+
+        ledger_request = {
+            "idempotency_key": "api-buy-1",
+            "side": "BUY",
+            "symbol": "AAPL",
+            "quantity": 2,
+            "simulation_price": 100,
+            "simulation_as_of": "2026-08-13T10:00:00Z",
+            "simulation_source": "user-input:api-test",
+            "fee": 2,
+            "currency": "USD",
+        }
+        appended = await client.post(
+            f"/api/portfolio/paper/{paper_id}/ledger", json=ledger_request,
+        )
+        assert appended.status_code == 201
+        assert appended.json()["idempotent_replay"] is False
+        replay = await client.post(
+            f"/api/portfolio/paper/{paper_id}/ledger", json=ledger_request,
+        )
+        assert replay.status_code == 201
+        assert replay.json()["id"] == appended.json()["id"]
+        assert replay.json()["idempotent_replay"] is True
+
+        async def quotes(symbols):
+            assert symbols == ["usAAPL"]
+            return [{
+                "code": "usAAPL", "price": 110, "currency": "USD",
+                "source": "fixture:api-quote", "timestamp": 1786634400,
+            }]
+
+        monkeypatch.setattr(app.state.market, "quotes", quotes)
+        valuation = (await client.get(
+            f"/api/portfolio/paper/{paper_id}/valuation",
+        )).json()
+        assert valuation["valuation_status"] == "OK"
+        assert valuation["total_value"] == 1018
+        assert valuation["valuation_positions"][0]["source"] == "fixture:api-quote"
+
+        conflict_request = {**ledger_request, "quantity": 3}
+        conflict = await client.post(
+            f"/api/portfolio/paper/{paper_id}/ledger", json=conflict_request,
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"].startswith("IDEMPOTENCY_CONFLICT:")
+
+        archived = await client.post(f"/api/portfolio/paper/{paper_id}/archive")
+        assert archived.json()["status"] == "ARCHIVED"
+        blocked = await client.post(
+            f"/api/portfolio/paper/{paper_id}/ledger",
+            json={**ledger_request, "idempotency_key": "after-archive"},
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"].startswith("ARCHIVED:")
+        assert (await client.get("/api/portfolio/paper/999999")).status_code == 404
+        assert (await client.get("/api/portfolio/paper/999999/valuation")).status_code == 404
+        assert (await client.post("/api/portfolio/paper/999999/archive")).status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_paper_review_lifecycle_is_explicit_idempotent_and_non_causal(self, client, monkeypatch):
+        from app.services import investment_memory
+
+        user = await database.query_one("SELECT id FROM users WHERE email='tests@example.com'")
+        assert user is not None
+        hypothesis = await investment_memory.create_memory(
+            user_id=user["id"],
+            subject_type="instrument",
+            subject_id="usAAPL",
+            memory_type="hypothesis",
+            information_kind="USER_HYPOTHESIS",
+            content={"statement": "AAPL momentum persists"},
+            source_kind="user",
+            created_by="user",
+            status="confirmed",
+        )
+        original = await investment_memory.get_memory(hypothesis["id"], user_id=user["id"])
+        paper = (await client.post("/api/portfolio/paper", json={
+            "name": "Review Paper", "base_currency": "USD", "initial_cash": 1000,
+        })).json()
+        ledger = await client.post(f"/api/portfolio/paper/{paper['id']}/ledger", json={
+            "idempotency_key": "review-api-buy",
+            "side": "BUY",
+            "symbol": "AAPL",
+            "quantity": 2,
+            "simulation_price": 100,
+            "simulation_as_of": "2026-08-01T00:00:00Z",
+            "simulation_source": "user-input:api-test",
+            "fee": 2,
+            "currency": "USD",
+        })
+        assert ledger.status_code == 201
+
+        async def quotes(symbols):
+            assert symbols == ["usAAPL"]
+            return [{
+                "code": "usAAPL", "price": 110, "currency": "USD",
+                "source": "fixture:review-api", "timestamp": 1786634400,
+            }]
+
+        monkeypatch.setattr(app.state.market, "quotes", quotes)
+        context = (await client.get(f"/api/portfolio/paper/{paper['id']}/reviews")).json()
+        assert [item["id"] for item in context["hypotheses"]] == [hypothesis["id"]]
+        assert context["reviews"] == []
+        assert context["causal_proof"] is False
+
+        draft = (await client.get(
+            f"/api/portfolio/paper/{paper['id']}/reviews/draft",
+            params={"hypothesis_memory_id": hypothesis["id"]},
+        )).json()
+        assert draft["simulation_result"]["total_return"] == 1.8
+        assert draft["simulation_result"]["information_kind"] == "COMPUTED_RESULT"
+        assert draft["simulation_result"]["positions"][0]["source"] == "fixture:review-api"
+        assert draft["recommended_outcome"] is None
+        assert draft["outcome_options"] == ["supported", "refuted", "inconclusive"]
+
+        request = {
+            "hypothesis_memory_id": hypothesis["id"],
+            "outcome": "supported",
+            "reason": "用户仅记录模拟方向一致，不主张因果。",
+            "observed_from": "2026-08-01T00:00:00Z",
+            "observed_to": "2026-08-13T00:00:00Z",
+            "idempotency_key": "review-api-1",
+        }
+        saved = await client.post(f"/api/portfolio/paper/{paper['id']}/reviews", json=request)
+        assert saved.status_code == 201
+        assert saved.json()["information_kind"] == "USER_HYPOTHESIS"
+        assert saved.json()["content"]["causal_proof"] is False
+        replay = await client.post(f"/api/portfolio/paper/{paper['id']}/reviews", json=request)
+        assert replay.json()["id"] == saved.json()["id"]
+        assert replay.json()["idempotent_replay"] is True
+        conflict = await client.post(
+            f"/api/portfolio/paper/{paper['id']}/reviews",
+            json={**request, "outcome": "refuted"},
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["detail"].startswith("IDEMPOTENCY_CONFLICT:")
+        assert await investment_memory.get_memory(hypothesis["id"], user_id=user["id"]) == original
+        assert (await client.get(
+            f"/api/portfolio/paper/{paper['id']}/reviews/draft",
+            params={"hypothesis_memory_id": 999999},
+        )).status_code == 404
+
     @pytest.mark.asyncio
     async def test_portfolio_full_lifecycle_and_not_found_contracts(self, client, monkeypatch):
         from app.routers import portfolio as portfolio_router
@@ -1233,11 +1512,33 @@ class TestSettingsAndMCPConfiguration:
 
         listed = (await client.get("/api/settings/research-jobs")).json()["items"]
         assert [item["id"] for item in listed] == [job["id"]]
+        assert (await client.get(
+            f"/api/settings/research-jobs/{job['id']}/runs"
+        )).json() == {"items": [], "total": 0}
         disabled = await client.patch(
             f"/api/settings/research-jobs/{job['id']}", json={"is_enabled": False}
         )
         assert disabled.json()["next_run_at"] is None
-        assert (await client.delete(f"/api/settings/research-jobs/{job['id']}")).json() == {"ok": True}
+        await database.execute(
+            "INSERT INTO scheduled_research_runs "
+            "(user_id, job_id, run_key, attempt, status, started_at) "
+            "VALUES (?, ?, ?, 1, 'failed', '2026-08-12 08:00:00')",
+            (job["user_id"], job["id"], "b" * 64),
+        )
+        history = (await client.get(
+            f"/api/settings/research-jobs/{job['id']}/runs"
+        )).json()
+        assert history["total"] == 1
+        assert history["items"][0]["status"] == "failed"
+        assert history["items"][0]["evidence_ids"] == []
+        assert (await client.delete(f"/api/settings/research-jobs/{job['id']}")).status_code == 409
+
+        disposable = await client.post("/api/settings/research-jobs", json={
+            "name": "可删除任务", "ticker": "AAPL", "cron_expr": "0 9 * * *",
+        })
+        assert (await client.delete(
+            f"/api/settings/research-jobs/{disposable.json()['id']}"
+        )).json() == {"ok": True}
 
     @pytest.mark.asyncio
     async def test_scheduled_research_job_rejects_invalid_cron(self, client):
@@ -1245,6 +1546,36 @@ class TestSettingsAndMCPConfiguration:
             "name": "坏任务", "ticker": "AAPL", "cron_expr": "60 8 * * *",
         })
         assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_scheduled_research_manual_run_exposes_idempotent_event_history(
+        self, client, monkeypatch,
+    ):
+        from app.services import scheduler
+
+        created = await client.post("/api/settings/research-jobs", json={
+            "name": "runtime", "ticker": "AAPL", "cron_expr": "0 8 * * *",
+        })
+        job_id = created.json()["id"]
+
+        async def run_target(*_args, **_kwargs):
+            return 1
+
+        monkeypatch.setattr(scheduler, "_run_and_persist_target", run_target)
+        queued = await client.post(f"/api/settings/research-jobs/{job_id}/run")
+        assert queued.status_code == 202
+        assert queued.json()["status"] == "queued"
+        assert len(queued.json()["idempotency_key"]) == 64
+
+        history = (await client.get(
+            f"/api/settings/research-jobs/{job_id}/runs"
+        )).json()
+        assert history["total"] == 1
+        assert history["items"][0]["status"] == "completed"
+        assert [event["event_type"] for event in history["items"][0]["events"]] == [
+            "claimed", "completed",
+        ]
+        assert "research" not in json.dumps(history["items"][0]["events"])
 
     @pytest.mark.asyncio
     async def test_mcp_http_server_configuration_lifecycle(self, client, monkeypatch):

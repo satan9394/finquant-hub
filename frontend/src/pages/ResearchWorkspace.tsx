@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Button, Card, Col, Descriptions, Empty, Input, List, Row, Skeleton,
+  Alert, Button, Card, Col, Collapse, Descriptions, Empty, Input, List, Row, Skeleton,
   Space, Statistic, Tag, Typography, message,
 } from 'antd';
 import {
@@ -10,18 +10,31 @@ import {
 } from '@ant-design/icons';
 import ResearchCharts from '../components/research/ResearchCharts';
 import SwarmStatusCard from '../components/SwarmStatusCard';
+import TaskPageHeader from '../components/TaskPageHeader';
+import ResultLayer from '../components/ResultLayer';
+import ResearchContinuity from '../components/research/ResearchContinuity';
+import ResearchTimeline from '../components/research/ResearchTimeline';
+import ResearchIntentPicker from '../components/research/ResearchIntentPicker';
+import FundamentalMetricsPanel from '../components/research/FundamentalMetricsPanel';
+import { matchesResearchSubject, sameTicker } from '../features/researchContinuity';
+import { buildResearchTimeline } from '../features/researchTimeline';
 import {
   fetchInstrumentBars,
   fetchChipDistribution,
   fetchInstrumentFundamentals,
   fetchInstrumentSnapshot,
   fetchResearchWorkspace,
+  fetchResearchDiscussions,
+  fetchResearchHistory,
+  fetchResearchReport,
+  fetchResearchTheses,
   listResearchWorkspaces,
   saveResearchWorkspace,
   searchInstruments,
 } from '../services/researchApi';
 import type {
   BarsResponse, ChipDistributionResponse, EvidenceItem, FundamentalItem, FundamentalsResponse, Instrument,
+  ResearchDiscussionSummary, ResearchHistoryGroup, ResearchReportDetail, ResearchThesisSummary,
   ResearchWorkspace as WorkspaceType, SnapshotResponse,
 } from '../types/research';
 
@@ -93,6 +106,7 @@ export default function ResearchWorkspace() {
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Instrument[]>([]);
   const [savedWorkspaces, setSavedWorkspaces] = useState<WorkspaceType[]>([]);
+  const [workspaceRecord, setWorkspaceRecord] = useState<WorkspaceType | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotResponse | null>(null);
   const [bars, setBars] = useState<BarsResponse | null>(null);
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
@@ -102,6 +116,15 @@ export default function ResearchWorkspace() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [continuityLoading, setContinuityLoading] = useState(false);
+  const [continuityErrors, setContinuityErrors] = useState<string[]>([]);
+  const [reports, setReports] = useState<ResearchReportDetail[]>([]);
+  const [discussions, setDiscussions] = useState<ResearchDiscussionSummary[]>([]);
+  const [theses, setTheses] = useState<ResearchThesisSummary[]>([]);
+  const [homeHistory, setHomeHistory] = useState<ResearchHistoryGroup[]>([]);
+  const [homeTheses, setHomeTheses] = useState<ResearchThesisSummary[]>([]);
+  const [homeTimelineLoading, setHomeTimelineLoading] = useState(false);
+  const [homeTimelineErrors, setHomeTimelineErrors] = useState<string[]>([]);
 
   const runSearch = useCallback(async () => {
     if (!query.trim()) {
@@ -124,9 +147,20 @@ export default function ResearchWorkspace() {
 
   useEffect(() => {
     if (currentSymbol) return;
-    listResearchWorkspaces()
-      .then(setSavedWorkspaces)
-      .catch((error) => setErrors([error.message || '加载研究历史失败']));
+    setHomeTimelineLoading(true);
+    setHomeTimelineErrors([]);
+    Promise.allSettled([listResearchWorkspaces(), fetchResearchHistory(), fetchResearchTheses()])
+      .then((outcomes) => {
+        const nextErrors: string[] = [];
+        if (outcomes[0].status === 'fulfilled') setSavedWorkspaces(outcomes[0].value);
+        else nextErrors.push(`研究工作区：${outcomes[0].reason?.message ?? '加载失败'}`);
+        if (outcomes[1].status === 'fulfilled') setHomeHistory(outcomes[1].value);
+        else nextErrors.push(`报告历史：${outcomes[1].reason?.message ?? '加载失败'}`);
+        if (outcomes[2].status === 'fulfilled') setHomeTheses(outcomes[2].value);
+        else nextErrors.push(`投资论文：${outcomes[2].reason?.message ?? '加载失败'}`);
+        setHomeTimelineErrors(nextErrors);
+      })
+      .finally(() => setHomeTimelineLoading(false));
   }, [currentSymbol]);
 
   const loadWorkspace = useCallback(async () => {
@@ -155,8 +189,9 @@ export default function ResearchWorkspace() {
     if (outcomes[2].status === 'fulfilled') setFundamentals(outcomes[2].value);
     else nextErrors.push(`基本面：${outcomes[2].reason?.message ?? '加载失败'}`);
     if (outcomes[3].status === 'fulfilled') {
+      setWorkspaceRecord(outcomes[3].value);
       setNotes(outcomes[3].value.notes ?? '');
-      setSaved(outcomes[3].value.saved);
+      setSaved(Boolean(outcomes[3].value.saved));
     } else {
       nextErrors.push(`研究笔记：${outcomes[3].reason?.message ?? '加载失败'}`);
     }
@@ -168,9 +203,46 @@ export default function ResearchWorkspace() {
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
+  const loadContinuity = useCallback(async () => {
+    if (!currentSymbol) return;
+    setContinuityLoading(true);
+    setContinuityErrors([]);
+    setReports([]);
+    setDiscussions([]);
+    setTheses([]);
+    const outcomes = await Promise.allSettled([
+      fetchResearchHistory(),
+      fetchResearchDiscussions(),
+      fetchResearchTheses(),
+    ]);
+    const nextErrors: string[] = [];
+    if (outcomes[0].status === 'fulfilled') {
+      const groups = outcomes[0].value as ResearchHistoryGroup[];
+      const group = groups.find((item) => sameTicker(item.ticker, currentSymbol));
+      if (group) {
+        const details = await Promise.allSettled(group.runs.slice(0, 10).map((run) => fetchResearchReport(run.id)));
+        setReports(details.filter((item): item is PromiseFulfilledResult<ResearchReportDetail> => item.status === 'fulfilled').map((item) => item.value));
+        if (details.some((item) => item.status === 'rejected')) nextErrors.push('部分报告版本详情加载失败');
+      }
+    } else nextErrors.push(`报告历史：${outcomes[0].reason?.message ?? '加载失败'}`);
+    if (outcomes[1].status === 'fulfilled') setDiscussions(outcomes[1].value as ResearchDiscussionSummary[]);
+    else nextErrors.push(`多视角讨论：${outcomes[1].reason?.message ?? '加载失败'}`);
+    if (outcomes[2].status === 'fulfilled') setTheses(outcomes[2].value as ResearchThesisSummary[]);
+    else nextErrors.push(`投资论文：${outcomes[2].reason?.message ?? '加载失败'}`);
+    setContinuityErrors(nextErrors);
+    setContinuityLoading(false);
+  }, [currentSymbol]);
+
+  useEffect(() => { void loadContinuity(); }, [loadContinuity]);
+
   const evidence = useMemo(
     () => provenanceEvidence(snapshot, bars, fundamentals, chips),
     [snapshot, bars, fundamentals, chips],
+  );
+  const fundamentalsError = errors.find((error) => error.startsWith('基本面：'));
+  const timelineEntries = useMemo(
+    () => buildResearchTimeline(savedWorkspaces, homeHistory, homeTheses),
+    [savedWorkspaces, homeHistory, homeTheses],
   );
 
   const saveWorkspace = async () => {
@@ -180,13 +252,21 @@ export default function ResearchWorkspace() {
     }
     setSaving(true);
     try {
-      await saveResearchWorkspace(currentSymbol, {
+      const savedRecord = await saveResearchWorkspace(currentSymbol, {
         name: snapshot.instrument.name,
         instrument: snapshot.instrument,
         notes,
         evidence,
         snapshot,
       });
+      setWorkspaceRecord((current) => ({
+        ...(current ?? { symbol: currentSymbol, evidence: [], notes: '', saved: true }),
+        ...savedRecord,
+        notes,
+        evidence,
+        snapshot,
+        saved: true,
+      }));
       setSaved(true);
       message.success('研究已按标的合并保存');
     } catch (error: any) {
@@ -253,19 +333,44 @@ export default function ResearchWorkspace() {
             />
           ) : <Empty description="暂无保存记录；同一标的会合并为一条持续更新的研究工作区" />}
         </Card>
+        <ResearchTimeline entries={timelineEntries} errors={homeTimelineErrors} loading={homeTimelineLoading} />
         <Button type="link" icon={<FileSearchOutlined />} onClick={() => navigate('/research/reports')} style={{ marginTop: 12 }}>
-          打开原多智能体深度报告与历史导出
+          运行多视角深度研究或查看历史版本
         </Button>
       </main>
     );
   }
 
   const priceUp = (snapshot?.data.change_percent ?? 0) >= 0;
+  const workspaceStatus = errors.length
+    ? '部分数据不可用'
+    : loading && !snapshot
+      ? '正在加载多源数据'
+      : snapshot
+        ? `数据截止 ${snapshot.as_of ?? '未知'}`
+        : '等待数据';
+  const workspaceStatusTone = errors.length
+    ? 'warning' as const
+    : loading && !snapshot
+      ? 'loading' as const
+      : snapshot
+        ? 'success' as const
+        : 'neutral' as const;
+  const subjectName = snapshot?.instrument.name;
+  const subjectDiscussions = discussions.filter((item) => matchesResearchSubject(item.topic, currentSymbol, subjectName));
+  const subjectTheses = theses.filter((item) => sameTicker(item.ticker, currentSymbol));
   return (
     <main className="product-page" data-testid="instrument-research-page">
-      <div className="workspace-toolbar">
-        <Button onClick={() => navigate('/research')}>返回标的搜索</Button>
-        <Space wrap>
+      <TaskPageHeader
+        eyebrow="INSTRUMENT RESEARCH"
+        title="标的研究工作区"
+        goal="汇总可追溯的行情、基本面、筹码与研究记录。"
+        object={snapshot ? `${snapshot.instrument.name} · ${currentSymbol}` : currentSymbol}
+        status={workspaceStatus}
+        statusTone={workspaceStatusTone}
+        actions={(
+          <>
+            <Button onClick={() => navigate('/research')}>返回标的搜索</Button>
           <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(currentSymbol)}`)}>AI 深度报告</Button>
           <Button icon={<ExperimentOutlined />} onClick={() => navigate(`/strategy-lab/ma-crossover?symbol=${encodeURIComponent(currentSymbol)}`)}>
             在策略实验室打开
@@ -273,47 +378,60 @@ export default function ResearchWorkspace() {
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void saveWorkspace()}>
             {saved ? '更新研究' : '保存研究'}
           </Button>
-        </Space>
-      </div>
+          </>
+        )}
+      />
 
       {errors.map((error) => <Alert key={error} type="warning" showIcon message={error} action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspace()}>重试</Button>} style={{ marginBottom: 12 }} />)}
 
-      <SwarmStatusCard ticker={currentSymbol} />
+      <ResearchIntentPicker symbol={currentSymbol} onNavigate={navigate} />
+      <Collapse
+        className="advanced-research-disclosure"
+        ghost
+        items={[{
+          key: 'team',
+          label: '高级：运行投研团队并查看角色、工具和 Token 详情',
+          children: <SwarmStatusCard ticker={currentSymbol} />,
+        }]}
+      />
 
       {loading && !snapshot ? <Skeleton active paragraph={{ rows: 10 }} /> : snapshot ? (
         <>
-          <section className="instrument-header">
-            <div>
-              <Text className="eyebrow">{snapshot.instrument.market} · {snapshot.instrument.exchange}</Text>
-              <Title level={2}>{snapshot.instrument.name} <Text type="secondary">{snapshot.instrument.symbol}</Text></Title>
-              <Space wrap>
-                <Tag color="blue">FACT</Tag>
-                <Text type="secondary">{snapshot.provider}</Text>
-                <Text type="secondary">截止 {snapshot.as_of ?? '未知'}</Text>
-                <Text type="secondary">{snapshot.timezone}</Text>
-              </Space>
-            </div>
-            <div className="headline-price">
-              <Text type="secondary">当前/最近价格</Text>
-              <div className={priceUp ? 'price-up' : 'price-down'}>{snapshot.data.price.toFixed(2)} <small>{snapshot.currency}</small></div>
-              <Text className={priceUp ? 'price-up' : 'price-down'}>
-                {snapshot.data.change >= 0 ? '+' : ''}{snapshot.data.change.toFixed(2)} ({snapshot.data.change_percent >= 0 ? '+' : ''}{snapshot.data.change_percent.toFixed(2)}%)
-              </Text>
-            </div>
-          </section>
+          <ResultLayer layer="summary" title="标的快照摘要" description="先确认对象、价格变化和关键市场事实。">
+            <section className="instrument-header">
+              <div>
+                <Text className="eyebrow">{snapshot.instrument.market} · {snapshot.instrument.exchange}</Text>
+                <Title level={2}>{snapshot.instrument.name} <Text type="secondary">{snapshot.instrument.symbol}</Text></Title>
+                <Space wrap>
+                  <Tag color="blue">FACT</Tag>
+                  <Text type="secondary">{snapshot.provider}</Text>
+                  <Text type="secondary">截止 {snapshot.as_of ?? '未知'}</Text>
+                  <Text type="secondary">{snapshot.timezone}</Text>
+                </Space>
+              </div>
+              <div className="headline-price">
+                <Text type="secondary">当前/最近价格</Text>
+                <div className={priceUp ? 'price-up' : 'price-down'}>{snapshot.data.price.toFixed(2)} <small>{snapshot.currency}</small></div>
+                <Text className={priceUp ? 'price-up' : 'price-down'}>
+                  {snapshot.data.change >= 0 ? '+' : ''}{snapshot.data.change.toFixed(2)} ({snapshot.data.change_percent >= 0 ? '+' : ''}{snapshot.data.change_percent.toFixed(2)}%)
+                </Text>
+              </div>
+            </section>
 
-          <Row gutter={[12, 12]} className="snapshot-grid">
-            {[
-              ['今开', snapshot.data.open], ['最高', snapshot.data.high], ['最低', snapshot.data.low],
-              ['昨收', snapshot.data.last_close], ['成交量', snapshot.data.volume], ['市值', snapshot.data.market_cap],
-            ].map(([label, value]) => (
-              <Col xs={12} sm={8} lg={4} key={String(label)}>
-                <Card size="small" className="metric-card"><Statistic title={label} value={value == null ? '—' : formatNumber(Number(value))} /></Card>
-              </Col>
-            ))}
-          </Row>
+            <Row gutter={[12, 12]} className="snapshot-grid">
+              {[
+                ['今开', snapshot.data.open], ['最高', snapshot.data.high], ['最低', snapshot.data.low],
+                ['昨收', snapshot.data.last_close], ['成交量', snapshot.data.volume], ['市值', snapshot.data.market_cap],
+              ].map(([label, value]) => (
+                <Col xs={12} sm={8} lg={4} key={String(label)}>
+                  <Card size="small" className="metric-card"><Statistic title={label} value={value == null ? '—' : formatNumber(Number(value))} /></Card>
+                </Col>
+              ))}
+            </Row>
+          </ResultLayer>
 
-          <Row gutter={[18, 18]} align="top">
+          <ResultLayer layer="evidence" title="市场、财务与筹码证据">
+            <Row gutter={[18, 18]} align="top">
             <Col xs={24} xl={17}>
               <Card title="市场数据与技术指标" className="surface-card">
                 {bars ? <ResearchCharts payload={bars} /> : <Empty description="K线数据不可用" />}
@@ -334,6 +452,8 @@ export default function ResearchWorkspace() {
                   </Row>
                 ) : <Empty description="提供方未返回基本面指标；未用 0 或模型数字替代" />}
               </Card>
+
+              <FundamentalMetricsPanel fundamentals={fundamentals} error={fundamentalsError} />
 
               {/^\d{6}$/.test(currentSymbol) && (
                 <Card title="筹码分布" className="surface-card" style={{ marginTop: 18 }}>
@@ -357,16 +477,6 @@ export default function ResearchWorkspace() {
                 </Card>
               )}
 
-              <Card title="研究笔记" className="surface-card" style={{ marginTop: 18 }}>
-                <Alert type="info" showIcon message="这里保存的是你的研究笔记；任何 AI 生成内容必须显式标为 MODEL_OUTPUT。" style={{ marginBottom: 12 }} />
-                <TextArea
-                  aria-label="研究笔记"
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="记录当前趋势、主要风险与下一步需要核验的事项……"
-                  autoSize={{ minRows: 7, maxRows: 16 }}
-                />
-              </Card>
             </Col>
 
             <Col xs={24} xl={7}>
@@ -386,21 +496,51 @@ export default function ResearchWorkspace() {
                 />
               </Card>
 
-              <Card title="数据质量" className="surface-card" style={{ marginTop: 18 }}>
-                <Descriptions column={1} size="small">
-                  <Descriptions.Item label="频率">{bars?.frequency ?? snapshot.frequency}</Descriptions.Item>
-                  <Descriptions.Item label="复权">{bars?.adjustment ?? '不适用'}</Descriptions.Item>
-                  <Descriptions.Item label="币种">{snapshot.currency}</Descriptions.Item>
-                  <Descriptions.Item label="时区">{snapshot.timezone}</Descriptions.Item>
-                </Descriptions>
-                {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].length ? (
-                  <Space wrap>
-                    {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].map((flag) => <Tag key={flag} color="gold">{flag}</Tag>)}
-                  </Space>
-                ) : <Tag color="green">未发现质量标记</Tag>}
-              </Card>
             </Col>
-          </Row>
+            </Row>
+          </ResultLayer>
+
+          <ResultLayer layer="method">
+            <Card title="数据口径与质量" className="surface-card">
+              <Descriptions column={{ xs: 1, md: 4 }} size="small">
+                <Descriptions.Item label="频率">{bars?.frequency ?? snapshot.frequency}</Descriptions.Item>
+                <Descriptions.Item label="复权">{bars?.adjustment ?? '不适用'}</Descriptions.Item>
+                <Descriptions.Item label="币种">{snapshot.currency}</Descriptions.Item>
+                <Descriptions.Item label="时区">{snapshot.timezone}</Descriptions.Item>
+                <Descriptions.Item label="行情来源">{snapshot.provider}</Descriptions.Item>
+                <Descriptions.Item label="截止时间">{snapshot.as_of ?? '未知'}</Descriptions.Item>
+              </Descriptions>
+              {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].length ? (
+                <Space wrap>
+                  {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].map((flag) => <Tag key={flag} color="gold">{flag}</Tag>)}
+                </Space>
+              ) : <Tag color="green">未发现质量标记</Tag>}
+            </Card>
+          </ResultLayer>
+
+          <ResearchContinuity
+            symbol={currentSymbol}
+            currentAsOf={snapshot.as_of}
+            savedAsOf={workspaceRecord?.snapshot?.as_of}
+            workspaceUpdatedAt={workspaceRecord?.updated_at}
+            notes={notes}
+            reports={reports}
+            discussions={subjectDiscussions}
+            theses={subjectTheses}
+            errors={continuityErrors}
+            loading={continuityLoading}
+          />
+
+          <Card title="研究笔记" className="surface-card" style={{ marginTop: 18 }}>
+            <Alert type="info" showIcon message="这里保存的是你的研究笔记；任何 AI 生成内容必须显式标为 MODEL_OUTPUT。" style={{ marginBottom: 12 }} />
+            <TextArea
+              aria-label="研究笔记"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="记录当前趋势、主要风险与下一步需要核验的事项……"
+              autoSize={{ minRows: 7, maxRows: 16 }}
+            />
+          </Card>
         </>
       ) : <Empty description="标的行情不可用" />}
     </main>

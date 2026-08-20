@@ -14,7 +14,7 @@ def empty_research_memory(monkeypatch):
     async def empty_search(query, *, user_id, limit):
         return []
 
-    monkeypatch.setattr(research_orch, "search_cross_session_memory", empty_search)
+    monkeypatch.setattr(research_orch.native_memory_provider, "search", empty_search)
 
 
 class BarrierTool(BaseTool):

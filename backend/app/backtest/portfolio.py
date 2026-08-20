@@ -30,6 +30,7 @@ def _combine_curves(
         asset_id: {point["time"]: float(point["value"]) / (initial_capital * weights[asset_id])
                    for point in result[curve_name]}
         for asset_id, result in results.items()
+        if weights[asset_id] > 0
     }
     times = sorted({time for points in series.values() for time in points})
     latest = {asset_id: 1.0 for asset_id in series}
@@ -49,6 +50,7 @@ def _portfolio_metrics(
     initial_capital: float,
     periods: set[str],
     results: Mapping[str, JSONDict],
+    weights: Mapping[str, float],
 ) -> JSONDict:
     del initial_capital
     periods_per_year = PERIODS_PER_YEAR[next(iter(periods))] if len(periods) == 1 else None
@@ -59,18 +61,23 @@ def _portfolio_metrics(
     )
     trade_metrics = calculate_trade_metrics([
         trade["pnl"]
-        for result in results.values()
+        for asset_id, result in results.items()
+        if weights[asset_id] > 0
         for trade in result["trades"]
     ])
     return {
         **{
-            key: round(value, 8) if value is not None else None
+            key: value if value is None or isinstance(value, (bool, int)) else round(value, 8)
             for key, value in performance.items()
         },
         "win_rate": round(float(trade_metrics["win_rate"]), 8)
         if trade_metrics["win_rate"] is not None else None,
         "profit_factor": round(float(trade_metrics["profit_factor"]), 8)
         if trade_metrics["profit_factor"] is not None else None,
+        "turnover": round(sum(
+            weights[asset_id] * float(result["metrics"]["turnover"])
+            for asset_id, result in results.items()
+        ), 8),
         "trade_count": trade_metrics["trade_count"],
     }
 
@@ -106,7 +113,8 @@ def run_portfolio_backtest(
             asset["bars"][optimization_lookback:],
             short_window=asset["short_window"],
             long_window=asset["long_window"],
-            initial_capital=initial_capital * weights[asset_id],
+            initial_capital=initial_capital * weights[asset_id]
+            if weights[asset_id] > 0 else initial_capital,
             commission_bps=commission_bps,
             slippage_bps=slippage_bps,
             symbol=asset["symbol"],
@@ -132,6 +140,7 @@ def run_portfolio_backtest(
         initial_capital,
         {asset["period"] for asset in assets},
         results,
+        weights,
     )
     warnings = ["weights_calibrated_before_backtest_window"]
     currencies = {asset["provenance"].get("currency") for asset in assets}
@@ -140,8 +149,14 @@ def run_portfolio_backtest(
         warnings.append("cross_currency_returns_normalized_without_fx")
     if len(periods) > 1:
         warnings.append("mixed_period_annualized_metrics_unavailable")
+    if any(weight == 0 for weight in weights.values()):
+        warnings.append("zero_weight_assets_excluded_from_portfolio_metrics")
 
-    risk_xray = portfolio_risk_xray(asset_results, weights, equity_curve)
+    risk_xray = portfolio_risk_xray(
+        [asset for asset in asset_results if weights[asset["asset_id"]] > 0],
+        weights,
+        equity_curve,
+    )
 
     return {
         "strategy": "ma_crossover",

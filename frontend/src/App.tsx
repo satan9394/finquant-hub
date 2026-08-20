@@ -1,34 +1,34 @@
 /* ============================================================
  * App — 主应用（AntD ProLayout + 路由）
  * ============================================================ */
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Button, ConfigProvider, Space, Spin, theme as antTheme } from 'antd';
+import { Button, ConfigProvider, Spin, theme as antTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import ProLayout from '@ant-design/pro-layout';
 import {
   DashboardOutlined,
-  MessageOutlined,
-  TeamOutlined,
   BookOutlined,
   RobotOutlined,
-  SettingOutlined,
   FundOutlined,
-  BarChartOutlined,
   WalletOutlined,
   ExperimentOutlined,
+  SettingOutlined,
   SunOutlined,
   MoonOutlined,
-  ApiOutlined,
-  AlertOutlined,
-  FileTextOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
 import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
 import ModelSelector from './components/ModelSelector';
 import NotificationCenter from './components/NotificationCenter';
+import GlobalTaskEntry from './components/GlobalTaskEntry';
 import { useAuthStore } from './store/authStore';
+import {
+  PROFESSIONAL_PREFERENCES_EVENT,
+  PROFESSIONAL_PREFERENCES_KEY,
+  readProfessionalPreferences,
+} from './features/professionalPreferences';
 
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -47,23 +47,81 @@ const AlphaResearch = lazy(() => import('./pages/AlphaResearch'));
 const McpMarket = lazy(() => import('./pages/McpMarket'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const Thesis = lazy(() => import('./pages/Thesis'));
+const ComparisonWorkspace = lazy(() => import('./pages/ComparisonWorkspace'));
 
-const menuItems = [
-  { path: '/', name: '仪表盘', icon: <DashboardOutlined /> },
-  { path: '/chat', name: '对话', icon: <MessageOutlined /> },
-  { path: '/discussion', name: '讨论', icon: <TeamOutlined /> },
-  { path: '/research', name: '深度研究', icon: <FundOutlined /> },
-  { path: '/strategy-lab/ma-crossover', name: '策略实验室', icon: <ExperimentOutlined /> },
-  { path: '/portfolio', name: '投资组合', icon: <WalletOutlined /> },
-  { path: '/screening', name: '选股器', icon: <BarChartOutlined /> },
-  { path: '/alpha', name: 'Alpha 因子', icon: <ExperimentOutlined /> },
-  { path: '/knowledge', name: '知识库', icon: <BookOutlined /> },
-  { path: '/models', name: '模型', icon: <RobotOutlined /> },
-  { path: '/mcp-market', name: 'MCP 工具', icon: <ApiOutlined /> },
-  { path: '/alerts', name: '预警中心', icon: <AlertOutlined /> },
-  { path: '/thesis', name: '投资论文', icon: <FileTextOutlined /> },
-  { path: '/settings', name: '设置', icon: <SettingOutlined /> },
+export const navigationGroups = [
+  {
+    key: 'today',
+    name: '今日',
+    icon: <DashboardOutlined />,
+    children: [
+      { key: '/', path: '/', name: '今日概览' },
+    ],
+  },
+  {
+    key: 'research',
+    name: '研究',
+    icon: <FundOutlined />,
+    children: [
+      { key: '/research', path: '/research', name: '研究工作区' },
+      { key: '/research/reports', path: '/research/reports', name: '深度研究' },
+      { key: '/compare', path: '/compare', name: '比较工作区' },
+      { key: '/chat', path: '/chat', name: '快速问答' },
+      { key: '/discussion', path: '/discussion', name: '多视角审查' },
+      { key: '/thesis', path: '/thesis', name: '投资论文' },
+    ],
+  },
+  {
+    key: 'strategy',
+    name: '策略',
+    icon: <ExperimentOutlined />,
+    children: [
+      { key: '/strategy-lab/ma-crossover', path: '/strategy-lab/ma-crossover', name: '策略实验室' },
+      { key: '/screening', path: '/screening', name: '选股器' },
+      { key: '/alpha', path: '/alpha', name: 'Alpha 因子' },
+    ],
+  },
+  {
+    key: 'portfolio',
+    name: '组合',
+    icon: <WalletOutlined />,
+    children: [
+      { key: '/portfolio', path: '/portfolio', name: '持仓与风险' },
+      { key: '/alerts', path: '/alerts', name: '预警中心' },
+    ],
+  },
+  {
+    key: 'knowledge',
+    name: '知识',
+    icon: <BookOutlined />,
+    children: [
+      { key: '/knowledge', path: '/knowledge', name: '知识库' },
+    ],
+  },
+  {
+    key: 'system-tools',
+    name: '系统工具',
+    icon: <SettingOutlined />,
+    children: [
+      { key: '/models', path: '/models', name: '模型管理' },
+      { key: '/mcp-market', path: '/mcp-market', name: 'MCP 工具管理' },
+      { key: '/settings', path: '/settings', name: '系统设置' },
+    ],
+  },
 ];
+
+export const systemToolPaths = ['/models', '/mcp-market', '/settings'] as const;
+
+export function isSystemToolPath(pathname: string): boolean {
+  return systemToolPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+export function getMenuKey(pathname: string): string {
+  if (pathname.startsWith('/research/reports')) return '/research/reports';
+  if (pathname.startsWith('/research') || pathname.startsWith('/analysis')) return '/research';
+  if (pathname.startsWith('/strategy-lab')) return '/strategy-lab/ma-crossover';
+  return pathname === '/' ? '/' : pathname;
+}
 
 interface AppLayoutProps {
   isDark: boolean;
@@ -86,16 +144,8 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   }, [setModels]);
 
 
-  const menuData = useMemo(
-    () => menuItems.map((item) => ({ ...item, key: item.path })),
-    []
-  );
-
-  const menuKey = location.pathname.startsWith('/research')
-    ? '/research'
-    : location.pathname.startsWith('/strategy-lab')
-      ? '/strategy-lab/ma-crossover'
-      : location.pathname === '/' ? '/' : location.pathname;
+  const menuKey = getMenuKey(location.pathname);
+  const systemTool = isSystemToolPath(location.pathname);
 
   return (
     <ProLayout
@@ -104,43 +154,72 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       layout="side"
       navTheme={isDark ? 'realDark' : 'light'}
       contentStyle={{ background: isDark ? '#141414' : '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
+      headerContentRender={() => <GlobalTaskEntry onNavigate={navigate} />}
       actionsRender={() => [
-        <NotificationCenter key="notification-center" />,
-        <Space.Compact key="model-selector">
-          <span style={{ fontSize: 12, color: '#888', alignSelf: 'center', marginRight: 8 }}>当前模型:</span>
-          <ModelSelector />
-        </Space.Compact>,
-        <Button
-          key="theme-toggle"
-          type="default"
-          style={{ borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          aria-label={isDark ? '切换到浅色主题' : '切换到深色主题'}
-          title={isDark ? '切换到浅色主题' : '切换到深色主题'}
-          icon={isDark ? <SunOutlined /> : <MoonOutlined />}
-          onClick={onToggleTheme}
-        />,
-        <Button
-          key="logout"
-          type="text"
-          icon={<LogoutOutlined />}
-          aria-label={`退出登录${user?.email ? `：${user.email}` : ''}`}
-          onClick={() => void logout()
-            .catch(() => undefined)
-            .then(() => navigate('/login', { replace: true }))}
-        >
-          {user?.email || '退出'}
-        </Button>,
+        <div className="sider-actions" key="sider-actions">
+          <div className="model-dock">
+            <RobotOutlined className="model-dock__icon" />
+            <div className="model-dock__content">
+              <span className="model-dock__label">当前 AI 模型</span>
+              <ModelSelector />
+            </div>
+          </div>
+          <div className="sider-actions__controls">
+            <NotificationCenter />
+            <Button
+              type="default"
+              aria-label={isDark ? '切换到浅色主题' : '切换到深色主题'}
+              title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+              icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+              onClick={onToggleTheme}
+            />
+            {user?.local_mode ? (
+              <span className="sider-actions__mode">本地模式</span>
+            ) : (
+              <Button
+                type="text"
+                icon={<LogoutOutlined />}
+                aria-label={`退出登录${user?.email ? `：${user.email}` : ''}`}
+                onClick={() => void logout()
+                  .catch(() => undefined)
+                  .then(() => navigate('/login', { replace: true }))}
+              >
+                退出
+              </Button>
+            )}
+          </div>
+        </div>,
       ]}
-      menuDataRender={() => menuData}
-      menuItemRender={(item: any, dom: any) => (
-        <a onClick={() => navigate(item.path || '/')}>{dom}</a>
-      )}
+      menuDataRender={() => navigationGroups}
+      menuItemRender={(item: any, dom: any) => item.path ? (
+        <a
+          href={item.path}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(item.path);
+          }}
+        >
+          {dom}
+        </a>
+      ) : dom}
       location={{ pathname: menuKey }}
-      siderWidth={196}
+      siderWidth={220}
       breakpoint="lg"
       collapsed={collapsed}
       onCollapse={setCollapsed}
     >
+      <header className="global-task-bar">
+        <GlobalTaskEntry onNavigate={navigate} />
+      </header>
+      {systemTool && (
+        <section className="system-tool-boundary" aria-label="系统工具边界">
+          <div>
+            <strong>系统工具</strong>
+            <span>用于维护模型、MCP 与安全设置；不是开始研究、验证策略或体检组合的前置步骤。</span>
+          </div>
+          <Button onClick={() => navigate('/research')}>返回研究工作区</Button>
+        </section>
+      )}
       <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}>页面加载中…</div>}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
@@ -156,6 +235,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
         <Route path="/research" element={<ResearchWorkspace />} />
         <Route path="/research/reports" element={<Research />} />
         <Route path="/research/:symbol" element={<ResearchWorkspace />} />
+        <Route path="/compare" element={<ComparisonWorkspace />} />
         <Route path="/strategy-lab/ma-crossover" element={<StrategyLab />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/screening" element={<Screening />} />
@@ -216,6 +296,20 @@ function AppRoutes({ isDark, onToggleTheme }: AppLayoutProps) {
 
 export default function App() {
   const [isDark, setIsDark] = useState(() => localStorage.getItem('finquant_theme') === 'dark');
+  const [layoutDensity, setLayoutDensity] = useState(() => readProfessionalPreferences().layoutDensity);
+
+  useEffect(() => {
+    const refresh = () => setLayoutDensity(readProfessionalPreferences().layoutDensity);
+    const refreshFromStorage = (event: StorageEvent) => {
+      if (event.key === PROFESSIONAL_PREFERENCES_KEY) refresh();
+    };
+    window.addEventListener(PROFESSIONAL_PREFERENCES_EVENT, refresh);
+    window.addEventListener('storage', refreshFromStorage);
+    return () => {
+      window.removeEventListener(PROFESSIONAL_PREFERENCES_EVENT, refresh);
+      window.removeEventListener('storage', refreshFromStorage);
+    };
+  }, []);
 
   const toggleTheme = () => {
     setIsDark((current) => {
@@ -228,11 +322,12 @@ export default function App() {
   return (
     <ConfigProvider
       locale={zhCN}
+      componentSize={layoutDensity === 'compact' ? 'small' : 'middle'}
       theme={{
         algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
       }}
     >
-      <div className={isDark ? 'app-theme app-theme--dark' : 'app-theme'}>
+      <div className={`${isDark ? 'app-theme app-theme--dark' : 'app-theme'} app-density--${layoutDensity}`}>
         <BrowserRouter>
           <AppRoutes isDark={isDark} onToggleTheme={toggleTheme} />
         </BrowserRouter>

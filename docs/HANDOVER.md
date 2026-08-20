@@ -2,6 +2,13 @@
 
 > Harrison-style: no sugar, just signal. What works, what doesn't, what needs attention.
 
+## 2026-08-08 Local Docker MVP
+
+- `docker-compose.local.yml` runs the built React frontend and FastAPI backend entirely in Docker at `http://127.0.0.1:5173`.
+- `LOCAL_ONLY_MODE=true` uses one automatic internal owner; email-code and session login are bypassed, while `user_id` ownership and Fernet credential encryption remain intact.
+- Production refuses `LOCAL_ONLY_MODE`; the original authenticated public deployment path remains available.
+- `scripts/local.ps1 up` generates a private `.env.local` master key on first use. The named SQLite volume survives ordinary `down` operations.
+
 ## 2026-08-06 TASK-026 Current Validation
 
 - Real Docker/Vite E2E passed with `userA@test.local` and `userB@test.local` on an isolated temporary SQLite database.

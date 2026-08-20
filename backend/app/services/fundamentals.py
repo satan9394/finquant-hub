@@ -36,6 +36,10 @@ _ALIASES = {
     "current_ratio": ("流动比率", "current_ratio"),
     "revenue_growth": ("营业总收入同比增长", "营业收入同比增长", "tr_yoy"),
     "net_income_growth": ("净利润同比增长", "netprofit_yoy"),
+    "roic": ("投入资本回报率", "投入资本收益率", "roic"),
+    "roa": ("总资产收益率", "资产回报率", "roa"),
+    "quick_ratio": ("速动比率", "quick_ratio"),
+    "interest_coverage": ("利息保障倍数", "ebit_to_interest", "interest_coverage"),
 }
 _DATE_KEYS = ("报告期", "截止日期", "报告日", "end_date", "ann_date")
 _FLOW_METRICS = {"total_revenue", "net_income", "gross_profit", "operating_cash_flow", "free_cash_flow"}
@@ -163,7 +167,7 @@ def normalize_fundamental_record(
             raw = next((
                 value
                 for key, value in lowered.items()
-                if not any(marker in key for marker in ("增长", "同比", "yoy", "每股"))
+                if not any(marker in key for marker in ("增长", "同比", "yoy", "每股", "收益率", "回报率", "比率", "倍数"))
                 and any(alias.lower() in key for alias in aliases)
             ), None)
         value = _number(raw)
@@ -294,6 +298,53 @@ def validate_fundamental_quality(
             source=str(numerator.get("source") or numerator.get("provider") or "unknown"),
             is_ttm=bool(numerator.get("is_ttm") and denominator.get("is_ttm")),
             components=[numerator_key, denominator_key],
+        ))
+
+    current = {item["metric"]: item for item in result}
+
+    def compatible(left: JSONDict, right: JSONDict, *, same_period: bool) -> bool:
+        if left.get("source") != right.get("source"):
+            return False
+        if left.get("currency") and right.get("currency") and left["currency"] != right["currency"]:
+            return False
+        if not same_period:
+            return True
+        return (
+            left.get("as_of") == right.get("as_of")
+            and left.get("period_type") == right.get("period_type")
+            and bool(left.get("is_ttm")) == bool(right.get("is_ttm"))
+        )
+
+    for metric, numerator_key, denominator_key, same_period in (
+        ("cfo_to_net_income", "operating_cash_flow", "net_income", True),
+        ("fcf_margin", "free_cash_flow", "total_revenue", True),
+        ("fcf_yield", "free_cash_flow", "market_cap", False),
+    ):
+        if metric in current:
+            continue
+        numerator, denominator = current.get(numerator_key), current.get(denominator_key)
+        if (
+            not numerator or not denominator
+            or float(denominator["value"]) == 0
+            or (metric == "fcf_yield" and float(denominator["value"]) < 0)
+            or not compatible(numerator, denominator, same_period=same_period)
+        ):
+            continue
+        result.append(_item(
+            metric,
+            float(numerator["value"]) / float(denominator["value"]) * 100,
+            as_of=max(str(numerator.get("as_of") or ""), str(denominator.get("as_of") or "")) or None,
+            currency=None,
+            period_type=(
+                "derived_ttm" if same_period and numerator.get("is_ttm")
+                else "derived_ttm_point" if metric == "fcf_yield" and numerator.get("is_ttm")
+                else "derived"
+            ),
+            provider=str(numerator.get("provider") or "unknown"),
+            source=str(numerator.get("source") or numerator.get("provider") or "unknown"),
+            is_ttm=bool(same_period and numerator.get("is_ttm")),
+            components=[numerator_key, denominator_key],
+            methodology="deterministic_ratio",
         ))
     return result
 

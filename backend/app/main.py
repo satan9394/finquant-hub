@@ -14,8 +14,10 @@ from .middleware.security import SecurityMiddleware
 from .routers import agents, alerts, analysis as analysis_router, auth, backtest, backtests, chat, credentials, dashboard, discussion, instruments, market, mcp as mcp_router, models_crud, notifications, portfolio as portfolio_router, research, screening, settings, swarm, thesis, usage, wq
 from .services.market_data import MarketDataService
 from .services.logging import configure_logging
+from .services.auth import ensure_local_user
 from .services.credential_store import migrate_legacy_model_api_keys, validate_master_key
 from .services.llm_usage import flush_llm_usage
+from .services.memory_capture import flush_memory_candidates
 from .services.mcp_runtime import restore_enabled_mcp_servers
 from .services.scheduler import scheduler_loop
 from .services.source_settings import restore_source_priorities
@@ -62,12 +64,16 @@ def _first_validation_detail(exc: RequestValidationError) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     validate_master_key()
+    if config.APP_ENV == "production" and config.LOCAL_ONLY_MODE:
+        raise RuntimeError("production forbids LOCAL_ONLY_MODE")
     if config.APP_ENV == "production":
         if not config.AUTH_COOKIE_SECURE:
             raise RuntimeError("production requires AUTH_COOKIE_SECURE=true")
         if not config.SMTP_HOST or not config.SMTP_FROM:
             raise RuntimeError("production requires SMTP_HOST and SMTP_FROM")
     await database.init_db()
+    if config.LOCAL_ONLY_MODE:
+        await ensure_local_user()
     await migrate_legacy_model_api_keys()
     await load_system_settings()
     await restore_enabled_mcp_servers()
@@ -87,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await app.state.scheduler_task
         await app.state.market.aclose()
         await flush_llm_usage()
+        await flush_memory_candidates()
         await database.close_db()
 
 

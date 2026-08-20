@@ -52,6 +52,20 @@ def test_commission_and_slippage_reduce_returns():
     assert costly["metrics"]["total_return"] < free["metrics"]["total_return"]
     assert sum(t["entry_fee"] + t["exit_fee"] for t in costly["trades"]) > 0
     assert sum(t["entry_slippage_cost"] + t["exit_slippage_cost"] for t in costly["trades"]) > 0
+    metrics = costly["metrics"]
+    assert metrics["trade_expectancy"] == pytest.approx(
+        sum(trade["return"] for trade in costly["trades"]) / len(costly["trades"])
+    )
+    assert metrics["average_holding_periods"] > 0
+    assert 0 < metrics["market_exposure"] <= 1
+    assert metrics["total_trading_cost"] == pytest.approx(
+        metrics["total_commission_cost"]
+        + metrics["total_stamp_duty_cost"]
+        + metrics["total_slippage_cost"]
+    )
+    assert metrics["trading_cost_ratio"] == pytest.approx(
+        metrics["total_trading_cost"] / 10_000
+    )
 
 
 def test_cn_cost_profile_charges_sell_stamp_duty_and_minimum_commission():
@@ -66,6 +80,22 @@ def test_cn_cost_profile_charges_sell_stamp_duty_and_minimum_commission():
     assert trade["entry_stamp_duty"] == 0
     assert trade["exit_stamp_duty"] == pytest.approx(trade["exit_notional"] * 0.001)
     assert trade["exit_fee"] == pytest.approx(trade["exit_commission"] + trade["exit_stamp_duty"])
+
+
+def test_cost_attribution_keeps_filled_entry_cost_when_final_exit_is_rejected():
+    result = run_ma_crossover(
+        make_bars([10, 9, 8, 9, 11, 12]),
+        short_window=2, long_window=3, initial_capital=10_000,
+        commission_bps=2.5, slippage_bps=25, symbol="600519",
+        minimum_commission_cny=5,
+    )
+
+    assert result["trades"] == []
+    assert "position_open_at_end_due_to_t_plus_one" in result["warnings"]
+    assert result["metrics"]["total_commission_cost"] == pytest.approx(5)
+    assert result["metrics"]["total_slippage_cost"] > 0
+    assert result["metrics"]["total_stamp_duty_cost"] == 0
+    assert result["metrics"]["total_trading_cost"] > 5
 
 
 def test_max_drawdown_stop_exits_next_open_and_locks_reentry_until_bearish_signal():

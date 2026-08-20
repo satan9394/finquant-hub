@@ -8,6 +8,7 @@ from functools import lru_cache
 import json
 import os
 import re
+from time import monotonic
 from datetime import UTC, datetime
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -91,6 +92,10 @@ def _name_matches_pinyin(keyword: str, name: str) -> bool:
 
 class MarketError(Exception):
     """全部数据源均失败。"""
+
+
+def _failure_kind(exc: Exception) -> str:
+    return type(exc.__cause__ or exc).__name__
 
 
 def detect_market(code: str) -> str:
@@ -183,6 +188,7 @@ class MarketDataService:
     kline_priority: tuple[str, ...] = ("sina", "tencent", "yahoo")
     fundamentals_priority: tuple[str, ...] = ("akshare", "tushare", "yahoo")
     breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
+    snapshot_cache: dict[str, tuple[float, JSONDict]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         injected_http = self.http is not None
@@ -205,6 +211,15 @@ class MarketDataService:
 
     def _breaker(self, provider: str) -> CircuitBreaker:
         return self.breakers.setdefault(provider, CircuitBreaker())
+
+    def cached_snapshot(self, key: str, max_age: float) -> JSONDict | None:
+        cached = self.snapshot_cache.get(key)
+        if cached is None or monotonic() - cached[0] > max_age:
+            return None
+        return cached[1]
+
+    def store_snapshot(self, key: str, value: JSONDict) -> None:
+        self.snapshot_cache[key] = (monotonic(), value)
 
     def configure_source_priority(self, kind: str, providers: list[str]) -> None:
         """Reorder installed providers without silently disabling fallbacks."""
@@ -366,10 +381,11 @@ class MarketDataService:
     async def quote(self, ticker: str) -> JSONDict:
         code = normalize_code(ticker)
         providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.quote_priority
-        last_error: Exception | None = None
+        errors: list[str] = []
         for provider in providers:
             breaker = self._breaker(provider)
             if not breaker.allow_request():
+                errors.append(f"{provider}:circuit_open")
                 continue
             try:
                 quote = await self._quote_from(provider, code)
@@ -379,8 +395,10 @@ class MarketDataService:
                 return cast(JSONDict, quote)
             except (httpx.HTTPError, ValueError, MarketError) as exc:
                 breaker.record_failure(exc)
-                last_error = exc
-        raise MarketError(f"无法获取 {ticker} 的行情") from last_error
+                errors.append(f"{provider}:{_failure_kind(exc)}")
+        raise MarketError(
+            f"无法获取 {ticker} 的行情（{', '.join(errors) or '无可用数据源'}）"
+        )
 
     async def _quote_from(self, provider: str, code: str) -> JSONDict | None:
         if provider == "tencent":
@@ -553,10 +571,11 @@ class MarketDataService:
         scale = PERIOD_TO_SCALE.get(period, 240)
         count = max(1, min(count, 800))
         providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.kline_priority
-        last_error: Exception | None = None
+        errors: list[str] = []
         for provider in providers:
             breaker = self._breaker(provider)
             if not breaker.allow_request():
+                errors.append(f"{provider}:circuit_open")
                 continue
             try:
                 if provider == "sina":
@@ -573,8 +592,10 @@ class MarketDataService:
                 return items
             except (httpx.HTTPError, ValueError, MarketError) as exc:
                 breaker.record_failure(exc)
-                last_error = exc
-        raise MarketError(f"无法获取 {ticker} 的 K 线") from last_error
+                errors.append(f"{provider}:{_failure_kind(exc)}")
+        raise MarketError(
+            f"无法获取 {ticker} 的 K 线（{', '.join(errors) or '无可用数据源'}）"
+        )
 
     async def _kline_sina(self, code: str, scale: int, count: int) -> list[JSONDict]:
         resp = await self.http.get(
@@ -755,24 +776,26 @@ class MarketDataService:
             "quarterlyStockholdersEquity",
         ]
         now = int(datetime.now(tz=UTC).timestamp())
-        response = await self.yahoo_http.get(
-            YAHOO_FUNDAMENTALS.format(symbol=symbol),
-            params={
-                "symbol": symbol,
-                "type": ",".join(metric_types),
-                "merge": "false",
-                "period1": str(now - 366 * 24 * 60 * 60 * 5),
-                "period2": str(now),
-            },
-            headers=YAHOO_HEADERS,
-        )
         try:
+            response = await self.yahoo_http.get(
+                YAHOO_FUNDAMENTALS.format(symbol=symbol),
+                params={
+                    "symbol": symbol,
+                    "type": ",".join(metric_types),
+                    "merge": "false",
+                    "period1": str(now - 366 * 24 * 60 * 60 * 5),
+                    "period2": str(now),
+                },
+                headers=YAHOO_HEADERS,
+            )
             response.raise_for_status()
             payload = response.json().get("timeseries") or {}
         except (httpx.HTTPError, ValueError) as exc:
-            raise MarketError(f"无法获取 {ticker} 的基本面数据") from exc
+            raise MarketError(
+                f"无法获取 {ticker} 的基本面数据（yahoo:{_failure_kind(exc)}）"
+            ) from exc
         if payload.get("error"):
-            raise MarketError(f"无法获取 {ticker} 的基本面数据")
+            raise MarketError(f"无法获取 {ticker} 的基本面数据（yahoo:upstream_error）")
 
         if domestic:
             from .fundamentals import normalize_yahoo_cn_fundamentals
@@ -802,16 +825,27 @@ class MarketDataService:
             })
         by_metric = {item["metric"]: item for item in items}
         derived_specs = {
-            "gross_margin": ("trailingGrossProfit", "trailingTotalRevenue"),
-            "net_profit_margin": ("trailingNetIncome", "trailingTotalRevenue"),
+            "gross_margin": ("trailingGrossProfit", "trailingTotalRevenue", True),
+            "net_profit_margin": ("trailingNetIncome", "trailingTotalRevenue", True),
             "debt_to_assets": (
-                "quarterlyTotalLiabilitiesNetMinorityInterest", "quarterlyTotalAssets",
+                "quarterlyTotalLiabilitiesNetMinorityInterest", "quarterlyTotalAssets", True,
             ),
+            "cfo_to_net_income": ("trailingOperatingCashFlow", "trailingNetIncome", True),
+            "fcf_margin": ("trailingFreeCashFlow", "trailingTotalRevenue", True),
+            "fcf_yield": ("trailingFreeCashFlow", "trailingMarketCap", False),
         }
-        for metric, (numerator_key, denominator_key) in derived_specs.items():
+        for metric, (numerator_key, denominator_key, same_period) in derived_specs.items():
             numerator = by_metric.get(numerator_key)
             denominator = by_metric.get(denominator_key)
-            if not numerator or not denominator or denominator["value"] == 0:
+            if (
+                not numerator or not denominator or denominator["value"] == 0
+                or (same_period and (
+                    numerator.get("as_of") != denominator.get("as_of")
+                    or numerator.get("period_type") != denominator.get("period_type")
+                ))
+                or (numerator.get("currency") and denominator.get("currency")
+                    and numerator["currency"] != denominator["currency"])
+            ):
                 continue
             items.append({
                 "metric": metric,
@@ -824,8 +858,9 @@ class MarketDataService:
                 "period_type": "derived",
                 "provider": "yahoo_fundamentals_timeseries",
                 "source": "yahoo.fundamentals_timeseries",
-                "is_ttm": bool(numerator.get("is_ttm") and denominator.get("is_ttm")),
+                "is_ttm": bool(same_period and numerator.get("is_ttm") and denominator.get("is_ttm")),
                 "components": [numerator_key, denominator_key],
+                "methodology": "deterministic_ratio",
             })
         return items
 

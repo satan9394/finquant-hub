@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any, Literal, Self
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .. import database
 from ..backtest.ma_crossover import run_ma_crossover
@@ -18,6 +18,13 @@ from ..backtest.significance import validate_ma_strategy
 from ..services.instruments import InstrumentService, external_symbol
 from ..services.market_data import MarketDataService, MarketError
 from ..services.notifications import publish_backtest_status
+from ..services.share_preview import SharePreviewNotFoundError, build_strategy_share_preview
+from ..services.strategy_ir import (
+    StrategyIRCompileError,
+    StrategyIRParseError,
+    compile_strategy_ir,
+    parse_strategy_ir,
+)
 from .auth import CurrentUser, authenticated_context
 
 
@@ -28,6 +35,42 @@ VALID_STATES = {
     "queued", "loading_data", "running", "calculating_metrics",
     "completed", "failed", "cancelled",
 }
+
+
+class StrategyIRInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(min_length=1, max_length=2_000)
+
+
+class StrategyIRCompileInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ir: dict[str, Any]
+
+
+@router.post("/strategy-ir/parse")
+async def parse_strategy_description(body: StrategyIRInput, _user: CurrentUser) -> dict[str, Any]:
+    try:
+        ir = parse_strategy_ir(body.description)
+    except StrategyIRParseError as exc:
+        return {"status": "invalid", "code": "strategy_ir_invalid", "issues": exc.issues}
+    return {"status": "valid", "ir": ir}
+
+
+@router.post("/strategy-ir/compile")
+async def compile_strategy_description(
+    body: StrategyIRCompileInput, _user: CurrentUser,
+) -> dict[str, Any]:
+    try:
+        draft = compile_strategy_ir(body.ir)
+    except StrategyIRCompileError as exc:
+        return {
+            "status": "invalid",
+            "code": "strategy_ir_compile_invalid",
+            "issues": exc.issues,
+        }
+    return {"status": "valid", "draft": draft}
 
 
 class BacktestCreate(BaseModel):
@@ -279,11 +322,14 @@ async def create_portfolio_backtest(
             **asset,
             "bars": payload["items"],
             "provenance": {
-                key: payload.get(key)
-                for key in (
-                    "provider", "as_of", "timezone", "currency",
-                    "adjustment", "frequency", "quality_flags",
-                )
+                "market": (payload.get("instrument") or {}).get("market"),
+                **{
+                    key: payload.get(key)
+                    for key in (
+                        "provider", "as_of", "timezone", "currency",
+                        "adjustment", "frequency", "quality_flags",
+                    )
+                },
             },
         }
 
@@ -327,6 +373,14 @@ async def get_backtest_trades(run_id: int, user: CurrentUser) -> dict[str, Any]:
         raise HTTPException(404, f"回测记录不存在：id={run_id}")
     result = json.loads(row["result_json"]) if row.get("result_json") else {}
     return {"id": run_id, "status": row["status"], "items": result.get("trades", [])}
+
+
+@router.get("/{run_id:int}/share-preview")
+async def get_strategy_share_preview(run_id: int, user: CurrentUser) -> dict[str, Any]:
+    try:
+        return await build_strategy_share_preview(run_id, int(user["id"]))
+    except SharePreviewNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.post("/{run_id:int}/save")

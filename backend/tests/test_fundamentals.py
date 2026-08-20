@@ -71,6 +71,49 @@ def test_per_share_cash_flow_is_not_treated_as_total_cash_flow():
     assert "operating_cash_flow" not in {item["metric"] for item in items}
 
 
+def test_normalizes_provider_reported_p1_quality_and_debt_ratios():
+    items = normalize_fundamental_record({
+        "报告期": "2026-03-31",
+        "投入资本回报率": "15.2%",
+        "总资产收益率": "9.4%",
+        "速动比率": "1.8",
+        "利息保障倍数": "12.6",
+    }, "akshare")
+
+    assert {item["metric"]: item["value"] for item in items} == {
+        "roic": 15.2,
+        "roa": 9.4,
+        "quick_ratio": 1.8,
+        "interest_coverage": 12.6,
+    }
+
+
+def test_derives_only_auditable_cash_quality_p1_metrics():
+    base = {
+        "as_of": "2026-03-31", "as_of_date": "2026-03-31", "currency": "CNY",
+        "period_type": "TTM", "provider": "akshare", "source": "akshare.test", "is_ttm": True,
+    }
+    items = validate_fundamental_quality([
+        {**base, "metric": "total_revenue", "value": 1_000.0},
+        {**base, "metric": "net_income", "value": 200.0},
+        {**base, "metric": "operating_cash_flow", "value": 250.0},
+        {**base, "metric": "free_cash_flow", "value": 150.0},
+        {**base, "metric": "market_cap", "value": 3_000.0, "period_type": "point", "is_ttm": False},
+    ])
+    metrics = {item["metric"]: item for item in items}
+
+    assert metrics["cfo_to_net_income"]["value"] == 125
+    assert metrics["fcf_margin"]["value"] == 15
+    assert metrics["fcf_yield"]["value"] == 5
+    assert metrics["fcf_yield"]["components"] == ["free_cash_flow", "market_cap"]
+
+    incompatible = validate_fundamental_quality([
+        {**base, "metric": "net_income", "value": 200.0},
+        {**base, "metric": "operating_cash_flow", "value": 250.0, "as_of": "2025-12-31", "as_of_date": "2025-12-31"},
+    ])
+    assert "cfo_to_net_income" not in {item["metric"] for item in incompatible}
+
+
 class StubAdapter(FundamentalsAdapter):
     def __init__(self, name, *, available=True, result=None, error=None):
         self.name = name

@@ -6,9 +6,41 @@ import type {
   ChipDistributionResponse,
   FundamentalsResponse,
   InstrumentSearchResponse,
+  ResearchDiscussionSummary,
+  ResearchHistoryGroup,
+  ResearchReportDetail,
+  ResearchThesisSummary,
   ResearchWorkspace,
   SnapshotResponse,
 } from '../types/research';
+
+export interface InvestmentMemory {
+  id: number;
+  subject_type: string;
+  subject_id: string;
+  memory_type: string;
+  information_kind: string;
+  content: Record<string, unknown>;
+  source_kind: string;
+  source_id: string | null;
+  evidence_id: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  observed_at: string | null;
+  status: 'candidate' | 'confirmed' | 'superseded' | 'invalidated' | 'deleted';
+  confidence: number | null;
+  quality_flags: string[];
+  supersedes_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryExport {
+  schema_version: string;
+  generated_at: string;
+  record_count: number;
+  records: InvestmentMemory[];
+}
 
 export async function searchInstruments(q: string): Promise<InstrumentSearchResponse> {
   const response = await apiClient.get('/instruments/search', { params: { q } });
@@ -52,6 +84,26 @@ export async function saveResearchWorkspace(symbol: string, payload: Record<stri
   return response.data;
 }
 
+export async function fetchResearchHistory(): Promise<ResearchHistoryGroup[]> {
+  const response = await apiClient.get('/research/history');
+  return response.data.items ?? [];
+}
+
+export async function fetchResearchReport(id: number): Promise<ResearchReportDetail> {
+  const response = await apiClient.get(`/research/${id}`);
+  return response.data;
+}
+
+export async function fetchResearchDiscussions(): Promise<ResearchDiscussionSummary[]> {
+  const response = await apiClient.get('/discussion/rooms');
+  return response.data.items ?? [];
+}
+
+export async function fetchResearchTheses(): Promise<ResearchThesisSummary[]> {
+  const response = await apiClient.get('/thesis');
+  return response.data.items ?? [];
+}
+
 export async function createBacktest(payload: BacktestCreatePayload): Promise<BacktestRun> {
   const response = await apiClient.post('/backtests', payload);
   return response.data;
@@ -75,4 +127,31 @@ export async function saveBacktest(id: number) {
 export async function listBacktests(savedOnly = false): Promise<BacktestRun[]> {
   const response = await apiClient.get('/backtests', { params: { saved_only: savedOnly } });
   return response.data.items;
+}
+
+export async function fetchMemories(includeDeleted = false): Promise<InvestmentMemory[]> {
+  const response = await apiClient.get('/research/memory', {
+    params: { include_deleted: includeDeleted },
+  });
+  return response.data.items ?? [];
+}
+
+export async function actOnMemory(
+  id: number,
+  payload: {
+    action: 'confirm' | 'edit' | 'invalidate';
+    content?: Record<string, unknown>;
+  },
+): Promise<InvestmentMemory> {
+  const response = await apiClient.patch(`/research/memory/${id}`, payload);
+  return response.data;
+}
+
+export async function deleteMemory(id: number): Promise<void> {
+  await apiClient.delete(`/research/memory/${id}`);
+}
+
+export async function exportMemories(): Promise<MemoryExport> {
+  const response = await apiClient.get('/research/memory/export');
+  return response.data;
 }

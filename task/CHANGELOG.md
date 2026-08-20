@@ -138,3 +138,14 @@
 - Docs updated: `docs/ai/E2E_VALIDATION.md`, `docs/HANDOVER.md`, `task/CHANGELOG.md`.
 - Verification: 369 backend tests / 83.45%, Ruff, mypy, 30 frontend tests, Playwright 1/1, frontend build, and bidirectional owner isolation passed.
 - Risk: high security surface, mitigated by centralized authentication and explicit cross-owner 404 regression coverage.
+
+## 2026-08-08
+- What changed: added an all-Docker localhost profile and explicit development-only single-owner mode with no email-code, session, login, or logout flow.
+- Why: support the personal local MVP without a cloud host while retaining production authentication and all `user_id` ownership constraints.
+- Files: `docker-compose.local.yml`, `docker/nginx.local.conf`, `scripts/local.ps1`, backend auth/config/lifespan, frontend auth shell, tests, and architecture/handover docs.
+- Risk: an authentication bypass is security-sensitive; production rejects the flag and the local frontend port is bound to `127.0.0.1` only.
+
+- What changed: expanded the dashboard into a five-view A-share market radar backed by `/api/market/pulse`: breadth, daily movers, industry/concept strength, sector/stock order-flow ranks, weekly movers enriched with Tonghuashun funds, and popularity.
+- Evidence policy: every section keeps source status; Tonghuashun batch coverage and failures are explicit, raw fund values retain the provider's `wan_cny` unit, and unavailable dimensions are never filled with estimates.
+- Scope boundary: this reproduces the reference monitor's public dimensions, not either platform's paid, private, login-only, or complete internal dataset.
+- What changed: added keyword-driven theme classification over the complete EastMoney board catalog, with built-in related-term groups for robots, compute infrastructure, power/grid, and semiconductors; matching boards expose constituents, four ranking modes, deduplicated candidates, and bounded Tonghuashun fund enrichment.

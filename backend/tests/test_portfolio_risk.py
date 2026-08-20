@@ -25,6 +25,14 @@ def test_risk_xray_reports_concentration_drawdown_var_es_and_diversification():
     assert result["tail_risk"]["expected_shortfall"] >= result["tail_risk"]["var"]
     assert result["diversification"]["status"] == "ok"
     assert 0 <= result["diversification"]["benefit"] <= 1
+    matrix = result["diversification"]["correlation_matrix"]
+    assert matrix["status"] == "ok"
+    assert matrix["asset_ids"] == ["A", "B"]
+    assert matrix["values"][0][0] == pytest.approx(1)
+    contribution = result["diversification"]["risk_contribution"]
+    assert contribution["status"] == "ok"
+    assert contribution["method"] == "sample_covariance_component_share"
+    assert sum(item["contribution"] for item in contribution["items"]) == pytest.approx(1)
 
 
 def test_risk_xray_marks_short_and_mixed_frequency_samples_unknown():
@@ -38,6 +46,8 @@ def test_risk_xray_marks_short_and_mixed_frequency_samples_unknown():
     assert result["tail_risk"]["status"] == "insufficient_data"
     assert result["tail_risk"]["var"] is None
     assert result["diversification"]["status"] == "unsupported_mixed_frequency"
+    assert result["diversification"]["correlation_matrix"]["values"] is None
+    assert result["diversification"]["risk_contribution"]["items"] == []
 
 
 def test_risk_xray_validates_confidence_curve_and_weights():

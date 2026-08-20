@@ -2,11 +2,11 @@
  * Dashboard — 系统总览页
  * ============================================================ */
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Alert, Card, Row, Col, Statistic, List, Typography, Input, Button, message, Modal, Space, Tag } from 'antd';
+import { Alert, Card, Row, Col, Empty, Statistic, List, Typography, Input, Button, message, Modal, Space, Tag, Progress } from 'antd';
 import {
   RobotOutlined, MessageOutlined, TeamOutlined, CommentOutlined,
   PlusOutlined, ReloadOutlined, RiseOutlined, FallOutlined, SearchOutlined, FundOutlined,
-  GlobalOutlined, ExperimentOutlined, UploadOutlined,
+  ExperimentOutlined, UploadOutlined, WalletOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
@@ -15,11 +15,13 @@ import { useModelStore } from '../store/modelStore';
 import StockChart from '../components/StockChart';
 import ChinaMap from '../components/ChinaMap';
 import CountUp from '../components/CountUp';
-import Marquee from '../components/Marquee';
 import ScrollingTable from '../components/ScrollingTable';
 import MarketMoversPanel from '../components/MarketMoversPanel';
-import { fetchPortfolioSummary, fetchSignalSummary } from '../services/analysisApi';
-import type { DashboardStats, RealTimeQuote, SearchResult, PortfolioSummary, SignalSummary } from '../types';
+import { fetchPortfolioSummary } from '../services/analysisApi';
+import {
+  PRODUCT_PROGRESS_EVENT, readProductProgress, setProductHelpDismissed,
+} from '../features/productProgress';
+import type { DashboardStats, RealTimeQuote, SearchResult, PortfolioSummary } from '../types';
 
 const { Text, Title } = Typography;
 
@@ -40,6 +42,134 @@ interface WatchlistImportResult {
   failures: Array<{ input: string; reason: string }>;
 }
 
+interface DecisionEvidenceRef {
+  evidence_id: string;
+  kind: string;
+  data_status: 'OK' | 'UNKNOWN' | 'PARTIAL' | 'UPSTREAM_ERROR';
+  source?: string | null;
+  as_of?: string | null;
+  retrieved_at: string;
+}
+
+export interface DecisionInboxItem {
+  id: string;
+  kind: 'thesis_claim_change' | 'thesis_version_review' | 'scheduled_research_failure';
+  priority: 'high' | 'medium' | 'low';
+  why_now: string;
+  occurred_at?: string | null;
+  object_ref: { type: string; id: number; title: string; ticker?: string; status?: string; path: string };
+  evidence_refs: DecisionEvidenceRef[];
+  quality_status: 'OK' | 'UNKNOWN' | 'PARTIAL' | 'UPSTREAM_ERROR';
+  next_action: { kind: 'navigate'; label: string; path: string };
+}
+
+const inboxQualityColor = { OK: 'green', PARTIAL: 'orange', UNKNOWN: 'default', UPSTREAM_ERROR: 'red' } as const;
+const inboxPriorityLabel = { high: '高优先级', medium: '中优先级', low: '低优先级' } as const;
+
+export function DecisionInboxPanel({
+  items, loading, error, onRetry, onNavigate,
+}: {
+  items: DecisionInboxItem[];
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <section aria-labelledby="decision-inbox-title" style={{ marginBottom: 16 }}>
+      <Card title={<span id="decision-inbox-title">今日决策收件箱</span>} loading={loading}>
+        {error ? (
+          <Alert type="error" showIcon message="决策收件箱加载失败" description={error} action={<Button onClick={onRetry}>重试</Button>} />
+        ) : (
+          <List
+            dataSource={items}
+            locale={{ emptyText: <Empty description="今天没有需要复核的用户对象变化" /> }}
+            renderItem={(item) => (
+              <List.Item>
+                <Row gutter={[12, 12]} style={{ width: '100%' }} align="middle">
+                  <Col xs={24} md={18}>
+                    <Space direction="vertical" size={5} style={{ width: '100%' }}>
+                      <Space wrap>
+                        <Tag color={item.priority === 'high' ? 'red' : item.priority === 'medium' ? 'orange' : 'default'}>{inboxPriorityLabel[item.priority]}</Tag>
+                        <Tag color={inboxQualityColor[item.quality_status]}>{item.quality_status}</Tag>
+                        <Text strong>{item.object_ref.title}</Text>
+                        {item.object_ref.ticker ? <Tag>{item.object_ref.ticker}</Tag> : null}
+                      </Space>
+                      <Text>{item.why_now}</Text>
+                      <Text type="secondary">时间：{item.occurred_at || 'UNKNOWN'}</Text>
+                      {item.evidence_refs.length ? item.evidence_refs.map((ref) => (
+                        <Text type="secondary" key={ref.evidence_id}>
+                          证据 {ref.evidence_id} · {ref.source || 'UNKNOWN'} · {ref.as_of || ref.retrieved_at} · {ref.data_status}
+                        </Text>
+                      )) : <Text type="secondary">canonical evidence：UNKNOWN</Text>}
+                    </Space>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Button block type="primary" onClick={() => onNavigate(item.next_action.path)}>{item.next_action.label}</Button>
+                  </Col>
+                </Row>
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
+    </section>
+  );
+}
+
+export function LocalCapabilityBanner({
+  capabilities, onNavigate,
+}: {
+  capabilities: DashboardStats['capabilities'];
+  onNavigate: (path: string) => void;
+}) {
+  const modelConfigured = capabilities.model_ai.status === 'CONFIGURED_UNVERIFIED';
+  return (
+    <Alert
+      type={modelConfigured ? 'info' : 'warning'}
+      showIcon
+      style={{ marginBottom: 16 }}
+      message={modelConfigured ? '模型凭据已配置，连通性尚未验证' : '本地核心已可用，AI 模型尚未配置'}
+      description={(
+        <Space direction="vertical" size={4}>
+          <Text>
+            本地核心：AVAILABLE / OK · 模型：{capabilities.model_ai.status} / UNKNOWN · 行情：RUNTIME_CHECK_REQUIRED / UNKNOWN
+          </Text>
+          <Text type="secondary">
+            {modelConfigured
+              ? '配置存在不等于上游可用；请在模型管理中由你显式执行当次连通性测试。'
+              : '应用无需模型 key 也能启动；聊天、讨论和 AI 研究需要先配置凭据。行情只在具体请求时按来源与质量状态判断。'}
+          </Text>
+        </Space>
+      )}
+      action={(
+        <Button onClick={() => onNavigate(capabilities.model_ai.action_path)}>
+          {modelConfigured ? '去模型管理测试' : '配置模型'}
+        </Button>
+      )}
+    />
+  );
+}
+
+export function MarketSignalAvailability({ onNavigate }: { onNavigate: (path: string) => void }) {
+  return (
+    <div aria-label="市场信号可用性">
+      <Space size={8} wrap>
+        <Tag>UNKNOWN</Tag>
+        <Text strong>暂无可审计的跨标的信号汇总</Text>
+      </Space>
+      <div style={{ marginTop: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          技术事件只在具体标的分析时计算；UNKNOWN 不代表近期没有信号。
+        </Text>
+      </div>
+      <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={() => onNavigate('/analysis/600519')}>
+        分析示例 600519
+      </Button>
+    </div>
+  );
+}
+
 function loadWatchlist(): WatchItem[] {
   try {
     return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
@@ -58,6 +188,10 @@ export default function Dashboard() {
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [productProgress, setProductProgress] = useState(readProductProgress);
+  const [decisionItems, setDecisionItems] = useState<DecisionInboxItem[]>([]);
+  const [decisionLoading, setDecisionLoading] = useState(true);
+  const [decisionError, setDecisionError] = useState('');
 
   // 自选股行情
   const [watchlist, setWatchlist] = useState<WatchItem[]>(loadWatchlist);
@@ -72,7 +206,6 @@ export default function Dashboard() {
 
   // 投资组合摘要（仪表盘概览）
   const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary | null>(null);
-  const [signalSummary, setSignalSummary] = useState<SignalSummary | null>(null);
 
   // 快速分析入口
   const [analysisQuery, setAnalysisQuery] = useState('');
@@ -87,6 +220,20 @@ export default function Dashboard() {
     finally { setLoading(false); }
   }, []);
 
+  const loadDecisionInbox = useCallback(async () => {
+    setDecisionLoading(true);
+    setDecisionError('');
+    try {
+      const response = await apiClient.get('/dashboard/decision-inbox');
+      setDecisionItems(response.data.items as DecisionInboxItem[]);
+    } catch (error: unknown) {
+      setDecisionItems([]);
+      setDecisionError(error instanceof Error ? error.message : '无法读取个性化变化');
+    } finally {
+      setDecisionLoading(false);
+    }
+  }, []);
+
   // 加载投资组合摘要
   const loadPortfolioSummary = useCallback(async () => {
     try {
@@ -95,17 +242,18 @@ export default function Dashboard() {
     } catch { /* 后端尚未实现时为静默失败 */ }
   }, []);
 
-  // 加载信号摘要
-  const loadSignalSummary = useCallback(async () => {
-    try {
-      const s = await fetchSignalSummary();
-      setSignalSummary(s);
-    } catch { /* 后端尚未实现时为静默失败 */ }
-  }, []);
-
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { void loadDecisionInbox(); }, [loadDecisionInbox]);
   useEffect(() => { loadPortfolioSummary(); }, [loadPortfolioSummary]);
-  useEffect(() => { loadSignalSummary(); }, [loadSignalSummary]);
+  useEffect(() => {
+    const syncProgress = () => setProductProgress(readProductProgress());
+    window.addEventListener(PRODUCT_PROGRESS_EVENT, syncProgress);
+    window.addEventListener('storage', syncProgress);
+    return () => {
+      window.removeEventListener(PRODUCT_PROGRESS_EVENT, syncProgress);
+      window.removeEventListener('storage', syncProgress);
+    };
+  }, []);
 
   // 加载自选股行情
   const refreshQuotes = useCallback(async () => {
@@ -226,7 +374,6 @@ export default function Dashboard() {
     maximumFractionDigits: 2,
   });
   const hasPortfolioData = portfolioSummary !== null;
-  const hasSignalData = signalSummary !== null;
   const totalProfit = portfolioSummary?.total_profit ?? 0;
   const totalProfitPercent = portfolioSummary?.total_profit_percent ?? 0;
   const profitTone = totalProfit > 0 ? 'red' : totalProfit < 0 ? 'green' : 'cyan';
@@ -254,8 +401,8 @@ export default function Dashboard() {
     },
     {
       label: '市场信号',
-      value: hasSignalData ? signalSummary.total : null,
-      detail: hasSignalData ? `看多 ${signalSummary.bullish} · 看空 ${signalSummary.bearish}` : '等待信号数据',
+      value: null,
+      detail: '跨标的聚合 UNKNOWN',
       tone: 'violet',
     },
   ];
@@ -273,42 +420,102 @@ export default function Dashboard() {
     return Array.from(counts, ([name, value]) => ({ name, value }));
   }, [watchlist]);
 
-  const startupTests = [
+  const coreTasks = [
     {
-      key: 'multi-market', icon: <GlobalOutlined />, title: '多市场行情',
-      description: '600519 · 00700 · AAPL',
-      note: '验证 A 股、港股、美股真实行情与日线。',
-      run: () => navigate('/screening?tickers=600519%2C00700%2CAAPL'),
+      key: 'analysis', icon: <FundOutlined />, area: '研究', title: '分析股票',
+      question: '这家公司值得继续研究吗？',
+      result: '从真实行情、技术信号和基本面证据开始。',
+      run: () => navigate('/research'),
+      example: '贵州茅台 · 600519', exampleAria: '示例分析 600519',
+      runExample: () => navigate('/analysis/600519'),
     },
     {
-      key: 'technical', icon: <FundOutlined />, title: '技术分析',
-      description: 'AAPL',
-      note: '验证 K 线、指标、信号与评分链路。',
-      run: () => navigate('/analysis/AAPL'),
+      key: 'strategy', icon: <ExperimentOutlined />, area: '策略', title: '验证策略',
+      question: '这个想法经得起历史检验吗？',
+      result: '运行含基准、成本和稳健性检查的真实回测。',
+      run: () => navigate('/strategy-lab/ma-crossover'),
+      example: '贵州茅台 · MA20/50', exampleAria: '示例回测 600519',
+      runExample: () => navigate('/strategy-lab/ma-crossover?symbol=600519'),
     },
     {
-      key: 'dialogue', icon: <MessageOutlined />, title: '投研问答',
-      description: '苹果的护城河与主要风险？',
-      note: '预填问题；新建会话后由你确认发送，不自动消耗额度。',
-      run: () => navigate(`/chat?prompt=${encodeURIComponent('请从商业模式、竞争壁垒和主要风险三个角度分析 Apple。')}`),
-    },
-    {
-      key: 'debate', icon: <TeamOutlined />, title: '多视角讨论',
-      description: 'Apple 是否适合长期持有？',
-      note: '预填四角色议题；创建后再由你确认开始讨论。',
-      run: () => navigate(`/discussion?topic=${encodeURIComponent('Apple 是否适合长期持有？请从价值、技术、量化与风险视角分别论证。')}`),
-    },
-    {
-      key: 'alpha', icon: <ExperimentOutlined />, title: 'Alpha 因子检索',
-      description: 'operating_income',
-      note: '验证字段目录、数据集与描述是否可检索。',
-      run: () => navigate('/alpha?query=operating_income'),
+      key: 'portfolio', icon: <WalletOutlined />, area: '组合', title: '查看组合',
+      question: '我的持仓表现和配置怎样？',
+      result: '查看真实盈亏、持仓和当前配置，继续完善组合。',
+      run: () => navigate('/portfolio'),
+      example: '贵州茅台 · 10 股', exampleAria: '示例组合 600519',
+      runExample: () => navigate('/portfolio?example=600519'),
     },
   ];
+  const progressSteps = [
+    { key: 'analysis', label: '首次分析', done: productProgress.analysis },
+    { key: 'backtest', label: '首次回测', done: productProgress.backtest },
+    { key: 'saved', label: '首次保存', done: productProgress.saved },
+  ];
+  const completedProgress = progressSteps.filter((step) => step.done).length;
 
   return (
     <div style={{ padding: 24 }}>
       <Title level={4} style={{ marginBottom: 16 }}>系统总览</Title>
+
+      {stats?.capabilities ? <LocalCapabilityBanner capabilities={stats.capabilities} onNavigate={navigate} /> : null}
+
+      <DecisionInboxPanel
+        items={decisionItems}
+        loading={decisionLoading}
+        error={decisionError}
+        onRetry={() => void loadDecisionInbox()}
+        onNavigate={navigate}
+      />
+
+      <section className="task-launchpad" aria-labelledby="task-launchpad-title">
+        <div className="task-launchpad__header">
+          <div>
+            <Text className="task-launchpad__eyebrow">从真实问题开始</Text>
+            <h2 id="task-launchpad-title">今天想完成什么？</h2>
+          </div>
+          <Text type="secondary">选择一项任务，先得到可验证的结果，再继续深入。</Text>
+        </div>
+        <div className="task-launchpad__progress" aria-label={`首次任务进度 ${completedProgress}/3`}>
+          <div className="task-launchpad__progress-heading">
+            <Text strong>首次任务进度 {completedProgress}/3</Text>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => setProductHelpDismissed(!productProgress.helpDismissed)}
+            >
+              {productProgress.helpDismissed ? '显示提示' : '不再提示'}
+            </Button>
+          </div>
+          <Progress percent={Math.round((completedProgress / 3) * 100)} showInfo={false} size="small" />
+          <div className="task-launchpad__steps">
+            {progressSteps.map((step) => (
+              <span className={step.done ? 'is-done' : ''} key={step.key}>
+                {step.done ? '已完成' : '待完成'} · {step.label}
+              </span>
+            ))}
+          </div>
+          {!productProgress.helpDismissed && (
+            <Text className="task-launchpad__hint">建议先试用 600519；真实结果出现后自动更新，本地进度不会记录标的或结果内容。</Text>
+          )}
+        </div>
+        <div className="task-launchpad__grid">
+          {coreTasks.map((task) => (
+            <article className="task-launchpad__card" key={task.key}>
+              <span className="task-launchpad__icon" aria-hidden="true">{task.icon}</span>
+              <div className="task-launchpad__copy">
+                <Text type="secondary">{task.area}</Text>
+                <h3>{task.question}</h3>
+                <p>{task.result}</p>
+                <Text className="task-launchpad__example">示例：{task.example}</Text>
+              </div>
+              <div className="task-launchpad__actions">
+                <Button type="primary" onClick={task.run}>{task.title}</Button>
+                <Button aria-label={task.exampleAria} onClick={task.runExample}>试用 600519</Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <section className="big-screen-overview" aria-labelledby="big-screen-title">
         <div className="big-screen-overview__header">
@@ -332,7 +539,6 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-        <Marquee items={(signalSummary?.signals ?? []).map((signal) => signal.label)} />
         <div className="big-screen-live-grid">
           <div className="big-screen-panel">
             <h3>组合实时排行</h3>
@@ -424,53 +630,12 @@ export default function Dashboard() {
         {/* 信号概览 */}
         <Col xs={24} md={12}>
           <Card title="信号概览" size="small">
-            {signalSummary ? (
-              <div>
-                <Row gutter={16}>
-                  <Col span={8}>
-                    <Statistic title="看多" value={signalSummary.bullish} valueStyle={{ color: '#f23645' }} />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic title="看空" value={signalSummary.bearish} valueStyle={{ color: '#089981' }} />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic title="中性" value={signalSummary.neutral} valueStyle={{ color: '#faad14' }} />
-                  </Col>
-                </Row>
-                {signalSummary.signals?.slice(0, 5).map((s, i) => (
-                  <Tag key={i} color={s.type === 'bullish' ? 'red' : s.type === 'bearish' ? 'green' : 'default'}
-                    style={{ marginTop: 6 }}>
-                    {s.label}
-                  </Tag>
-                ))}
-              </div>
-            ) : (
-              <Text type="secondary" style={{ fontSize: 12 }}>暂无信号数据</Text>
-            )}
+            <MarketSignalAvailability onNavigate={navigate} />
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24}>
-          <Card title="五项能力启动测试" size="small" extra={<Text type="secondary" style={{ fontSize: 12 }}>先验证数据与配置，再开始真实投研</Text>}>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-              覆盖多市场数据、技术分析、对话、投研讨论与 Alpha 字段检索。行情和字段测试可直接执行；模型相关操作只预填内容，始终由你确认发送。
-            </Text>
-            <Row gutter={[10, 10]}>
-              {startupTests.map((item) => (
-                <Col xs={24} sm={12} lg={8} xl={4} key={item.key}>
-                  <Card size="small" hoverable onClick={item.run} style={{ height: '100%', cursor: 'pointer' }}>
-                    <div style={{ color: '#1677ff', marginBottom: 5 }}>{item.icon} <Text strong>{item.title}</Text></div>
-                    <Text code style={{ display: 'block', marginBottom: 4 }}>{item.description}</Text>
-                    <Text type="secondary" style={{ fontSize: 11 }}>{item.note}</Text>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-          </Card>
-        </Col>
-
         {/* 近期会话 */}
         <Col xs={24} md={12}>
           <Card title="近期会话" size="small" extra={

@@ -12,6 +12,13 @@ import type { ModelConfig, ModelTestResult } from '../types';
 
 const { Text } = Typography;
 
+export function modelCredentialLabel(model: ModelConfig) {
+  if (model.credential_source === 'stored') return '已安全保存';
+  if (model.credential_source === 'environment') return `环境变量已载入：${model.api_key_env}`;
+  if (model.api_key_env) return `等待环境变量：${model.api_key_env}`;
+  return '未配置';
+}
+
 export default function Models() {
   const models = useModelStore((s) => s.models);
   const setModels = useModelStore((s) => s.setModels);
@@ -114,7 +121,7 @@ export default function Models() {
     { title: '模型名', dataIndex: 'model_name', key: 'model_name' },
     { title: '凭据', key: 'credentials', width: 150, render: (_: unknown, record: ModelConfig) => (
       <Text type={record.has_api_key ? undefined : 'danger'}>
-        {record.api_key_env ? `环境变量：${record.api_key_env}` : record.has_api_key ? '已安全保存' : '未配置'}
+        {modelCredentialLabel(record)}
       </Text>
     ) },
     { title: 'Temperature', dataIndex: 'temperature', key: 'temperature', width: 110, render: (v: number) => v?.toFixed(1) },

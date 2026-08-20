@@ -20,3 +20,12 @@ def test_bundled_catalogue_produces_practical_templates():
     assert len(templates) == 5
     assert all(item["fields"] for item in templates)
     assert all(item["settings"]["delay"] == 1 for item in templates)
+
+
+def test_project_starter_produces_all_templates_without_coverage(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.services.alpha_service._WQ_FIELDS_PATH", tmp_path / "missing.json")
+
+    templates = generate_factor_templates()
+
+    assert len(templates) == 5
+    assert all(field["coverage"] is None for template in templates for field in template["fields"])

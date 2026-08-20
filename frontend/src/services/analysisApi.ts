@@ -9,7 +9,8 @@ import type {
   PortfolioSummary,
   PortfolioHolding,
   PortfolioAllocation,
-  SignalSummary,
+  PortfolioBacktestPayload,
+  PortfolioBacktestResult,
 } from '../types';
 
 // ==================== 股票分析 ====================
@@ -128,10 +129,8 @@ export async function fetchPortfolioAllocation(): Promise<PortfolioAllocation[]>
   }));
 }
 
-// ==================== 信号 ====================
-
-/** 获取信号摘要 */
-export async function fetchSignalSummary(): Promise<SignalSummary> {
-  const res = await apiClient.get('/signals/summary');
+/** Run a read-only portfolio simulation; this endpoint never mutates holdings. */
+export async function runPortfolioBacktest(data: PortfolioBacktestPayload): Promise<PortfolioBacktestResult> {
+  const res = await apiClient.post('/backtests/portfolio', data);
   return res.data;
 }

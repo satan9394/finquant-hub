@@ -51,3 +51,43 @@
 - **方案**: 邮箱验证码免密登录（无密码存储，HttpOnly Cookie 会话）；所有用户数据表加 user_id 完全隔离；用户凭据 Fernet 加密存储，API 永不回传明文。设计见 `docs/ai/AUTH_DESIGN.md`。
 - **理由**: 公网部署需要区分用户 + 保护各人凭据；免密方式对非技术用户最友好且无密码哈希/重置复杂度。
 - **状态**: accepted（部署形态=公网，需 HTTPS + 限流 + CSRF）
+
+## 2026-08-08: 增加显式本地单用户 Docker 模式
+
+- **提出者**: @Satanchen
+- **触发**: 当前 MVP 只需在个人电脑运行并发布源码到 GitHub，不再需要公网多用户登录。
+- **方案**: 保留生产邮箱认证与全表 `user_id` 约束；新增仅限 development 的 `LOCAL_ONLY_MODE`，自动使用一个内部本地所有者，不提供验证码、session 或登录/退出 UI。前后端由独立本地 Compose 启动，唯一宿主入口绑定 `127.0.0.1`，SQLite 使用专用 Docker Volume。
+- **理由**: 直接删除认证和归属列会扩大回归面并破坏已有数据；显式本地 profile 以最小差异提供零登录体验，同时阻止该旁路误入公网生产。
+- **状态**: accepted（部署形态=个人本机；若恢复公网必须关闭 local-only 并使用原认证路径）
+
+## 2026-08-09: PROD-000 统一架构文档真相
+
+- **提出者**: Codex（按 `PRODUCTIZATION_PLAN.md` 执行，@Satanchen）
+- **触发**: `docs/ai/ARCHITECTURE.md` 仍写“无认证、14 路由”，`docs/ARCHITECTURE.md` 仍写 20 路由和 28 张表，与已接受的认证/本地模式决策及当前代码冲突。
+- **方案**: 不改变业务代码或架构；以 `docs/ARCHITECTURE.md` 为完整权威来源，将 `docs/ai/ARCHITECTURE.md` 收敛为硬边界入口。当前事实固定为 23 个 APIRouter、105 个 API 路径/134 个 OpenAPI 操作、schema v11/35 张逻辑表；保留邮箱免密认证、用户归属、Fernet 凭据和仅 development 可用的 local-only 内部所有者。
+- **理由**: 运行时 OpenAPI、`main.py` 注册链和 `database.py` 迁移常量可以确定性复核；本次只是同步 2026-08-03 与 2026-08-08 已接受决策，不引入新的架构选择。
+- **状态**: accepted（documentation alignment only；后续端点/迁移变化必须同步契约文档）
+
+## 2026-08-12: 暂缓 Graphiti read model 生产接入
+
+- **提出者**: Codex（AIOS-034，@Satanchen）
+- **触发**: Thesis temporal graph 的 SQLite export/clear/rebuild contract 已通过 deterministic fixture，但 `graphiti_core` 仍未安装，AIOS-004 没有候选 benchmark，也未获准运行 Neo4j/FalkorDB 等图存储。
+- **方案**: 保留 `thesis-graph-export/v1` 作为项目自有、owner-scoped adapter contract；当前只使用可丢弃内存 shadow sink 验证重建和计数。Graphiti 继续 `NOT_RUN`，不新增生产依赖、不写生产数据、不进入回答或 Thesis 主路径。
+- **理由**: 可重建合同已经降低未来适配成本，但不能替代真实 Graphiti 正确性、时序、隔离、延迟和运维验证。SQLite 必须继续作为唯一权威状态。
+- **状态**: pending（解除需 AIOS-004 真实 fixture benchmark、固定依赖/基础设施许可及 @Satanchen 明确接受 ADR）
+
+## 2026-08-13: Local OSS 源码许可证与第三方再分发边界
+
+- **提出者**: Codex（AIOS-084，@Satanchen）
+- **触发**: Local OSS v1 准备审计确认根目录没有 LICENSE；`reference/` 有 5,329 个 tracked entries、六个嵌套 Git 仓库和最高 31.5 MB 的 tracked asset；`backend/app/data/wq_fields.json` 的 WorldQuant BRAIN-oriented 来源尚无再分发许可证据。
+- **方案**: 发布前由 @Satanchen 明确选择源码许可证并确认版权主体。候选 A 是 MIT（最短、宽松、要求保留版权/许可声明）；候选 B 是 Apache-2.0（宽松，另含明确专利授权和变更声明条件）；候选 C 是暂不授权再分发，但这不属于开源发布。若目标是宽松复用且希望专利条款更明确，工程建议优先评估 Apache-2.0；若优先最短许可文本且确认无需明确专利条款，再评估 MIT。无论选择哪项，都不能自动覆盖第三方依赖、`reference/`、API 数据或 WQ catalogue 的许可证。
+- **理由**: [GitHub 官方说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository)，公开仓库要真正成为开源项目需要许可证授予他人使用、修改和分发权；[Choose a License](https://choosealicense.com/licenses/) 对 MIT 与 Apache-2.0 的权限/条件差异如上。项目实现代理不能替版权持有人作法律选择，也不能从“代码可访问”推断第三方再分发许可。
+- **状态**: accepted（2026-08-13 @Satanchen 授权采用 Apache-2.0，版权声明为 `Copyright 2026 Satanchen`；AIOS-086 公开树继续排除 `reference/` 与 WQ catalogue；本记录不是法律意见）
+
+## 2026-08-13: 公开源码采用 allowlisted export，私有参考材料不随发行
+
+- **提出者**: Codex（AIOS-086，@Satanchen）
+- **触发**: `reference/` 与完整 WQ catalogue 对运行时核心不是必需项，但其再分发许可尚无证据；直接删除会破坏私有研究工作树且违反不修改 `reference/` 的边界。
+- **方案**: 保留私有开发树不变，公开源码只由 non-overwrite allowlisted exporter 生成并带逐文件 SHA256 manifest；排除 `reference/`、WQ JSON/summary、用户 env/DB、依赖和构建证据。缺少扩展目录时，Alpha 使用项目编写的 8 个通用字段合同维持 5 个既有模板，coverage 为 null，并报告 `FINQUANT_STARTER/PARTIAL/PROJECT_AUTHORED`。检测到私有扩展文件时只报告可解析 `OK` 与再分发 `UNKNOWN`，不冒充许可或真实 BRAIN 验证。
+- **理由**: 发布物不需要携带许可未知内容即可工作；显式降级状态比把私有文件复制到公开仓库或补造 coverage 更可审计。该边界不替代 root LICENSE、候选 commit 或第三方许可审查。
+- **状态**: accepted（工程发布边界；root LICENSE 与 clean-commit 仍 RELEASE BLOCKED）

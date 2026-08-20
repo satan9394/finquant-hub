@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..services import alerts as svc
+from ..services.monitor_targets import confirm_monitor_target, draft_monitor_target
 from ..services.analysis.ticker import resolve_ticker
 from .auth import CurrentUser, authenticated_context
 
@@ -28,6 +29,15 @@ class AlertRuleUpdate(BaseModel):
     is_enabled: bool | None = None
 
 
+class MonitorTargetInput(BaseModel):
+    target_type: Literal["thesis", "portfolio", "strategy"]
+    target_id: int = Field(ge=1)
+    ticker: str | None = Field(default=None, max_length=20)
+    name: str = Field(min_length=1, max_length=100)
+    signal_type: str | None = Field(default=None, max_length=50)
+    direction: Literal["bullish", "bearish", "neutral"] | None = None
+
+
 async def _ticker(raw: str, request: Request) -> str:
     try:
         return await resolve_ticker(raw, request.app.state.market)
@@ -38,6 +48,24 @@ async def _ticker(raw: str, request: Request) -> str:
 @router.get("/signal-types")
 async def list_signal_types(_user: CurrentUser) -> dict[str, Any]:
     return {"items": sorted(svc.SIGNAL_TYPES)}
+
+
+@router.post("/monitor-targets/draft")
+async def draft_target(body: MonitorTargetInput, user: CurrentUser) -> dict[str, Any]:
+    try:
+        return await draft_monitor_target(**body.model_dump(), user_id=int(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/monitor-targets/confirm", status_code=201)
+async def confirm_target(body: MonitorTargetInput, user: CurrentUser) -> dict[str, Any]:
+    try:
+        return await confirm_monitor_target(**body.model_dump(), user_id=int(user["id"]))
+    except svc.DuplicateRuleError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/rules", status_code=201)

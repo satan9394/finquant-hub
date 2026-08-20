@@ -50,7 +50,7 @@
 - [x] **结构化日志**：`services/logging.py` JSON 格式日志，替代服务层非结构化输出（CLI 报表输出保留）
 - [x] **交易日历**：`services/trading_calendar.py` A 股交易日查询
 - [x] **数据库迁移系统**：`database.py` 添加 schema_version 表 + 迁移函数
-- [x] **全量 API 路由测试**：任务规划时 14 个，按现状覆盖全部 20 个路由器挂载契约
+- [x] **全量 API 路由测试**：任务规划时 14 个；当前 23 个路由器挂载契约由运行时 OpenAPI 校验
 - [x] 验证：`pytest --cov --cov-fail-under=80` 通过（255 passed，81.68%）
 
 ---

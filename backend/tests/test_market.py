@@ -108,8 +108,11 @@ class TestFallback:
             raise httpx.ConnectTimeout("全部超时", request=request)
 
         svc = MarketDataService(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-        with pytest.raises(MarketError, match="无法获取 600519 的行情"):
+        with pytest.raises(MarketError, match="无法获取 600519 的行情") as exc_info:
             await svc.quote("600519")
+        assert "tencent:ConnectTimeout" in str(exc_info.value)
+        assert "sina:ConnectTimeout" in str(exc_info.value)
+        assert "yahoo:ConnectTimeout" in str(exc_info.value)
         await svc.aclose()
 
     @pytest.mark.asyncio
@@ -198,6 +201,33 @@ class TestFallback:
             ("tencent", "sh600519", 2),
             ("yahoo", "sh600519", "1d", 2),
         ]
+        await svc.aclose()
+
+    @pytest.mark.asyncio
+    async def test_kline_reports_each_failed_provider(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectTimeout("全部超时", request=request)
+
+        svc = MarketDataService(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        with pytest.raises(MarketError, match="无法获取 600519 的 K 线") as exc_info:
+            await svc.kline("600519", "1d", 60)
+        assert "sina:ConnectTimeout" in str(exc_info.value)
+        assert "tencent:ConnectTimeout" in str(exc_info.value)
+        assert "yahoo:ConnectTimeout" in str(exc_info.value)
+        await svc.aclose()
+
+    @pytest.mark.asyncio
+    async def test_global_routes_disclose_an_open_yahoo_circuit(self):
+        svc = MarketDataService(http=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, request=request)
+        )))
+        for _ in range(3):
+            svc._breaker("yahoo").record_failure("upstream disconnected")
+
+        with pytest.raises(MarketError, match="yahoo:circuit_open"):
+            await svc.quote("AAPL")
+        with pytest.raises(MarketError, match="yahoo:circuit_open"):
+            await svc.kline("AAPL", "1d", 60)
         await svc.aclose()
 
     @pytest.mark.asyncio

@@ -1,0 +1,36 @@
+{
+  "schema_version": "aios-provenance-fixture-v1",
+  "retrieved_at": "2026-08-11T00:00:00Z",
+  "valid_cases": [
+    {
+      "id": "quote_observed_fact",
+      "adapter": "quote",
+      "input": {"symbol": "600519", "market": "CN", "metric": "price", "data": {"price": 1688.0}, "provider": "tencent", "as_of": "2026-08-11T07:00:00+00:00", "timezone": "Asia/Shanghai", "currency": "CNY", "adjustment": "not_applicable", "frequency": "realtime_or_delayed", "quality_flags": []},
+      "evidence_id": "ev_quote_sh600519_price_20260811",
+      "expected": {"kind": "observed_fact", "data_status": "OK", "subject": {"type": "instrument", "id": "sh600519"}, "metric": "price", "value": 1688.0, "unit": "CNY", "source": "tencent", "vendor": "tencent", "as_of": "2026-08-11T07:00:00+00:00", "period_type": "point_in_time", "market": "CN", "currency": "CNY", "adjustment": "not_applicable", "frequency": "realtime_or_delayed", "quality_flags": []}
+    },
+    {
+      "id": "fundamental_unknown",
+      "adapter": "fundamental",
+      "input": {"symbol": "AAPL", "market": "US", "metric": "trailingPeRatio", "value": null, "provider": "yahoo", "source": "yahoo_fundamentals_timeseries", "as_of": null, "period_type": "TTM", "currency": "USD", "quality_flags": ["UNKNOWN"]},
+      "evidence_id": "ev_fundamental_usAAPL_pe_unknown",
+      "expected": {"kind": "observed_fact", "data_status": "UNKNOWN", "subject": {"type": "instrument", "id": "usAAPL"}, "metric": "trailingPeRatio", "value": null, "unit": "x", "source": "yahoo_fundamentals_timeseries", "vendor": "yahoo", "as_of": null, "period_type": "TTM", "market": "US", "currency": "USD", "adjustment": "not_applicable", "frequency": "TTM", "quality_flags": ["UNKNOWN"]}
+    },
+    {
+      "id": "backtest_computed_result",
+      "adapter": "computed",
+      "input": {"subject_type": "strategy", "subject_id": "ma-crossover:usAAPL:20:50", "metric": "total_return", "value": 0.125, "unit": "ratio", "as_of": "2026-08-08", "period_type": "backtest_window", "market": "US", "currency": "USD", "adjustment": "split_adjusted", "frequency": "1d", "inputs": ["ev_bars_usAAPL_20250101_20260808"], "formula": "ending_equity / initial_equity - 1", "method_version": "ma-crossover-v2", "quality_flags": ["transaction_costs_included"]},
+      "evidence_id": "ev_backtest_usAAPL_total_return_v2",
+      "expected": {"kind": "computed_result", "data_status": "OK", "subject": {"type": "strategy", "id": "ma-crossover:usAAPL:20:50"}, "metric": "total_return", "value": 0.125, "unit": "ratio", "source": "finquant", "vendor": "finquant", "as_of": "2026-08-08", "period_type": "backtest_window", "market": "US", "currency": "USD", "adjustment": "split_adjusted", "frequency": "1d", "inputs": ["ev_bars_usAAPL_20250101_20260808"], "formula": "ending_equity / initial_equity - 1", "method_version": "ma-crossover-v2", "quality_flags": ["transaction_costs_included"]}
+    }
+  ],
+  "invalid_cases": [
+    {"id": "unknown_zero", "from_valid": "fundamental_unknown", "patch": {"value": 0}},
+    {"id": "observed_missing_source", "from_valid": "quote_observed_fact", "patch": {"source": null}},
+    {"id": "computed_missing_inputs", "from_valid": "backtest_computed_result", "patch": {"inputs": []}},
+    {"id": "computed_missing_formula", "from_valid": "backtest_computed_result", "patch": {"formula": null}},
+    {"id": "computed_missing_method", "from_valid": "backtest_computed_result", "patch": {"method_version": null}},
+    {"id": "ai_inference_not_fact", "from_valid": "quote_observed_fact", "patch": {"kind": "AI_INFERENCE"}},
+    {"id": "extra_field", "from_valid": "quote_observed_fact", "patch": {"hidden_reasoning": "forbidden"}}
+  ]
+}

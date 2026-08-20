@@ -40,6 +40,22 @@ def test_every_current_router_has_a_public_operation_in_openapi():
         assert method in paths[path], f"{module} router is missing {method.upper()} {path}"
 
 
+def test_paper_portfolio_openapi_is_separate_and_has_no_real_execution_paths():
+    paths = app.openapi()["paths"]
+    expected = {
+        "/api/portfolio/paper",
+        "/api/portfolio/paper/{portfolio_id}",
+        "/api/portfolio/paper/{portfolio_id}/ledger",
+        "/api/portfolio/paper/{portfolio_id}/valuation",
+        "/api/portfolio/paper/{portfolio_id}/archive",
+        "/api/portfolio/paper/{portfolio_id}/reviews",
+        "/api/portfolio/paper/{portfolio_id}/reviews/draft",
+    }
+    assert expected <= set(paths)
+    paper_paths = {path.lower() for path in paths if path.startswith("/api/portfolio/paper")}
+    assert all("order" not in path and "broker" not in path and "account" not in path for path in paper_paths)
+
+
 @pytest.mark.asyncio
 async def test_every_business_router_rejects_missing_session():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

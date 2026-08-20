@@ -15,7 +15,8 @@ from ..orchestrator import DAGContext, DAGNode, DAGRuntime
 from ..prompts.research_roles import REPORT_LEAD_ROLE, RESEARCH_ROLES
 from ..prompts.research_memo_prompt import get_memo_sections
 from ..services.llm_client import LLMClient, LLMError
-from ..services.memory import render_memory_context, search_cross_session_memory
+from ..services.memory import native_memory_provider
+from ..services.memory_rollout import finalize_memory_rollout, prepare_memory_rollout
 from ..services.report_builder import build_unified_report
 
 _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="research-tool")
@@ -143,12 +144,23 @@ async def run_research(
     """
     from ..services import model_router
 
-    memory_hits = await search_cross_session_memory(f"{ticker} {company_name}", user_id=user_id, limit=4)
-    memory_context = render_memory_context(memory_hits)
+    memory_hits = await native_memory_provider.search(f"{ticker} {company_name}", user_id=user_id, limit=4)
+    memory_context = native_memory_provider.render_context(memory_hits)
+    rollout = await prepare_memory_rollout(
+        f"{ticker} {company_name}",
+        user_id=user_id,
+        surface="research",
+        native_candidate_count=len(memory_hits),
+        subject_type="instrument",
+        subject_id=ticker,
+    )
+    if rollout.context:
+        memory_context = "\n\n".join(part for part in (memory_context, rollout.context) if part)
 
     try:
         client, _ = await model_router.get_client(model_id, user_id=user_id)
     except LLMError as e:
+        await finalize_memory_rollout(rollout, response=None, outcome="upstream_error")
         yield "error", {"error": str(e)}
         return
 
@@ -262,7 +274,7 @@ async def run_research(
         }
         await asyncio.sleep(0.05)  # 让前端看到进度动画
 
-    yield "done", {
+    done_payload = {
         "ticker": ticker,
         "report": report_data,
         # Tool logs retain the data-source trail (including news URLs) for
@@ -272,6 +284,8 @@ async def run_research(
             for k, v in agent_results.items()
         },
     }
+    await finalize_memory_rollout(rollout, response=report_data)
+    yield "done", done_payload
 
 
 def _build_report(ticker: str, company_name: str, agent_results: dict[str, JSONDict]) -> JSONDict:

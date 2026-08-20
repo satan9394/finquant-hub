@@ -3,6 +3,7 @@
 > 本文档按路由分组列出所有 API 端点。请求/响应 JSON 结构请参考对应路由文件或 FastAPI `/docs`。
 > **约定**：所有非 SSE 响应 `Content-Type: application/json; charset=utf-8`；错误格式为 `{"detail": "..."}`。
 > 7 个公开 SSE 端点统一使用 `event: / data:` 格式；另有 1 个隐藏兼容别名。精确事件契约见下节。
+> **认证边界**：`/api/auth/*` 与 `/api/health` 公开；其余 APIRouter 统一要求 `authenticated_context`。`LOCAL_ONLY_MODE=true` 仅允许 development，并以内部本地所有者提供同一用户归属上下文。
 
 ---
 
@@ -57,6 +58,27 @@
 ### 通知流
 
 `GET /api/notifications/stream` 发送 `notification` 事件，SSE `id` 等于通知 ID；客户端可用 `Last-Event-ID` 或 `after_id` 断点续传。连接空闲时由 sse-starlette 发送 ping。
+
+---
+
+## A. 认证 `/api/auth`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/auth/request-code` | POST | 请求邮箱验证码；本地单用户模式返回 404 | 认证 |
+| `/api/auth/verify-code` | POST | 校验验证码并设置 HttpOnly Cookie；本地单用户模式返回 404 | 认证 |
+| `/api/auth/logout` | POST | 撤销当前会话并删除 Cookie | 认证 |
+| `/api/auth/me` | GET | 返回当前用户；本地模式返回内部所有者 | 认证 |
+
+---
+
+## B. 用户凭据 `/api/me/credentials`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/me/credentials` | GET | 列出当前用户的凭据状态，不返回明文 | 认证 |
+| `/api/me/credentials/{service}` | PUT / DELETE | 写入或删除当前用户的 Fernet 加密凭据 | 认证 |
+| `/api/me/credentials/{service}/status` | GET | 查询单个服务的当前用户凭据状态 | 认证 |
 
 ---
 
@@ -124,6 +146,8 @@
 | `/api/market/overview?market=` | GET | A/港/美主要指数快照；A 股含全市场涨跌统计，未覆盖口径显式返回 unsupported | 新增 |
 | `/api/market/sectors?kind=&limit=` | GET | A 股行业/概念板块涨幅排行及领涨股 | 新增 |
 | `/api/market/popular?limit=` | GET | 东方财富人气股排行与实时行情 | 新增 |
+| `/api/market/pulse?limit=&threshold_percent=&ths_limit=` | GET | 批量市场雷达：全 A 广度、日异动、行业/概念、板块/个股资金、周异动、热度；同花顺逐股资金以命中率和部分失败显式返回 | 新增 |
+| `/api/market/themes?keyword=&sort_by=&limit=&stocks_per_theme=&ths_limit=` | GET | 关键词主题分类：分页扫描完整行业/概念目录，显式扩展相关词，批量读取板块成分股并以同花顺逐股资金补充 | 新增 |
 | `/api/market/limit-up?date=` | GET | 指定交易日涨停池、封板与连板统计 | 新增 |
 | `/api/market/sources` | GET | 查询行情/K 线源优先级与逐源 CircuitBreaker 健康状态 | 新增 |
 | `/api/market/sources` | PATCH | 校验、应用并持久化行情/K 线源顺序 | 新增 |
@@ -143,6 +167,7 @@
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/dashboard/stats` | GET | 聚合统计（模型数、会话数、讨论数、消息数等） | MVP |
+| `/api/dashboard/decision-inbox` | GET | owner-scoped 只读决策收件箱；返回 why-now、对象、canonical evidence/质量和下一步 | AIOS-040 |
 | `/api/dashboard/watchlist/import` | POST | multipart 导入 CSV/TXT/XLSX 或剪贴板文本；返回成功/失败/重复统计 | TASK-017 |
 
 ---
@@ -171,6 +196,17 @@
 | `/api/portfolio/positions/{position_id}` | PUT | 更新持仓股数/成本 | MVP |
 | `/api/portfolio/positions/{position_id}` | DELETE | 删除持仓 | MVP |
 | `/api/portfolio/{id}/pnl` | GET | 实时盈亏计算（多市场行情估值） | MVP |
+| `/api/portfolio/paper` | POST | 创建 owner-scoped 独立模拟组合；名称、基础币种、初始模拟现金必填，响应固定 `PAPER`/`SIMULATED` 且真实能力均为 false | AIOS-053 |
+| `/api/portfolio/paper` | GET | 列出当前用户模拟组合，不混入既有组合 | AIOS-053 |
+| `/api/portfolio/paper/{id}` | GET | 获取模拟现金、确定性持仓与 append-only ledger | AIOS-053 |
+| `/api/portfolio/paper/{id}/ledger` | POST | 追加显式 BUY/SELL 模拟记录；成交价/时点/来源/费用/币种/幂等键必填，跨币种还需显式 FX provenance | AIOS-053 |
+| `/api/portfolio/paper/{id}/valuation` | GET | 只读行情估值；缺价格为 `UNKNOWN`，跨币种缺当前 FX 为 `PARTIAL` 且总值/收益为 null | AIOS-053 |
+| `/api/portfolio/paper/{id}/archive` | POST | 停用模拟组合并保留不可变历史；停用后拒绝追加 | AIOS-053 |
+| `/api/portfolio/paper/{id}/reviews` | GET | 列出当前用户可选的非 deleted typed hypothesis 与该模拟组合已有 `review_outcome` 历史 | AIOS-054 |
+| `/api/portfolio/paper/{id}/reviews/draft` | GET | 对指定同用户 hypothesis 生成只读模拟复盘草稿；返回 `COMPUTED_RESULT` 收益、公式、provenance、质量和非因果边界，不推荐 outcome | AIOS-054 |
+| `/api/portfolio/paper/{id}/reviews` | POST | 显式保存 supported/refuted/inconclusive、理由、观察窗口和幂等键；写 `USER_HYPOTHESIS` review outcome，非 OK 估值仅允许 inconclusive | AIOS-054 |
+
+模拟组合没有账户连接、真实资金、真实委托或自动执行能力。模拟账本与既有 `portfolios`/`positions` 完全分表；详情见 `docs/ai/PAPER_PORTFOLIO_CONTRACT.md`。复盘只复用 owner-scoped `memory_records.review_outcome`，不修改原 hypothesis/Thesis/confidence，详见 `docs/ai/PAPER_PORTFOLIO_REVIEW_CONTRACT.md`。
 
 ---
 
@@ -189,6 +225,11 @@
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/research/audit` | POST | 抽取报告数据点，或对外部核验值生成准出/打回结论 | 新增 |
+| `/api/research/memory` | GET / POST | 列出当前用户 typed memory / 显式保存 confirmed memory；FACT 必须引用同 owner evidence | AIOS |
+| `/api/research/memory/{memory_id}` | PATCH / DELETE | 显式确认、以 supersession 编辑、作废 / 单条 soft-delete | AIOS |
+| `/api/research/memory/export` | GET | 导出当前用户 allowlisted typed memory 与保留状态历史 | AIOS |
+| `/api/research/evidence/audit` | GET | 审计当前用户 canonical evidence 的类型/状态计数、悬挂引用和 lineage mismatch | AIOS |
+| `/api/research/evidence/export` | GET | 导出当前用户 allowlisted manifest v2；文档值脱敏且排除凭据、会话和隐藏推理 | AIOS |
 | `/api/research` | POST | **SSE 流**启动 4 Agent 并行研究 + team-lead 综合评审，生成统一 13 章报告 | 新增 |
 | `/api/research` | GET | 列出历史研究报告（分页） | 新增 |
 | `/api/research/history` | GET | 按股票代码聚合的历史版本（含运行统计） | 新增 |
@@ -201,11 +242,14 @@
 
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
+| `/api/backtests/strategy-ir/parse` | POST | 将明确的单标的日线 MA crossover 描述解析为 `strategy-ir/v1` 数据 IR；歧义/未支持条件返回结构化 invalid，不运行或保存回测 | AIOS-050 |
+| `/api/backtests/strategy-ir/compile` | POST | 将 canonical `strategy-ir/v1` 编译为不完整的 `ma-crossover-draft/v1`；只映射 symbol/均线与执行口径，其他参数保持待确认，不运行或保存 | AIOS-051 |
 | `/api/backtests` | POST | 创建 MA 双均线回测任务（异步，返回 202）；A 股默认模拟 T+1/涨跌停/禁做空，结果含 Bootstrap/Monte Carlo/Walk-forward 验证 | 新增 |
 | `/api/backtests` | GET | 列出回测运行（可按 symbol 过滤或仅已保存） | 新增 |
-| `/api/backtests/portfolio` | POST | 创建多标的、多市场、多周期组合回测，返回集中度/回撤/VaR/ES/分散化风险 X 光 | 新增 |
+| `/api/backtests/portfolio` | POST | 创建多标的、多市场、多周期组合回测，返回集中度/回撤/VaR/ES/分散化风险 X 光；同频同日且非零方差时返回完整相关矩阵，至少 20 个共同收益观察时返回样本协方差风险贡献 | 新增 |
 | `/api/backtests/{id}` | GET | 获取回测状态和结果（含交易规则、拒单、显著性验证、equity_curve/trades/warnings） | 新增 |
 | `/api/backtests/{id}/trades` | GET | 获取回测交易明细 | 新增 |
+| `/api/backtests/{id}/share-preview` | GET | 仅对当前用户已保存且 completed 的实验生成 `share-preview/v1` 私有只读预览；有限参数/计算指标和 persisted provenance，license 缺失保持 UNKNOWN，无发布动作 | AIOS-070 |
 | `/api/backtests/{id}/save` | POST | 标记回测为已保存 | 新增 |
 | `/api/backtests/{id}/cancel` | POST | 取消进行中的回测 | 新增 |
 
@@ -220,7 +264,7 @@
 | `/api/instruments/search?q=` | GET | 搜索标的（含 provider/timezone/adjustment 溯源元数据） | 新增 |
 | `/api/instruments/{symbol}/snapshot` | GET | 标的快照（含完整 provenance 块） | 新增 |
 | `/api/instruments/{symbol}/bars?period=&count=` | GET | K 线数据（含 indicators 和 provenance） | 新增 |
-| `/api/instruments/{symbol}/fundamentals` | GET | 基本面数据 | 新增 |
+| `/api/instruments/{symbol}/fundamentals` | GET | 基本面数据（逐项保留 provider/source、报告日、period type、币种、TTM/质量标记；全源失败为 502） | 新增 |
 | `/api/instruments/{symbol}/chip-distribution?adjustment=` | GET | A 股筹码分布估算（AkShare 基于东方财富 K 线/换手率按 120 日衰减模型计算；含 methodology/quality_flags；筹码峰位缺失时为 null） | 新增 |
 | `/api/instruments/{symbol}/workspace` | GET | 获取研究工作区（不存在则返回空模板） | 新增 |
 | `/api/instruments/{symbol}/workspace` | PUT | 保存/合并研究工作区（UPSERT） | 新增 |
@@ -244,7 +288,7 @@
 | `/api/wq/categories` | GET | 按类别组织的 Alpha 因子概览 | 新增 |
 | `/api/wq/fields` | GET | 完整 WorldQuant 字段目录（4367 条） | 新增 |
 | `/api/wq/templates` | GET | 从真实字段目录生成可用因子表达式模板 | 新增 |
-| `/api/wq/simulate/local` | POST | 本地确定性多空因子模拟（不调用外部 API） | 新增 |
+| `/api/wq/simulate/local` | POST | 本地确定性多空因子模拟（不调用外部 API）；同一观察合同逐期计算横截面 Pearson IC、Spearman Rank IC 与非年化 ICIR，至少每期 5 个标的及 5 个有效期才标为可用 | 新增 |
 | `/api/wq/brain/simulations` | POST | 显式 `confirm=true` 后提交 WorldQuant BRAIN 模拟 | 新增 |
 | `/api/wq/brain/simulations/{id}` | GET | 查询 BRAIN 模拟状态 | 新增 |
 | `/api/wq/brain/alphas/{id}` | GET | 查询 BRAIN Alpha 结果 | 新增 |
@@ -280,6 +324,8 @@
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/alerts/signal-types` | GET | 列出支持的信号类型 | 新增 |
+| `/api/alerts/monitor-targets/draft` | POST | 校验 Thesis/Portfolio/Strategy 对象与用户所选技术条件；零写入 | AIOS-041 |
+| `/api/alerts/monitor-targets/confirm` | POST | 显式确认后幂等创建并启用对象绑定规则 | AIOS-041 |
 | `/api/alerts/rules` | POST | 创建预警规则 | 新增 |
 | `/api/alerts/rules` | GET | 列出预警规则 | 新增 |
 | `/api/alerts/rules/{id}` | PUT | 更新预警规则 | 新增 |
@@ -311,9 +357,16 @@
 | `/api/settings/system` | PATCH | 保存设置并即时应用调度参数 | 新增 |
 | `/api/settings/research-jobs` | GET | 列出 5 字段 cron 定时研究任务及最近/下次运行状态 | 新增 |
 | `/api/settings/research-jobs` | POST | 创建定时研究任务 | 新增 |
+| `/api/settings/research-jobs/{id}/runs` | GET | 返回 owner-scoped 运行时间线、lease/幂等 identity、重试关系、append-only 状态事件及 report/evidence/memory 回链 | AIOS-060 |
 | `/api/settings/research-jobs/{id}` | PATCH | 更新任务并重算 `next_run_at` | 新增 |
-| `/api/settings/research-jobs/{id}` | DELETE | 删除定时研究任务 | 新增 |
-| `/api/settings/research-jobs/{id}/run` | POST | 将任务加入本进程 BackgroundTasks 立即运行（202） | 新增 |
+| `/api/settings/research-jobs/{id}` | DELETE | 删除无运行历史的定时研究任务；有历史时返回 409 并要求停用 | 新增 |
+| `/api/settings/research-jobs/{id}/run` | POST | 生成 64 位幂等 identity 并加入本进程 BackgroundTasks（202）；有效 lease 拒绝重复认领 | AIOS-060 |
+| `/api/settings/product-metrics` | GET | 读取当前用户的本地开关、90 日聚合和小样本状态 | 新增 |
+| `/api/settings/product-metrics` | PATCH | 显式启用/关闭当前用户的本地指标 | 新增 |
+| `/api/settings/product-metrics/events` | POST | 以 best-effort 写入 allowlist 事件；关闭或写入失败返回 `recorded=false` | 新增 |
+| `/api/settings/product-metrics/events` | DELETE | 清除当前用户全部本地产品事件，保留开关 | 新增 |
+
+本地产品指标只接受 `first_value(value=duration_ms)`、`result_saved`、`workflow_continued`、`repeat_research(value=days)`。请求不允许额外字段；表中没有 ticker、对象 ID、查询、正文、回答、凭据或任意 metadata 列。TTFV 少于 10 条时仅返回计数，median/P90 为 `null`。
 
 ---
 
@@ -332,13 +385,22 @@
 | 路径 | 方法 | 功能 |
 |------|------|------|
 | `/api/thesis` | GET | 列出论文，可按状态筛选 |
-| `/api/thesis` | POST | 手动创建论文并保存价格/持仓/基本面基线 |
+| `/api/thesis` | POST | 手动创建论文并保存价格/持仓/基本面基线及 v1 不可变判断版本 |
 | `/api/thesis/from-report/{report_id}` | POST | 将已完成投研报告一键存为论文 |
-| `/api/thesis/{id}` | GET / PUT | 获取或编辑论文与手动论点 |
-| `/api/thesis/{id}/claims/{claim_id}` | PUT | 人工更新论点状态与备注 |
-| `/api/thesis/{id}/check` | POST | 用真实行情、持仓、基本面和新报告执行确定性漂移核验 |
+| `/api/thesis/{id}` | GET / PUT | 获取或编辑论文 current view；编辑创建新版本，不覆盖历史 |
+| `/api/thesis/{id}/versions` | GET | 按版本倒序返回 owner-scoped 不可变 Thesis 历史 |
+| `/api/thesis/{id}/versions/{version}/confirm` | POST | 追加 `acknowledged`/`disputed` 用户确认及非空原因；不改写 Thesis 或版本 |
+| `/api/thesis/{id}/reviews` | GET | 返回 owner-scoped 证据复盘项、确定性状态差异、证据和 append-only 事件 |
+| `/api/thesis/{id}/reviews/{review_id}/decide` | POST | 幂等追加 `acknowledged`/`disputed` 复盘决定；不改写 Thesis、版本或 confidence |
+| `/api/thesis/{id}/claims/{claim_id}` | PUT | 人工更新论点状态、备注及可选的 supporting/opposing evidence 时间边 |
+| `/api/thesis/{id}/check` | POST | 用有 canonical provenance 的行情/基本面执行确定性漂移核验；无证据规则保持 `unknown` |
+| `/api/thesis/{id}/challenge` | POST | 只读生成最强反证、遗漏变量和脆弱假设；输出均为 `AI_INFERENCE`，不改写 Thesis |
+| `/api/thesis/{id}/validation-experiment` | GET | 生成 owner-scoped `thesis-validation-experiment/v1`；只带入 ticker 与固定回测语义，其他参数保持待确认 |
+| `/api/thesis/{id}/share-preview` | GET | 生成当前用户 Thesis 的 `share-preview/v1` 私有只读预览；用户假设、metadata-only evidence、许可/时效/质量/脱敏审计，固定未发布且公开门禁 BLOCKED | AIOS-070 |
 
-缺少价格、持仓、基本面或新报告时，相应规则返回 `unknown`，不会用推测值填充。
+创建/编辑可传 `supporting_evidence_ids`、`opposing_evidence_ids`、`invalidation_conditions`、`confidence` 和 `change_reason`。引用 evidence 必须属于当前用户；判断类型只允许 `USER_HYPOTHESIS` 或 `AI_INFERENCE`，不会自动升级为事实。版本历史包含相对上一版本的 `diff_from_previous` 与 append-only `confirmations`；confidence diff 保留 old/new 和当前版本 `change_reason`。claim 更新可传 `evidence_edges[]`，每条包含 `evidence_id`、`stance`、`valid_from`、`valid_to`、`observed_at`；替代边只会 supersede 并关闭有效期，不删除历史。claim 响应包含 owner-scoped `evidence_edges` 和 append-only `status_events`。自动非 `unknown` 状态事件必须引用当次 canonical evidence，否则强制为 `unknown` 并保留原因。旧客户端的 `thesis`、`assumptions`、`claims` 和 current-view 响应保持兼容。
+
+`check` 的 `last_check` 使用 `thesis-drift/v1`，每条规则返回 rule/version、公式/参数、baseline/current 值和两侧 evidence IDs。price/fundamental 任一侧缺 canonical evidence 都为 `unknown`；position 在 canonical adapter 建立前为 `unknown`；report 只要求 document evidence 与人工复核，文本相似度不再决定 holding/violated。状态变化同时产生 `COMPUTED_RESULT` 复盘项；用户决定只更新 review projection 并追加不可变事件。核验异常返回 502，并将 `UPSTREAM_ERROR` 失败项持久化，不伪装成无变化。
 
 ---
 
@@ -346,26 +408,30 @@
 
 | 序号 | 前缀 | 文件 | MVP 端点 | 新增端点 |
 |------|------|------|----------|----------|
-| 1 | `/api/health` | main.py（内联） | 1 | 0 |
-| 2 | `/api/models` | models_crud.py | 6 | 0 |
-| 3 | `/api/agents` | agents.py | 4 | 0 |
-| 4 | `/api/chat` | chat.py | 6 | 0 |
-| 5 | `/api/discussion` | discussion.py | 4 | 0 |
-| 6 | `/api/market` | market.py | 4 | 11 |
-| 7 | `/api/dashboard` | dashboard.py | 1 | 1 |
-| 8 | `/api/analysis` | analysis.py | 3 | 0 |
-| 9 | `/api/portfolio` | portfolio.py | 10 | 0 |
-| 10 | `/api/backtest` | backtest.py | 3 | 0 |
-| 11 | `/api/research` | research.py | 0 | 6 |
-| 12 | `/api/backtests` | backtests.py | 0 | 7 |
-| 13 | `/api/instruments` | instruments.py | 0 | 8 |
-| 14 | `/api/screening` | screening.py | 0 | 1 |
-| 15 | `/api/wq` | wq.py | 0 | 10 |
-| 16 | `/api/swarm` | swarm.py | 0 | 4 |
-| 17 | `/api/notifications` | notifications.py | 0 | 4 |
-| 18 | `/api/alerts` | alerts.py | 0 | 6 |
-| 19 | `/api/mcp` | mcp.py | 0 | 8 |
-| 20 | `/api/settings` | settings.py | 0 | 7 |
-| 21 | `/api/usage` | usage.py | 0 | 1 |
-| 22 | `/api/thesis` | thesis.py | 0 | 7 |
-| | **合计** | | **42** | **73** |
+| 1 | `/api/auth` | auth.py | 0 | 4 |
+| 2 | `/api/me/credentials` | credentials.py | 0 | 4 |
+| 3 | `/api/health` | main.py（内联） | 1 | 0 |
+| 4 | `/api/models` | models_crud.py | 6 | 0 |
+| 5 | `/api/agents` | agents.py | 4 | 0 |
+| 6 | `/api/chat` | chat.py | 6 | 0 |
+| 7 | `/api/discussion` | discussion.py | 4 | 0 |
+| 8 | `/api/market` | market.py | 4 | 14 |
+| 9 | `/api/dashboard` | dashboard.py | 1 | 2 |
+| 10 | `/api/analysis` | analysis.py | 3 | 0 |
+| 11 | `/api/portfolio` | portfolio.py | 10 | 9 |
+| 12 | `/api/backtest` | backtest.py | 3 | 0 |
+| 13 | `/api/research` | research.py | 0 | 11 |
+| 14 | `/api/backtests` | backtests.py | 0 | 10 |
+| 15 | `/api/instruments` | instruments.py | 0 | 8 |
+| 16 | `/api/screening` | screening.py | 0 | 1 |
+| 17 | `/api/wq` | wq.py | 0 | 10 |
+| 18 | `/api/swarm` | swarm.py | 0 | 4 |
+| 19 | `/api/notifications` | notifications.py | 0 | 4 |
+| 20 | `/api/alerts` | alerts.py | 0 | 8 |
+| 21 | `/api/mcp` | mcp.py | 0 | 8 |
+| 22 | `/api/settings` | settings.py | 0 | 12 |
+| 23 | `/api/usage` | usage.py | 0 | 1 |
+| 24 | `/api/thesis` | thesis.py | 0 | 14 |
+| | **合计** | | **42** | **122** |
+
+合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 133 个 `/api/*` 路径、168 个 HTTP 操作。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。

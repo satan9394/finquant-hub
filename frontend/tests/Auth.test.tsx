@@ -46,6 +46,20 @@ describe('passwordless authentication', () => {
     });
   });
 
+  test('restores the automatic owner in local-only mode', async () => {
+    const user = { id: 1, email: 'local@finquant.invalid', is_admin: true, local_mode: true };
+    mocks.currentUser.mockResolvedValue(user);
+    useAuthStore.setState({ ...anonymousState, status: 'idle' });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState()).toMatchObject({
+      user,
+      isAuthenticated: true,
+      status: 'authenticated',
+    });
+  });
+
   test('completes the two-step login and returns to the protected route', async () => {
     mocks.requestCode.mockResolvedValue({ message: '验证码已发送', cooldown_seconds: 60 });
     mocks.verifyCode.mockResolvedValue({ id: 8, email: 'user@example.com', is_admin: false });

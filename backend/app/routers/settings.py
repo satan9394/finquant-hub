@@ -2,17 +2,27 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from contextlib import suppress
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .. import config
 from .. import database
 from ..services.cron import CronExpression
 from ..services.market_data import normalize_code
-from ..services.research_jobs import create_research_job, get_research_job, list_research_jobs, update_research_job
+from ..services.product_metrics import (
+    clear_product_metrics,
+    get_product_metrics,
+    record_product_metric,
+    set_product_metrics_enabled,
+)
+from ..services.research_jobs import (
+    create_research_job, get_research_job, list_research_jobs, list_research_runs,
+    recover_stale_research_runs, update_research_job,
+)
 from ..services.scheduler import run_research_job, scheduler_loop
 from ..services.system_settings import current_system_settings, save_system_settings
 from .auth import CurrentUser, authenticated_context
@@ -69,6 +79,21 @@ class ScheduledResearchUpdate(BaseModel):
         return self
 
 
+class ProductMetricsPreferenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
+class ProductMetricEventInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_name: Literal[
+        "first_value", "result_saved", "workflow_continued", "repeat_research",
+    ]
+    value: int | None = Field(default=None, ge=0, le=86_400_000)
+
+
 def _response() -> dict[str, Any]:
     return {
         "settings": current_system_settings(),
@@ -108,9 +133,52 @@ async def update_system_settings(body: SystemSettingsUpdate, request: Request, u
     return _response()
 
 
+@router.get("/product-metrics")
+async def read_product_metrics(user: CurrentUser) -> dict[str, Any]:
+    return await get_product_metrics(int(user["id"]))
+
+
+@router.patch("/product-metrics")
+async def update_product_metrics_preference(
+    body: ProductMetricsPreferenceInput,
+    user: CurrentUser,
+) -> dict[str, Any]:
+    user_id = int(user["id"])
+    await set_product_metrics_enabled(user_id, body.enabled)
+    return await get_product_metrics(user_id)
+
+
+@router.post("/product-metrics/events", status_code=status.HTTP_202_ACCEPTED)
+async def add_product_metric_event(
+    body: ProductMetricEventInput,
+    user: CurrentUser,
+) -> dict[str, bool]:
+    try:
+        recorded = await record_product_metric(
+            int(user["id"]), body.event_name, value=body.value,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"recorded": recorded}
+
+
+@router.delete("/product-metrics/events")
+async def delete_product_metric_events(user: CurrentUser) -> dict[str, int]:
+    return {"deleted": await clear_product_metrics(int(user["id"]))}
+
+
 @router.get("/research-jobs")
 async def get_scheduled_research_jobs(user: CurrentUser) -> dict[str, Any]:
     return {"items": await list_research_jobs(int(user["id"]))}
+
+
+@router.get("/research-jobs/{job_id:int}/runs")
+async def get_scheduled_research_runs(job_id: int, user: CurrentUser) -> dict[str, Any]:
+    try:
+        items = await list_research_runs(job_id, int(user["id"]))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/research-jobs", status_code=status.HTTP_201_CREATED)
@@ -150,6 +218,12 @@ async def delete_scheduled_research_job(job_id: int, user: CurrentUser) -> dict[
     user_id = int(user["id"])
     if await get_research_job(job_id, user_id) is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
+    run = await database.query_one(
+        "SELECT id FROM scheduled_research_runs WHERE job_id=? AND user_id=? LIMIT 1",
+        (job_id, user_id),
+    )
+    if run is not None:
+        raise HTTPException(409, "定时研究任务已有运行历史，请停用而不是删除")
     await database.execute("DELETE FROM scheduled_research_jobs WHERE id=? AND user_id=?", (job_id, user_id))
     return {"ok": True}
 
@@ -161,15 +235,17 @@ async def run_scheduled_research_job(
     user: CurrentUser,
 ) -> dict[str, Any]:
     user_id = int(user["id"])
+    await recover_stale_research_runs(user_id=user_id)
     job = await get_research_job(job_id, user_id)
     if job is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
     if job["last_status"] == "running":
         raise HTTPException(409, "定时研究任务正在运行")
+    idempotency_key = secrets.token_hex(32)
     await database.execute(
-        "UPDATE scheduled_research_jobs SET last_status='queued', last_error=NULL, updated_at=datetime('now') "
-        "WHERE id=? AND user_id=?",
-        (job_id, user_id),
+        "UPDATE scheduled_research_jobs SET last_status='queued', last_error=NULL, "
+        "pending_idempotency_key=?, updated_at=datetime('now') WHERE id=? AND user_id=?",
+        (idempotency_key, job_id, user_id),
     )
-    background_tasks.add_task(run_research_job, job_id, user_id)
-    return {"id": job_id, "status": "queued"}
+    background_tasks.add_task(run_research_job, job_id, user_id, idempotency_key)
+    return {"id": job_id, "status": "queued", "idempotency_key": idempotency_key}

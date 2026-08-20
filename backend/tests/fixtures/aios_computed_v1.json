@@ -1,0 +1,61 @@
+{
+  "schema_version": "aios-computed-fixture-v1",
+  "retrieved_at": "2026-08-11T00:00:00Z",
+  "cases": [
+    {
+      "id": "backtest_total_return",
+      "engine": "calculate_performance",
+      "inputs": {"equity": [100, 105, 116], "benchmark": [100, 103, 108], "periods_per_year": 252},
+      "input_evidence_ids": ["ev_equity_curve_fixture_001", "ev_benchmark_curve_fixture_001"],
+      "metric": "total_return",
+      "expected": 0.16,
+      "formula": "ending_equity / initial_equity - 1",
+      "method_version": "calculate-performance-v1",
+      "subject_type": "strategy",
+      "subject_id": "fixture:ma-crossover",
+      "unit": "ratio"
+    },
+    {
+      "id": "portfolio_concentration",
+      "engine": "portfolio_risk_xray",
+      "inputs": {
+        "weights": {"A": 0.7, "B": 0.3},
+        "asset_a": [97,101,102,103,104,105,106,100,101,102,103,101,105,106,100,101,102,103,104,105,106,97,101,102,103,104,102,106,100,101,102,103,94,105,106],
+        "asset_b": [96,102,104,106,108,101,103,105,107,100,102,104,106,104,101,103,105,107,100,102,104,106,108,101,103,105,103,100,102,104,106,108,101,103,105]
+      },
+      "input_evidence_ids": ["ev_asset_curve_A_fixture_001", "ev_asset_curve_B_fixture_001", "ev_portfolio_weights_fixture_001"],
+      "metric": "concentration_hhi",
+      "expected": 0.58,
+      "formula": "sum(weight_i ** 2)",
+      "method_version": "portfolio-risk-xray-v1",
+      "subject_type": "portfolio",
+      "subject_id": "fixture:portfolio",
+      "unit": "ratio"
+    },
+    {
+      "id": "alpha_terminal_equity",
+      "engine": "simulate_factor",
+      "inputs": {
+        "quantile": 0.25,
+        "observations": [
+          {"date":"2026-01-02","symbol":"A","factor":1,"forward_return":-0.02},
+          {"date":"2026-01-02","symbol":"B","factor":2,"forward_return":-0.01},
+          {"date":"2026-01-02","symbol":"C","factor":3,"forward_return":0.01},
+          {"date":"2026-01-02","symbol":"D","factor":4,"forward_return":0.02},
+          {"date":"2026-01-05","symbol":"A","factor":1,"forward_return":-0.01},
+          {"date":"2026-01-05","symbol":"B","factor":2,"forward_return":0.0},
+          {"date":"2026-01-05","symbol":"C","factor":3,"forward_return":0.01},
+          {"date":"2026-01-05","symbol":"D","factor":4,"forward_return":0.03}
+        ]
+      },
+      "input_evidence_ids": ["ev_alpha_observations_fixture_001", "ev_alpha_parameters_fixture_001"],
+      "metric": "terminal_equity",
+      "expected": 1.0404,
+      "formula": "product(1 + long_short_period_return)",
+      "method_version": "simulate-factor-v1",
+      "subject_type": "strategy",
+      "subject_id": "fixture:alpha-long-short",
+      "unit": "equity_multiple"
+    }
+  ]
+}

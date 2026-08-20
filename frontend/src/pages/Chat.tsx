@@ -30,6 +30,29 @@ type ChatStreamData = {
   token_count?: number | null;
 };
 
+export function ChatStarterDraft({
+  value,
+  onChange,
+  onCreate,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '48px 24px' }}>
+      <Title level={4}>已预填快速问答草稿</Title>
+      <TextArea value={value} onChange={(event) => onChange(event.target.value)} rows={4} />
+      <Button type="primary" icon={<PlusOutlined />} onClick={onCreate} style={{ marginTop: 12 }}>
+        新建会话并继续
+      </Button>
+      <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+        创建会话只保存草稿上下文；点击“发送”后才调用当前模型一次，URL 预填不会自动发送。
+      </Text>
+    </div>
+  );
+}
+
 export default function Chat() {
   const [searchParams] = useSearchParams();
   const starterPrompt = searchParams.get('prompt')?.trim();
@@ -290,9 +313,13 @@ export default function Chat() {
         {/* 消息区 */}
         <div style={{ flex: 1, overflow: 'auto', padding: '16px 0' }}>
           {!currentSessionId ? (
-            <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
-              <Title level={4} type="secondary">请选择或创建一个会话</Title>
-            </div>
+            starterPrompt ? (
+              <ChatStarterDraft value={inputValue} onChange={setInputValue} onCreate={handleNewSession} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
+                <Title level={4} type="secondary">请选择或创建一个会话</Title>
+              </div>
+            )
           ) : loadingMessages ? (
             <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
           ) : (
@@ -355,6 +382,9 @@ export default function Chat() {
                 )}
               </div>
             </div>
+            <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+              模型额度：点击“发送”后调用当前模型一次；URL 预填内容不会自动发送。
+            </Text>
             <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 8 }}>
               此内容由 AI 生成，不构成投资建议
             </div>

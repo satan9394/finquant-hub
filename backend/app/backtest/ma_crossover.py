@@ -9,7 +9,7 @@ import numpy as np
 
 from ..services.indicators import sma
 from .execution_rules import execution_rules_for
-from .metrics import calculate_performance, calculate_trade_metrics
+from .metrics import calculate_performance, calculate_trade_metrics, calculate_trade_quality
 
 JSONDict = dict[str, Any]
 
@@ -91,7 +91,11 @@ def run_ma_crossover(
     order_marks: list[JSONDict] = []
     rejected_orders: list[JSONDict] = []
     turnover_notional = 0.0
+    total_commission_cost = 0.0
+    total_stamp_duty_cost = 0.0
+    total_slippage_cost = 0.0
     equity_values: list[float] = []
+    exposure_flags: list[bool] = []
     peak_equity = float(initial_capital)
     risk_stop_pending = False
     risk_stop_locked = False
@@ -113,6 +117,7 @@ def run_ma_crossover(
             if not allowed:
                 rejected_orders.append({"time": day, "side": "buy", "reason": reason})
                 equity_values.append(cash)
+                exposure_flags.append(False)
                 continue
             fill_price = open_price * (1.0 + slippage)
             shares = cash / (fill_price * (1.0 + commission))
@@ -122,6 +127,8 @@ def run_ma_crossover(
             fee = commission_fee(notional)
             cash -= notional + fee
             turnover_notional += notional
+            total_commission_cost += fee
+            total_slippage_cost += shares * (fill_price - open_price)
             entry = {
                 "entry_time": day,
                 "entry_price": fill_price,
@@ -145,6 +152,7 @@ def run_ma_crossover(
             if not allowed:
                 rejected_orders.append({"time": day, "side": "sell", "reason": reason})
                 equity_values.append(cash + shares * float(closes[index]))
+                exposure_flags.append(True)
                 continue
             fill_price = open_price * (1.0 - slippage)
             notional = shares * fill_price
@@ -153,6 +161,9 @@ def run_ma_crossover(
             fee = commission_fee_value + stamp_duty_fee
             cash += notional - fee
             turnover_notional += notional
+            total_commission_cost += commission_fee_value
+            total_stamp_duty_cost += stamp_duty_fee
+            total_slippage_cost += shares * (open_price - fill_price)
             pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
             trades.append({
                 **entry,
@@ -177,6 +188,7 @@ def run_ma_crossover(
 
         equity_value = cash + shares * float(closes[index])
         equity_values.append(equity_value)
+        exposure_flags.append(shares > 0)
         peak_equity = max(peak_equity, equity_value)
         if (
             max_drawdown_stop_pct > 0
@@ -206,6 +218,9 @@ def run_ma_crossover(
             fee = commission_fee_value + stamp_duty_fee
             cash += notional - fee
             turnover_notional += notional
+            total_commission_cost += commission_fee_value
+            total_stamp_duty_cost += stamp_duty_fee
+            total_slippage_cost += shares * (market_price - fill_price)
             pnl = (notional - fee) - (entry["entry_notional"] + entry["entry_fee"])
             trades.append({
                 **entry,
@@ -238,6 +253,15 @@ def run_ma_crossover(
         252,
     )
     trade_metrics = calculate_trade_metrics([trade["pnl"] for trade in trades])
+    day_indices = {day: index for index, day in enumerate(days)}
+    trade_quality = calculate_trade_quality(
+        [trade["return"] for trade in trades],
+        [
+            day_indices[str(trade["exit_time"])] - day_indices[str(trade["entry_time"])]
+            for trade in trades
+        ],
+    )
+    total_trading_cost = total_commission_cost + total_stamp_duty_cost + total_slippage_cost
     if not trades:
         warnings.append("no_trades_in_period")
     if risk_stop_dates:
@@ -261,7 +285,7 @@ def run_ma_crossover(
     return {
         "metrics": {
             **{
-                key: round(value, 8) if value is not None else None
+                key: value if value is None or isinstance(value, (bool, int)) else round(value, 8)
                 for key, value in performance.items()
             },
             "win_rate": round(float(trade_metrics["win_rate"]), 8)
@@ -270,6 +294,16 @@ def run_ma_crossover(
             if trade_metrics["profit_factor"] is not None else None,
             "turnover": round(float(turnover_notional / initial_capital), 8),
             "trade_count": trade_metrics["trade_count"],
+            **{
+                key: round(value, 8) if value is not None else None
+                for key, value in trade_quality.items()
+            },
+            "market_exposure": round(sum(exposure_flags) / len(exposure_flags), 8),
+            "total_commission_cost": round(total_commission_cost, 8),
+            "total_stamp_duty_cost": round(total_stamp_duty_cost, 8),
+            "total_slippage_cost": round(total_slippage_cost, 8),
+            "total_trading_cost": round(total_trading_cost, 8),
+            "trading_cost_ratio": round(total_trading_cost / initial_capital, 8),
         },
         "equity_curve": curve(equity),
         "benchmark_curve": curve(benchmark),

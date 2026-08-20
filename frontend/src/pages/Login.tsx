@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, Space, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, Space, Spin, Typography } from 'antd';
 import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { requestLoginCode } from '../services/authApi';
@@ -13,6 +13,8 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const status = useAuthStore((state) => state.status);
+  const initialize = useAuthStore((state) => state.initialize);
   const login = useAuthStore((state) => state.login);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -20,6 +22,10 @@ export default function Login() {
   const [cooldown, setCooldown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (status === 'idle') void initialize();
+  }, [initialize, status]);
 
   useEffect(() => {
     if (cooldown <= 0) return undefined;
@@ -31,6 +37,9 @@ export default function Login() {
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;
+  }
+  if (status === 'idle' || status === 'loading') {
+    return <div className="auth-loading"><Spin size="large" /></div>;
   }
 
   const sendCode = async () => {

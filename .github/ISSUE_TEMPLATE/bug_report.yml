@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible FinQuant Hub defect without secrets or private financial data
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, `.env.local`, MASTER_KEY, SQLite files, portfolio holdings, or private research content. Security vulnerabilities must follow SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Commit SHA, release tag, or state that this is an uncommitted local tree.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows and Docker Desktop
+        - Linux and Docker Engine
+        - macOS and Docker Desktop
+        - Other local environment
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Redacted doctor result
+      description: Include PASS/WARN/FAIL lines only after checking that no private path or value should be removed.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: List exact local steps and whether the result survives a restart.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Preserve source, time, period, adjustment, and quality states for financial-data defects.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence type
+      options:
+        - Local runtime observation
+        - Real upstream request with redacted provenance
+        - Deterministic computation
+        - Fixture or mock only
+        - Static or schema check only
+        - Unknown
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets, credentials, private financial data, and proprietary report content.
+          required: true
+        - label: I did not describe a fixture, mock, or static check as real upstream validation.
+          required: true

@@ -3,9 +3,9 @@
  * 功能：搜索 + 行情条 + 信号标签 + K线图(KDJ/MACD/RSI子图) + 13章分析简报
  * ============================================================ */
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Card, Row, Col, Typography, Input, Button, Spin, Empty, Tag, Collapse, Descriptions, message, Alert,
+  Card, Row, Col, Typography, Input, Button, Spin, Empty, Collapse, Descriptions, message, Alert,
 } from 'antd';
 import {
   SearchOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined,
@@ -13,12 +13,18 @@ import {
 import { createChart, ColorType, LineStyle, CrosshairMode, type IChartApi, type Time } from 'lightweight-charts';
 import { fetchQuote, fetchKLine, fetchIndicators, searchStocks } from '../services/stockApi';
 import { requestAnalysis } from '../services/analysisApi';
+import { markProductProgress } from '../features/productProgress';
+import { readProfessionalPreferences } from '../features/professionalPreferences';
+import TaskPageHeader from '../components/TaskPageHeader';
+import ResultLayer from '../components/ResultLayer';
+import SignalInterpretation from '../components/SignalInterpretation';
+import IndicatorGuide from '../components/IndicatorGuide';
 import type {
   RealTimeQuote, KLineDataPoint, IndicatorData, SearchResult, SignalBadge, AnalysisSection,
 } from '../types';
 import type { UTCTimestamp } from 'lightweight-charts';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 // ==================== 常用格式化 ====================
 const fmtPrice = (v?: number | null) => (v != null ? v.toFixed(2) : '--');
@@ -113,20 +119,6 @@ function IndicatorSubChart({
   );
 }
 
-// ==================== 信号标签 ====================
-function SignalBadges({ signals }: { signals: SignalBadge[] }) {
-  if (!signals?.length) return null;
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-      {signals.map((s, i) => (
-        <Tag key={i} color={s.type === 'bullish' ? 'red' : s.type === 'bearish' ? 'green' : 'default'}>
-          {s.type === 'bullish' ? '📈' : s.type === 'bearish' ? '📉' : '⚪'} {s.label}
-        </Tag>
-      ))}
-    </div>
-  );
-}
-
 // ==================== 行情条 ====================
 function PriceStatsBar({ quote }: { quote: RealTimeQuote }) {
   const isUp = (quote.change_percent ?? 0) >= 0;
@@ -175,6 +167,8 @@ const CHAPTER_TITLES = [
 export default function StockAnalysis() {
   const { ticker } = useParams<{ ticker: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const autoRunAnalysis = searchParams.get('autorun') !== '0';
 
   // 搜索
   const [searchQuery, setSearchQuery] = useState(ticker ?? '');
@@ -186,6 +180,7 @@ export default function StockAnalysis() {
   const [indicators, setIndicators] = useState<IndicatorData | null>(null);
   const [analysisSections, setAnalysisSections] = useState<AnalysisSection[]>([]);
   const [signals, setSignals] = useState<SignalBadge[]>([]);
+  const [preferredIndicators] = useState(() => readProfessionalPreferences().indicatorKeys);
 
   // 状态
   const [loadingQuote, setLoadingQuote] = useState(false);
@@ -223,6 +218,10 @@ export default function StockAnalysis() {
       .finally(() => setLoadingQuote(false));
   }, [currentTicker]);
 
+  useEffect(() => {
+    if (quote && indicators && klineData.length > 0) markProductProgress('analysis');
+  }, [quote, indicators, klineData.length]);
+
   // ---------- 加载 K 线 ----------
   useEffect(() => {
     if (!currentTicker) return;
@@ -259,8 +258,8 @@ export default function StockAnalysis() {
 
   // 进入页面自动请求分析
   useEffect(() => {
-    if (currentTicker) handleAnalyze();
-  }, [currentTicker, handleAnalyze]);
+    if (currentTicker && autoRunAnalysis) handleAnalyze();
+  }, [autoRunAnalysis, currentTicker, handleAnalyze]);
 
   // ---------- K 线图主面板（顶部） ----------
   const mainChartRef = useRef<HTMLDivElement>(null);
@@ -332,7 +331,7 @@ export default function StockAnalysis() {
     volumeSeries.setData(volData);
 
     // MA 均线
-    if (indicators?.indicators?.ma) {
+    if (preferredIndicators.includes('ma') && indicators?.indicators?.ma) {
       const ma = indicators.indicators.ma;
       if (ma.ma5) {
         const ma5Series = chart.addLineSeries({ color: '#fdb02c', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
@@ -351,7 +350,7 @@ export default function StockAnalysis() {
     chart.timeScale().fitContent();
 
     return () => { chart.remove(); };
-  }, [klineData, indicators]);
+  }, [klineData, indicators, preferredIndicators]);
 
   // ---------- 子图数据 ----------
   const indicatorDays = indicators?.days ?? [];
@@ -375,8 +374,39 @@ export default function StockAnalysis() {
   });
 
   // ==================== 渲染 ====================
+  const stockStatus = loadingQuote || loadingKline
+    ? '正在加载行情与指标'
+    : analysisError
+      ? '部分分析数据不可用'
+      : quote && indicators && klineData.length > 0
+        ? '行情与指标已更新'
+        : currentTicker
+          ? '等待行情与指标'
+          : '等待选择标的';
+  const stockStatusTone = loadingQuote || loadingKline
+    ? 'loading' as const
+    : analysisError
+      ? 'warning' as const
+      : quote && indicators && klineData.length > 0
+        ? 'success' as const
+        : 'neutral' as const;
+
   return (
     <div style={{ padding: 24 }}>
+      <TaskPageHeader
+        eyebrow="STOCK ANALYSIS"
+        title="个股分析"
+        goal="判断当前技术状态，并决定是否继续研究。"
+        object={quote ? `${quote.name} · ${currentTicker.toUpperCase()}` : currentTicker?.toUpperCase() || '尚未选择'}
+        status={stockStatus}
+        statusTone={stockStatusTone}
+        actions={currentTicker ? (
+          <Button type="primary" icon={<ReloadOutlined />} onClick={handleAnalyze} loading={loadingAnalysis}>
+            {loadingAnalysis ? '分析中...' : '刷新分析'}
+          </Button>
+        ) : undefined}
+      />
+
       {/* 搜索栏 */}
       <div style={{ marginBottom: 16, position: 'relative' }}>
         <Input.Search
@@ -413,95 +443,78 @@ export default function StockAnalysis() {
         <Empty description="请输入股票代码开始分析" style={{ marginTop: 80 }} />
       ) : (
         <>
-          {/* 标题 + 信号 */}
-          <div style={{ marginBottom: 8 }}>
-            <Title level={4} style={{ margin: 0, display: 'inline' }}>{currentTicker.toUpperCase()} 分析</Title>
-            {quote && (
-              <Text style={{ marginLeft: 8, fontSize: 16, color: '#666' }}>{quote.name}</Text>
-            )}
-          </div>
-          <SignalBadges signals={signals} />
+          <ResultLayer layer="summary" title="结论摘要" description="先阅读技术结论与风险，再决定是否展开证据。">
+            <SignalInterpretation signals={signals} ready={analysisSections.length > 0} mode="summary" />
+            <div className="analysis-next-actions">
+              <Button href="#indicator-guides">为什么</Button>
+              <Button href="#raw-indicators">查看原始指标</Button>
+              <Button onClick={() => navigate(`/research/${encodeURIComponent(currentTicker)}`)}>继续深度研究</Button>
+              <Button onClick={() => navigate(`/strategy-lab/ma-crossover?symbol=${encodeURIComponent(currentTicker)}`)}>用策略验证</Button>
+            </div>
+            <Card size="small" title="技术分析报告">
+              {analysisError && (
+                <Alert type="error" message={analysisError} style={{ marginBottom: 12 }} showIcon closable />
+              )}
+              {loadingAnalysis ? (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <Spin tip="正在计算技术指标..." />
+                </div>
+              ) : analysisSections.length > 0 ? (
+                <Collapse
+                  activeKey={activeKey}
+                  onChange={(keys) => setActiveKey(keys)}
+                  items={collapseItems}
+                  size="small"
+                />
+              ) : (
+                <Empty description={'点击「刷新分析」获取技术指标报告'} />
+              )}
+            </Card>
+          </ResultLayer>
 
-          {/* 行情条 */}
-          <Card size="small" style={{ marginBottom: 12 }} loading={loadingQuote}>
-            {quote ? <PriceStatsBar quote={quote} /> : <Text type="secondary">加载行情中...</Text>}
-          </Card>
+          <ResultLayer layer="evidence" title="行情与指标证据">
+            <SignalInterpretation signals={signals} ready={analysisSections.length > 0} mode="evidence" />
+            {indicators && <IndicatorGuide data={indicators} keys={preferredIndicators} />}
+            <Card size="small" style={{ marginBottom: 12 }} loading={loadingQuote}>
+              {quote ? <PriceStatsBar quote={quote} /> : <Text type="secondary">加载行情中...</Text>}
+            </Card>
+            <Card id="raw-indicators" size="small" loading={loadingKline}>
+              <div ref={mainChartRef} />
+              {indicatorDays.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {preferredIndicators.includes('kdj') && kdjData && <IndicatorSubChart title="KDJ" labels={indicatorDays} datasets={[
+                    { label: 'K', data: kdjData.k ?? [], color: '#f23645' },
+                    { label: 'D', data: kdjData.d ?? [], color: '#089981' },
+                    { label: 'J', data: kdjData.j ?? [], color: '#4a90d9' },
+                  ]} />}
+                  {preferredIndicators.includes('macd') && macdData && <IndicatorSubChart title="MACD" labels={indicatorDays} datasets={[
+                    { label: 'DIF', data: macdData.dif ?? [], color: '#f23645' },
+                    { label: 'DEA', data: macdData.dea ?? [], color: '#089981' },
+                    { label: 'HIST', data: macdData.hist ?? [], color: '#4a90d9' },
+                  ]} />}
+                  {preferredIndicators.includes('rsi') && rsiData && <IndicatorSubChart title="RSI" labels={indicatorDays} datasets={[
+                    { label: 'RSI6', data: rsiData.rsi6 ?? [], color: '#f23645' },
+                    { label: 'RSI12', data: rsiData.rsi12 ?? [], color: '#089981' },
+                    { label: 'RSI24', data: rsiData.rsi24 ?? [], color: '#4a90d9' },
+                  ]} />}
+                </div>
+              )}
+            </Card>
+          </ResultLayer>
 
-          {/* K 线图 + 技术指标子图 */}
-          <Card size="small" style={{ marginBottom: 16 }} loading={loadingKline}>
-            <div ref={mainChartRef} />
-            {indicatorDays.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                {kdjData && (
-                  <IndicatorSubChart
-                    title="KDJ"
-                    labels={indicatorDays}
-                    datasets={[
-                      { label: 'K', data: kdjData.k ?? [], color: '#f23645' },
-                      { label: 'D', data: kdjData.d ?? [], color: '#089981' },
-                      { label: 'J', data: kdjData.j ?? [], color: '#4a90d9' },
-                    ]}
-                  />
-                )}
-                {macdData && (
-                  <IndicatorSubChart
-                    title="MACD"
-                    labels={indicatorDays}
-                    datasets={[
-                      { label: 'DIF', data: macdData.dif ?? [], color: '#f23645' },
-                      { label: 'DEA', data: macdData.dea ?? [], color: '#089981' },
-                      { label: 'HIST', data: macdData.hist ?? [], color: '#4a90d9' },
-                    ]}
-                  />
-                )}
-                {rsiData && (
-                  <IndicatorSubChart
-                    title="RSI"
-                    labels={indicatorDays}
-                    datasets={[
-                      { label: 'RSI6', data: rsiData.rsi6 ?? [], color: '#f23645' },
-                      { label: 'RSI12', data: rsiData.rsi12 ?? [], color: '#089981' },
-                      { label: 'RSI24', data: rsiData.rsi24 ?? [], color: '#4a90d9' },
-                    ]}
-                  />
-                )}
-              </div>
-            )}
-          </Card>
-
-          {/* AI 分析报告 */}
-          <Card
-            size="small"
-            title="技术分析报告"
-            extra={
-              <Button
-                size="small"
-                icon={<ReloadOutlined />}
-                onClick={handleAnalyze}
-                loading={loadingAnalysis}
-              >
-                {loadingAnalysis ? '分析中...' : '刷新分析'}
-              </Button>
-            }
-          >
-            {analysisError && (
-              <Alert type="error" message={analysisError} style={{ marginBottom: 12 }} showIcon closable />
-            )}
-            {loadingAnalysis ? (
-              <div style={{ textAlign: 'center', padding: 40 }}>
-                <Spin tip="正在计算技术指标..." />
-              </div>
-            ) : analysisSections.length > 0 ? (
-              <Collapse
-                activeKey={activeKey}
-                onChange={(keys) => setActiveKey(keys)}
-                items={collapseItems}
-                size="small"
-              />
-            ) : (
-              <Empty description={'点击「刷新分析」获取技术指标报告'} />
-            )}
-          </Card>
+          <ResultLayer layer="method">
+            <Card size="small">
+              <Descriptions column={{ xs: 1, md: 3 }} size="small">
+                <Descriptions.Item label="标的">{currentTicker.toUpperCase()}</Descriptions.Item>
+                <Descriptions.Item label="样本">{klineData.length ? `${klineData.length} 个日线点` : '未知'}</Descriptions.Item>
+                <Descriptions.Item label="截止时间">{klineData[klineData.length - 1]?.day ?? '未知'}</Descriptions.Item>
+                <Descriptions.Item label="展示指标">{preferredIndicators.map((key) => key.toUpperCase()).join(' / ')}</Descriptions.Item>
+                <Descriptions.Item label="频率">日线</Descriptions.Item>
+                <Descriptions.Item label="数据提供方">当前响应未暴露</Descriptions.Item>
+              </Descriptions>
+              <Alert type="warning" showIcon message="行情与指标接口当前未返回 provider、复权或时区字段；这些信息保持未知，不以接口名称替代来源。" />
+            </Card>
+          </ResultLayer>
         </>
       )}
 

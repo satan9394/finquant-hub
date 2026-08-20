@@ -173,7 +173,7 @@ async def publish_research_status(
     """发布研究终态；通知故障不得反向破坏已完成的研究。"""
     try:
         report = await database.query_one(
-            "SELECT ticker, company_name FROM research_reports WHERE id=? AND user_id=?",
+            "SELECT ticker, company_name, scheduled_run_id FROM research_reports WHERE id=? AND user_id=?",
             (report_id, user_id),
         )
         if not report:
@@ -190,7 +190,10 @@ async def publish_research_status(
             severity="success" if completed else "error",
             source_type="research_report",
             source_id=report_id,
-            payload={"url": "/research/reports", "ticker": report["ticker"], "status": status},
+            payload={
+                "url": "/research/reports", "ticker": report["ticker"], "status": status,
+                "scheduled_run_id": report.get("scheduled_run_id"),
+            },
             dedupe_key=f"research:{report_id}:{status}",
             user_id=user_id,
         )
