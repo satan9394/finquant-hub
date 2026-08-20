@@ -81,6 +81,27 @@ async def test_google_news_retries_transient_status_once():
 
 
 @pytest.mark.asyncio
+async def test_eastmoney_rolling_news_parses_public_items_without_snippet():
+    html = """<ul id="artList"><li><span>2026-08-21 02:20</span>[<a href="/finance">财经</a>]<a href="/news/1.html" title="市场最新动态">市场最新动态</a></li>
+    <li><span>2026-08-21 02:19</span>[<a href="/finance">财经</a>]<a href="https://eastmoney.example/news/2" title="第二条">第二条</a></li></ul>"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://roll.eastmoney.com/"
+        return httpx.Response(200, text=html)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        service = NewsSearchService(http, providers=("eastmoney",))
+        result = await service.search("中国 A股 港股 美股 财经", max_results=1)
+
+    assert result["providers_attempted"] == ["eastmoney"]
+    assert result["providers_used"] == ["eastmoney"]
+    assert result["news"] == [{
+        "title": "市场最新动态", "source": "东方财富", "published_at": "2026-08-21 02:20",
+        "url": "https://roll.eastmoney.com/news/1.html", "provider": "eastmoney", "category": "财经",
+    }]
+
+
+@pytest.mark.asyncio
 async def test_fallback_records_failure_then_uses_next_provider(monkeypatch):
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "secret")
 

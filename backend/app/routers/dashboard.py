@@ -3,7 +3,8 @@ import json
 import os
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from .. import config, database
 from ..services.import_service import (
@@ -15,14 +16,61 @@ from ..services.import_service import (
 )
 from ..services.decision_inbox import build_decision_inbox
 from ..services.market_data import MarketDataService
+from ..services.news_search import NewsSearchService
+from ..services.credential_store import get_credentials
 from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], dependencies=[Depends(authenticated_context)])
+
+DEFAULT_NEWS_KEYWORD = "中国 A股 港股 美股 财经"
+NEWS_PROVIDERS = ("eastmoney", "google_news", "sina")
 
 
 @router.get("/decision-inbox")
 async def decision_inbox(user: CurrentUser) -> dict[str, Any]:
     return await build_decision_inbox(int(user["id"]))
+
+
+@router.get("/news")
+async def dashboard_news(
+    user: CurrentUser,
+    keyword: str = Query(default=DEFAULT_NEWS_KEYWORD, min_length=1, max_length=120),
+    max_results: int = Query(default=6, ge=1, le=6),
+) -> dict[str, Any]:
+    """Return normalized, provenance-preserving latest finance news."""
+    queried_at = datetime.now(timezone.utc).isoformat()
+    result: dict[str, Any] = {
+        "keyword": keyword,
+        "queried_at": queried_at,
+        "as_of": queried_at,
+        "providers_attempted": [],
+        "providers_used": [],
+        "errors": {},
+        "data_status": "UNKNOWN",
+        "news": [],
+    }
+    credentials = await get_credentials(int(user["id"]), NEWS_PROVIDERS)
+    service = NewsSearchService(providers=NEWS_PROVIDERS, credentials=credentials)
+    try:
+        searched = await service.search(keyword, max_results=max_results, strategy="fallback")
+        result["providers_attempted"] = searched.get("providers_attempted", [])
+        result["providers_used"] = searched.get("providers_used", [])
+        result["errors"] = searched.get("errors", {})
+        result["news"] = searched.get("news", [])[:max_results]
+        if result["news"] and result["errors"]:
+            result["data_status"] = "PARTIAL"
+        elif result["news"]:
+            result["data_status"] = "OK"
+        elif result["errors"]:
+            result["data_status"] = "UPSTREAM_ERROR"
+    except ValueError as exc:
+        result["errors"] = {"service": type(exc).__name__}
+    except Exception as exc:  # upstream adapters are intentionally isolated
+        result["errors"] = {"service": type(exc).__name__}
+        result["data_status"] = "UPSTREAM_ERROR"
+    finally:
+        await service.aclose()
+    return result
 
 
 @router.post("/watchlist/import")

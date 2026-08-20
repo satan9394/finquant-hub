@@ -12,6 +12,7 @@ import ResearchCharts from '../components/research/ResearchCharts';
 import SwarmStatusCard from '../components/SwarmStatusCard';
 import TaskPageHeader from '../components/TaskPageHeader';
 import ResultLayer from '../components/ResultLayer';
+import EvidenceChip from '../components/EvidenceChip';
 import ResearchContinuity from '../components/research/ResearchContinuity';
 import ResearchTimeline from '../components/research/ResearchTimeline';
 import ResearchIntentPicker from '../components/research/ResearchIntentPicker';
@@ -318,7 +319,8 @@ export default function ResearchWorkspace() {
           </Card>
         )}
 
-        <Card title="已保存研究" className="surface-card" style={{ marginTop: 18 }} data-testid="saved-research-list">
+        <div className="research-landing-grid">
+        <Card title="最近研究" className="surface-card" style={{ marginTop: 18 }} data-testid="saved-research-list">
           {savedWorkspaces.length ? (
             <List
               dataSource={savedWorkspaces}
@@ -333,7 +335,14 @@ export default function ResearchWorkspace() {
             />
           ) : <Empty description="暂无保存记录；同一标的会合并为一条持续更新的研究工作区" />}
         </Card>
-        <ResearchTimeline entries={timelineEntries} errors={homeTimelineErrors} loading={homeTimelineLoading} />
+        <Card title="最新报告" className="surface-card" style={{ marginTop: 18 }} data-testid="latest-research-reports">
+          {homeHistory.length ? <List size="small" dataSource={homeHistory.slice(0, 5)} renderItem={(item) => <List.Item actions={[<Button key="open" type="link" onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(item.ticker)}`)}>查看</Button>]}><List.Item.Meta title={<Space><Text strong>{item.company_name ?? item.ticker}</Text><Tag>{item.ticker}</Tag></Space>} description={`报告 ${item.completed_count}/${item.run_count} 完成 · 最近更新 ${item.latest_at}`} /></List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无最新报告" />}
+        </Card>
+        </div>
+        <Collapse
+          className="research-timeline-disclosure"
+          items={[{ key: 'activity', label: '完整研究活动与待办（按需展开）', children: <ResearchTimeline entries={timelineEntries} errors={homeTimelineErrors} loading={homeTimelineLoading} /> }]}
+        />
         <Button type="link" icon={<FileSearchOutlined />} onClick={() => navigate('/research/reports')} style={{ marginTop: 12 }}>
           运行多视角深度研究或查看历史版本
         </Button>
@@ -403,7 +412,7 @@ export default function ResearchWorkspace() {
                 <Text className="eyebrow">{snapshot.instrument.market} · {snapshot.instrument.exchange}</Text>
                 <Title level={2}>{snapshot.instrument.name} <Text type="secondary">{snapshot.instrument.symbol}</Text></Title>
                 <Space wrap>
-                  <Tag color="blue">FACT</Tag>
+                  <EvidenceChip evidence={{ kind: 'FACT', quality: 'OK', title: `${snapshot.instrument.name} 行情快照`, detail: '该标的快照来自当前可用行情提供方；请结合截至时间阅读。', source: snapshot.provider, asOf: snapshot.as_of }} />
                   <Text type="secondary">{snapshot.provider}</Text>
                   <Text type="secondary">截止 {snapshot.as_of ?? '未知'}</Text>
                   <Text type="secondary">{snapshot.timezone}</Text>

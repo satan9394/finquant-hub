@@ -25,6 +25,11 @@ async function mockDashboardApi(page: Page) {
         items: [],
         total: 0,
       },
+      '/api/dashboard/news': {
+        keyword: '中国 A股 港股 美股 财经', queried_at: '2026-08-08T10:30:00Z', as_of: '2026-08-08T10:30:00Z',
+        providers_attempted: ['google_news'], providers_used: ['google_news'], errors: {}, data_status: 'OK',
+        news: [{ title: '财经市场简报', source: '公开来源', published_at: '2026-08-08', url: 'https://example.test/news', snippet: '市场摘要', provider: 'google_news' }],
+      },
       '/api/portfolio': {
         items: [
           { id: 1, name: '核心组合' },
@@ -119,7 +124,7 @@ async function mockDashboardApi(page: Page) {
   });
 }
 
-test('dashboard renders KPI cards from API data', async ({ page }) => {
+test('dashboard renders an evidence-first workbench from API data', async ({ page }) => {
   const browserErrors: string[] = [];
   const requestedPaths: string[] = [];
   page.on('request', (request) => requestedPaths.push(new URL(request.url()).pathname));
@@ -135,7 +140,7 @@ test('dashboard renders KPI cards from API data', async ({ page }) => {
   await mockDashboardApi(page);
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: '系统总览' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
   const launchpad = page.locator('.task-launchpad');
   await expect(launchpad.getByRole('heading', { name: '今天想完成什么？' })).toBeVisible();
   await expect(launchpad.getByRole('button', { name: '分析股票' })).toBeVisible();
@@ -150,47 +155,17 @@ test('dashboard renders KPI cards from API data', async ({ page }) => {
   await expect(launchpad.getByText('建议先试用 600519')).toHaveCount(0);
   await launchpad.getByRole('button', { name: '显示提示' }).click();
   await expect(launchpad.getByText('建议先试用 600519')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '大屏概览' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'A 股多维市场雷达' })).toBeVisible();
-  await expect(page.getByText('寒武纪')).toBeVisible();
-  await expect(page.getByText('+12.36%')).toBeVisible();
-  await page.getByRole('tab', { name: '主题分类' }).click();
-  await expect(page.getByText('496 行业 + 504 概念')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实市场简报' })).toBeVisible();
+  await expect(page.getByText('2026-08-08T10:30:00+08:00')).toBeVisible();
+  await expect(page.getByText('eastmoney')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '最新财经消息' })).toBeVisible();
+  await expect(page.getByText('财经市场简报')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '大屏概览' })).toHaveCount(0);
+  await expect(page.locator('.big-screen-overview')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'A 股多维市场雷达' })).toHaveCount(0);
   await expect(page.locator('.vite-error-overlay')).toHaveCount(0);
   await expect(page.locator('body')).not.toHaveText('');
-
-  const overview = page.locator('.big-screen-overview');
-  const overviewKpis = [
-    ['组合市值', '¥3,500.00'],
-    ['累计收益', '+¥500.00'],
-    ['组合数量', '2'],
-    ['市场信号', '—'],
-  ];
-  for (const [label, value] of overviewKpis) {
-    const card = overview.locator('.big-screen-metric').filter({ hasText: label });
-    await expect(card).toBeVisible();
-    await expect(card.locator('.big-screen-metric__value')).toHaveText(value);
-  }
-  await expect(overview.getByText('跨标的聚合 UNKNOWN')).toBeVisible();
-  await expect(page.getByLabel('市场信号可用性')).toContainText('暂无可审计的跨标的信号汇总');
   expect(requestedPaths).not.toContain('/api/signals/summary');
-
-  const systemKpis = [
-    ['模型总数', '2'],
-    ['会话数', '3'],
-    ['讨论数', '4'],
-    ['消息数', '5'],
-  ];
-  for (const [label, value] of systemKpis) {
-    const statistic = page.locator('.ant-statistic').filter({ hasText: label });
-    await expect(statistic).toBeVisible();
-    await expect(statistic.locator('.ant-statistic-content-value')).toHaveText(value);
-  }
-
-  await expect(page.getByRole('button', { name: '查看投资组合' })).toBeVisible();
-  const launchpadBox = await launchpad.boundingBox();
-  const overviewBox = await overview.boundingBox();
-  expect(launchpadBox?.y).toBeLessThan(overviewBox?.y ?? 0);
   expect(browserErrors).toEqual([]);
 });
 

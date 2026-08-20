@@ -11,7 +11,9 @@
 | /api/chat | chat.py | MVP |
 | /api/discussion | discussion.py | MVP |
 | /api/market | market.py | MVP + Phase 9.2（市场级快照、复盘历史、源健康/优先级与批量预取） |
-| /api/dashboard | dashboard.py | MVP + TASK-017 导入 + AIOS-040 owner-scoped Decision Inbox |
+| /api/dashboard | dashboard.py | MVP + TASK-017 导入 + AIOS-040 owner-scoped Decision Inbox + Workbench latest news |
+
+Dashboard endpoint additions: `GET /api/dashboard/news`（综合财经搜索，返回来源、时间、错误与 `data_status`，默认最多 6 条）。
 | /api/analysis | analysis.py | MVP |
 | /api/portfolio | portfolio.py | MVP + AIOS-053 独立 Paper 账本/UNKNOWN FX 估值 + AIOS-054 owner-scoped hypothesis 模拟复盘与非因果 review outcome |
 | /api/backtest | backtest.py | MVP (v1 sync) |

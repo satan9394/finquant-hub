@@ -8,14 +8,16 @@ import {
   Alert, Card, Collapse, Col, Descriptions, Empty, Input, List, Popconfirm, Row, Space, Spin, Tag, Typography, Button, message,
 } from 'antd';
 import {
-  PlayCircleOutlined, ReloadOutlined, CheckCircleOutlined,
-  LoadingOutlined, CloseCircleOutlined, RobotOutlined, DownloadOutlined, FileTextOutlined,
+  PlayCircleOutlined, ReloadOutlined, DownloadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
 import apiClient from '../services/api';
 import { readSSE } from '../services/sse';
 import { useModelStore } from '../store/modelStore';
 import ResultLayer from '../components/ResultLayer';
+import AgentStatusCard from '../components/AgentStatusCard';
+import ResearchArtifact from '../components/ResearchArtifact';
+import type { EvidenceRecord } from '../components/EvidenceDrawer';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -117,35 +119,6 @@ function splitReportLayers(content: string): { summary: string; evidence: string
     summary: selectedSummary.join('\n\n'),
     evidence: blocks.filter((block) => !selectedSummary.includes(block)).join('\n\n'),
   };
-}
-
-// ==================== Agent 进度卡片 ====================
-function AgentCard({ agent, status, progress }: { agent: string; status: AgentStatus; progress?: string }) {
-  const info = AGENT_LABELS[agent] ?? { name: agent, role: '', icon: '🤖' };
-  const statusIcon = status === 'completed' ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
-    : status === 'running' ? <LoadingOutlined style={{ color: '#1890ff' }} />
-    : status === 'failed' ? <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-    : <RobotOutlined style={{ color: '#d9d9d9' }} />;
-
-  return (
-    <Card size="small" style={{
-      borderLeft: `3px solid ${
-        status === 'completed' ? '#52c41a' : status === 'running' ? '#1890ff' : status === 'failed' ? '#ff4d4f' : '#d9d9d9'
-      }`,
-      opacity: status === 'pending' ? 0.5 : 1,
-      transition: 'all 0.3s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 24 }}>{info.icon}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{info.name}</div>
-          <div style={{ fontSize: 12, color: '#888' }}>{info.role}</div>
-          {progress && <div style={{ fontSize: 11, color: '#1890ff', marginTop: 4 }}>{progress}</div>}
-        </div>
-        <div>{statusIcon}</div>
-      </div>
-    </Card>
-  );
 }
 
 // ==================== 页面组件 ====================
@@ -392,13 +365,11 @@ export default function Research() {
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {AGENT_KEYS.map((key, i) => {
           const agent = agents[i];
+          const info = AGENT_LABELS[key];
+          const status = agent?.status === 'running' ? 'running' : agent?.status === 'completed' ? 'completed' : agent?.status === 'failed' ? 'failed' : 'waiting';
           return (
             <Col xs={12} sm={6} key={key}>
-              <AgentCard
-                agent={key}
-                status={agent?.status ?? 'pending'}
-                progress={agent?.progress}
-              />
+              <AgentStatusCard name={info?.name ?? key} role={info?.role} avatar={info?.icon} status={status} stage={agent?.progress} />
             </Col>
           );
         })}
@@ -430,13 +401,15 @@ export default function Research() {
               </Space>
             ) : undefined}
           >
-            <Card
-              size="small"
-              title={<Space wrap><RobotOutlined /><span>{reportTitle || '研究报告中...'}</span><Tag color="purple">MODEL_OUTPUT</Tag>{done ? <Tag color="green">已完成</Tag> : running ? <Tag color="processing">生成中</Tag> : null}</Space>}
-              style={{ borderTop: `3px solid ${done ? '#52c41a' : running ? '#1890ff' : '#d9d9d9'}` }}
+            <ResearchArtifact
+              type="Research Report"
+              state={done ? 'ready' : running ? 'streaming' : 'draft'}
+              title={reportTitle || '研究报告中...'}
+              summary="模型整理的研究摘要；请沿证据和方法继续核验，不把模型输出当作事实。"
+              evidence={[{ kind: 'MODEL_OUTPUT', quality: done ? 'PARTIAL' : 'UNKNOWN', title: reportTitle || '研究报告', detail: '报告由多角色研究流生成；来源与质量应按正文逐条核验。', source: null, asOf: null } satisfies EvidenceRecord]}
             >
               {reportLayers.summary ? <MarkdownContent content={reportLayers.summary} /> : <div style={{ textAlign: 'center', padding: 40 }}><Spin /><div style={{ marginTop: 12 }}>等待智能体返回摘要...</div></div>}
-            </Card>
+            </ResearchArtifact>
           </ResultLayer>
 
           <ResultLayer layer="evidence" title="报告证据与分析正文">

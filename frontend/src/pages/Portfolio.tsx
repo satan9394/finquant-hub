@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import TaskPageHeader from '../components/TaskPageHeader';
 import PortfolioRiskWorkbench from '../components/portfolio/PortfolioRiskWorkbench';
+import FinancialMetric from '../components/FinancialMetric';
 
 const { Text } = Typography;
 
@@ -768,13 +769,13 @@ export default function Portfolio() {
         {summaryCards.map((card) => (
           <Col xs={12} sm={6} key={card.title}>
             <Card className="portfolio-summary-card" size="small" hoverable>
-              <Statistic
-                title={card.title}
-                value={card.value}
-                precision={card.precision}
-                prefix={<span style={{ color: card.color }}>{card.prefix}</span>}
-                suffix={card.suffix}
-                valueStyle={{ color: card.color, fontFamily: 'monospace' }}
+              <FinancialMetric
+                label={card.title}
+                value={`${card.prefix || ''}${typeof card.value === 'number' ? card.value.toFixed(card.precision) : card.value}`}
+                unit={card.suffix}
+                period="当前组合"
+                quality="OK"
+                tone={card.title === '总盈亏' || card.title === '收益率' ? (Number(card.value) >= 0 ? 'up' : 'down') : 'neutral'}
               />
             </Card>
           </Col>

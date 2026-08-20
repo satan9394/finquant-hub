@@ -22,7 +22,7 @@ import apiClient from './services/api';
 import { useModelStore } from './store/modelStore';
 import ModelSelector from './components/ModelSelector';
 import NotificationCenter from './components/NotificationCenter';
-import GlobalTaskEntry from './components/GlobalTaskEntry';
+import CommandBar from './components/CommandBar';
 import { useAuthStore } from './store/authStore';
 import {
   PROFESSIONAL_PREFERENCES_EVENT,
@@ -55,7 +55,7 @@ export const navigationGroups = [
     name: '今日',
     icon: <DashboardOutlined />,
     children: [
-      { key: '/', path: '/', name: '今日概览' },
+      { key: '/', path: '/', name: '工作台' },
     ],
   },
   {
@@ -146,6 +146,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
 
   const menuKey = getMenuKey(location.pathname);
   const systemTool = isSystemToolPath(location.pathname);
+  const commandContext = location.pathname.startsWith('/portfolio') ? '组合' : location.pathname.startsWith('/strategy-lab') ? '策略实验' : location.pathname.startsWith('/analysis') ? '个股研究' : undefined;
 
   return (
     <ProLayout
@@ -154,7 +155,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       layout="side"
       navTheme={isDark ? 'realDark' : 'light'}
       contentStyle={{ background: isDark ? '#141414' : '#f3f6fa', minHeight: 'calc(100vh - 48px)' }}
-      headerContentRender={() => <GlobalTaskEntry onNavigate={navigate} />}
+      headerContentRender={() => <CommandBar onNavigate={navigate} context={commandContext} />}
       actionsRender={() => [
         <div className="sider-actions" key="sider-actions">
           <div className="model-dock">
@@ -209,7 +210,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       onCollapse={setCollapsed}
     >
       <header className="global-task-bar">
-        <GlobalTaskEntry onNavigate={navigate} />
+        <CommandBar onNavigate={navigate} context={commandContext} />
       </header>
       {systemTool && (
         <section className="system-tool-boundary" aria-label="系统工具边界">

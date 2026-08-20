@@ -1,6 +1,8 @@
 {
   "skills": {
-    "active": ["build"]
+    "active": [
+      "build"
+    ]
   },
   "hooks": {
     "PostToolUse": [
@@ -13,6 +15,15 @@
             "timeout": 30000
           }
         ]
+      },
+      {
+        "matcher": "Bash(git push*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/record-error.py --rule R01 --from-stdin --dedup-window 300"
+          }
+        ]
       }
     ],
     "PreCommit": [
@@ -23,6 +34,16 @@
             "command": "& 'E:\\Code_file\\Projects\\finquant-hub\\.claude\\hooks\\pre-commit.ps1'",
             "shell": "powershell",
             "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/handoff-log.py --from-transcript \"%s\""
           }
         ]
       }

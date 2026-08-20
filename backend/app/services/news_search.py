@@ -8,12 +8,14 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urljoin
 
 import httpx
 
 from .. import config
 
 _PROVIDERS = ("tavily", "serpapi", "bocha", "brave", "searxng", "google_news", "sina")
+_ALLOWED_PROVIDERS = _PROVIDERS + ("eastmoney",)
 _TIMEOUT = httpx.Timeout(12.0, connect=5.0)
 NewsItem = dict[str, Any]
 
@@ -36,7 +38,7 @@ class NewsSearchService:
             for item in os.getenv("NEWS_SEARCH_PROVIDERS", ",".join(_PROVIDERS)).split(",")
             if item.strip()
         )
-        unknown = set(configured) - set(_PROVIDERS)
+        unknown = set(configured) - set(_ALLOWED_PROVIDERS)
         if unknown:
             raise ValueError(f"未知新闻源：{', '.join(sorted(unknown))}")
         self.providers = configured
@@ -139,6 +141,7 @@ class NewsSearchService:
             "searxng": self._searxng,
             "google_news": self._google_news,
             "sina": self._sina,
+            "eastmoney": self._eastmoney,
         }
         return await handlers[provider](keyword, limit)
 
@@ -232,6 +235,37 @@ class NewsSearchService:
         items = payload.get("result", []) if isinstance(payload, dict) else payload
         return self._normalize("sina", items if isinstance(items, list) else [])
 
+    async def _eastmoney(self, keyword: str, limit: int) -> list[NewsItem]:
+        """Read the public Eastmoney rolling news list without injecting a query."""
+        response = await self.http.get(
+            "https://roll.eastmoney.com/",
+            headers={"User-Agent": "FinQuantHub/1.0"},
+        )
+        response.raise_for_status()
+        items: list[NewsItem] = []
+        for block in re.findall(r"<li\b[^>]*>(.*?)</li>", response.text, flags=re.IGNORECASE | re.DOTALL):
+            date_match = re.search(r"<span\b[^>]*>(.*?)</span>", block, flags=re.IGNORECASE | re.DOTALL)
+            anchors = re.findall(r"<a\b([^>]*)>(.*?)</a>", block, flags=re.IGNORECASE | re.DOTALL)
+            if len(anchors) < 2:
+                continue
+            category = _text(anchors[0][1])
+            attributes, anchor_text = anchors[-1]
+            href_match = re.search(r"\bhref\s*=\s*['\"]([^'\"]+)['\"]", attributes, flags=re.IGNORECASE)
+            title_match = re.search(r"\btitle\s*=\s*['\"]([^'\"]+)['\"]", attributes, flags=re.IGNORECASE)
+            title = _text(title_match.group(1) if title_match else anchor_text)
+            href = urljoin("https://roll.eastmoney.com/", href_match.group(1)) if href_match else ""
+            if title and href:
+                items.append({
+                    "title": title,
+                    "source": "东方财富",
+                    "published_at": _text(date_match.group(1)) if date_match else "",
+                    "url": href,
+                    "category": category,
+                })
+            if len(items) >= limit:
+                break
+        return self._normalize("eastmoney", items)
+
     @staticmethod
     def _normalize(provider: str, items: list[NewsItem]) -> list[NewsItem]:
         normalized: list[NewsItem] = []
@@ -239,12 +273,18 @@ class NewsSearchService:
             title = _text(item.get("title") or item.get("name"))
             if not title:
                 continue
-            normalized.append({
+            normalized_item: NewsItem = {
                 "title": title,
                 "source": _text(item.get("source") or item.get("profile") or provider),
                 "published_at": _text(item.get("published_at") or item.get("date") or item.get("ctime") or item.get("age")),
                 "url": str(item.get("url") or item.get("link") or "").strip(),
-                "snippet": _text(item.get("content") or item.get("snippet") or item.get("description") or item.get("summary")),
                 "provider": provider,
-            })
+            }
+            snippet = _text(item.get("content") or item.get("snippet") or item.get("description") or item.get("summary"))
+            if snippet:
+                normalized_item["snippet"] = snippet
+            category = _text(item.get("category"))
+            if category:
+                normalized_item["category"] = category
+            normalized.append(normalized_item)
         return normalized

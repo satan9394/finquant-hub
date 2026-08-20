@@ -168,6 +168,7 @@
 |------|------|------|------|
 | `/api/dashboard/stats` | GET | 聚合统计（模型数、会话数、讨论数、消息数等） | MVP |
 | `/api/dashboard/decision-inbox` | GET | owner-scoped 只读决策收件箱；返回 why-now、对象、canonical evidence/质量和下一步 | AIOS-040 |
+| `/api/dashboard/news` | GET | 综合财经最新消息；返回 normalized news、查询时间、providers、errors 与 `data_status`（OK/PARTIAL/UPSTREAM_ERROR/UNKNOWN） | Workbench |
 | `/api/dashboard/watchlist/import` | POST | multipart 导入 CSV/TXT/XLSX 或剪贴板文本；返回成功/失败/重复统计 | TASK-017 |
 
 ---

@@ -2,6 +2,7 @@ import { Alert, Card, Col, Collapse, List, Row, Space, Statistic, Tag, Typograph
 
 import { interpretBacktest, rankBacktestWarnings } from '../../features/backtest/interpretation';
 import type { BacktestRun } from '../../types/research';
+import FinancialMetric from '../FinancialMetric';
 
 const { Text } = Typography;
 const pct = (value: number | null | undefined) => value == null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
@@ -60,7 +61,15 @@ export default function BacktestSummary({ run }: { run: BacktestRun }) {
           ['交易数', String(run.metrics.trade_count), 'metric-trade-count'],
         ].map(([label, value, testId]) => (
           <Col xs={12} sm={8} lg={6} xl={4} key={label}>
-            <Card size="small" className="metric-card" data-testid={testId}><Statistic title={label} value={value} /></Card>
+            <Card size="small" className="metric-card" data-testid={testId}>
+              <FinancialMetric
+                label={label}
+                value={value}
+                period="回测区间"
+                quality="OK"
+                tone={label === '最大回撤' ? 'risk' : label === '总收益' || label === '超额收益' ? (String(value).startsWith('+') ? 'up' : 'down') : 'neutral'}
+              />
+            </Card>
           </Col>
         ))}
       </Row>

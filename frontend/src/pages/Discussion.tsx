@@ -11,6 +11,7 @@ import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import DiscussionTimeline from '../components/DiscussionTimeline';
+import InvestmentCommittee from '../components/InvestmentCommittee';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
 
@@ -234,11 +235,14 @@ export default function Discussion() {
 
       {/* 内容区 */}
       <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 16 }}>
-        {loadingDetail ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
-        ) : !currentRoomId ? (
+        {!currentRoomId ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
             <Title level={4} type="secondary">请选择或创建一个讨论房间</Title>
+          </div>
+        ) : loadingDetail || !roomDetail ? (
+          <div role="status" aria-live="polite" style={{ textAlign: 'center', padding: 40 }}>
+            <Spin />
+            <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>正在加载讨论详情…</Text>
           </div>
         ) : (
           <>
@@ -263,6 +267,18 @@ export default function Discussion() {
               room={roomDetail}
               messages={currentMessages}
               currentAgent={isStreaming ? 'current' : undefined}
+            />
+            <InvestmentCommittee
+              topic={roomDetail.topic}
+              phase={roomDetail.current_phase === 'done' ? 'completed' : roomDetail.current_phase === 'failed' ? 'partial' : isStreaming ? 'in-session' : 'awaiting-confirmation'}
+              members={roomDetail.participants.map((participant) => ({
+                key: participant.role_key,
+                name: participant.name,
+                role: participant.role_key,
+                avatar: participant.avatar,
+                status: isStreaming ? 'running' : roomDetail.current_phase === 'done' ? 'completed' : 'waiting',
+                summary: currentMessages.slice().reverse().find((message) => message.agent_name === participant.name)?.content,
+              }))}
             />
           </>
         )}

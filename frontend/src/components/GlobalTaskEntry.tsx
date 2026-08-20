@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Empty, Input, List, Modal, Space, Tag, Typography, message } from 'antd';
 import {
   BellOutlined, ExperimentOutlined, FileTextOutlined, FundOutlined, MessageOutlined,
@@ -28,6 +28,7 @@ const targetActions: Array<{ action: GlobalTaskAction; label: string; icon: Reac
 ];
 
 export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -43,6 +44,17 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
       .then((items) => setSaved(items.slice(0, 5).map((item) => ({ code: item.symbol, name: item.name ?? item.symbol }))))
       .catch(() => setSaved([]));
   };
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        triggerRef.current?.click();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
 
   const runSearch = async () => {
     const value = query.trim();
@@ -96,12 +108,14 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
   return (
     <>
       <Button
+        ref={triggerRef}
         className="global-task-entry-trigger"
         icon={<SearchOutlined />}
         aria-label="打开全局标的与任务入口"
         onClick={show}
       >
         <span className="global-task-entry-trigger__label">搜索标的、问题或任务</span>
+        <span className="global-task-entry-trigger__shortcut" aria-hidden="true">⌘K</span>
       </Button>
       <Modal
         title="全局标的与任务入口"
