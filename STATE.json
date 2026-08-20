@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "project": "finquant-hub",
+  "born": "2026-07-24",
+  "meta": {
+    "total_incidents": 0,
+    "rules_added": 0,
+    "rules_removed": 0,
+    "last_rework_rate_30d": null,
+    "profile": {
+      "mode": "single",
+      "modifiers": ["local-first", "a-share", "chinese-ui", "fastapi-react"],
+      "default_components": ["backend", "frontend", "docs"],
+      "changed": false
+    }
+  },
+  "rules": [],
+  "archived": []
+}

@@ -21,3 +21,25 @@ cd backend && .venv\Scripts\python.exe -m pytest -q
 cd backend && .venv\Scripts\python.exe -m ruff check .
 cd frontend && bun run build
 ```
+
+## 项目 Harness 指针（工作前必读）
+
+本项目嵌入了 harness-engineering（v4.11.0）。开始工作前，先读下列文件了解项目治理信息：
+
+- `.harness/manifest.json` → 嵌入清单（装了什么组件、验证结果）
+- `STATE.json` → 规则与事故记忆（同错 ≥2 次 / 返工率 ≥50% 的信号源）
+- `HANDOFF.md` → 当前目标 / 完成标准 / 验证命令 / 未决问题（跨会话接续权威）
+- `notes/` → 决策记录（Agent Notes 四态：为什么这么做、放弃了什么）
+- `docs/ARCHITECTURE.md` → 架构地图（模块职责 / 架构不变量 / 依赖层级）
+
+读取优先级：`HANDOFF.md` 与 `.harness/manifest.json` 最先读，`STATE.json` 与 `notes/` 按需读。
+文件不存在说明该组件未嵌入（未跑 `bootstrap.py --init`），跳过即可。
+
+**harness 常用命令**：
+```bash
+python scripts/audit.py .                                        # 审计 harness 健康
+python scripts/note-lifecycle.py new --class architecture --title "..."   # 记决策提案
+python scripts/note-lifecycle.py verify                          # 决策门禁检查
+python scripts/record-error.py --init                            # 初始化事故记忆
+python scripts/handoff-log.py --append "做了什么" --verify "结果" # 收尾追加变更日志
+```

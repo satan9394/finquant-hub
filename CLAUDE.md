@@ -27,7 +27,7 @@ cd backend && .venv\Scripts\python.exe -m ruff check .
 
 ## Architecture
 
-FastAPI lifespan → aiosqlite WAL single connection → 20 routers (see `docs/ROUTER_MAP.md`) → Vite proxy → React 18 + AntD 5 + lightweight-charts. 6 SSE pipelines, 13 local Agent tools (DeepSeek function_calling), configurable market/news/fundamental source chains (`docs/DATA_SOURCES.md`). Full detail at `docs/ARCHITECTURE.md`.
+FastAPI lifespan → aiosqlite WAL single connection → 23 APIRouter (see `docs/ROUTER_MAP.md`) → Vite proxy → React 18 + AntD 5 + lightweight-charts. 6 SSE pipelines, 13 local Agent tools (DeepSeek function_calling), configurable market/news/fundamental source chains (`docs/DATA_SOURCES.md`). Design System v1.0（`--fq-*` CSS 变量 + 8 个 AI-native 共享组件）。Full detail at `docs/ARCHITECTURE.md`.
 
 ### Architecture invariants (violations cause regression)
 
@@ -55,7 +55,7 @@ Pure-logic services have zero I/O dependencies — unit-testable without mocking
 
 | File | What |
 |------|------|
-| database.py | Centralized 28-table initialization, schema version 7, query helpers |
+| database.py | Centralized 52-table initialization, schema version 23, query helpers |
 | market_data.py | Tencent/Sina/EastMoney/Yahoo adapter + configurable fallback, circuit breaker, completion/prefetch |
 | backtest/engine.py | Legacy close-only vectorized backtest, 3 strategies |
 | backtest/ma_crossover.py | v2 next-open backtest with A-share execution rules and validation |
@@ -65,9 +65,9 @@ Pure-logic services have zero I/O dependencies — unit-testable without mocking
 | tools_definitions.py | 9 local BaseTool subtypes + ToolRegistry singleton |
 | alpha_service.py | WQ alpha field search (4367 fields) |
 | docs/ARCHITECTURE.md | Full architecture doc (start here) |
-| docs/API_CONTRACT.md | 114-endpoint API catalog (update on endpoint change) |
+| docs/API_CONTRACT.md | 134-endpoint API catalog (update on endpoint change) |
 | docs/HANDOVER.md | Gap analysis, fix priorities |
-| docs/ROUTER_MAP.md | All 20 routers |
+| docs/ROUTER_MAP.md | All 23 routers |
 | docs/DATA_SOURCES.md | Data source matrix |
 
 ## Known technical debt (short term)
