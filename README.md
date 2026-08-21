@@ -59,7 +59,7 @@ bash ./scripts/local.sh down
 ## 架构速览
 
 ```
-浏览器层     React 18 + AntD 5 + ECharts + lightweight-charts
+浏览器层     React 18 + AntD 5 + ProLayout + lightweight-charts
 代理层       Vite dev proxy (5173 → 8000) / Nginx (prod)
 路由层       23 APIRouter → 133 个 /api/* 路径 / 168 个 HTTP 操作
 服务层       3 层：编排器 → I/O 服务 → 纯逻辑服务
@@ -68,7 +68,7 @@ Agent 层     13 个本地工具 (ToolRegistry) + function_calling 循环
 外部 API     腾讯 / 新浪 / 东方财富 / Yahoo Finance / DeepSeek
 ```
 
-详细架构文档见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+详细技术栈见 [docs/TECH_STACK.md](docs/TECH_STACK.md)，架构细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## API 端点目录
 
@@ -107,16 +107,16 @@ cd frontend && bun run build
 
 ## 架构不变量（违反即回退）
 
+完整清单见 [docs/TECH_STACK.md](docs/TECH_STACK.md)。核心约束：
+
 - **无 ORM** — 全部 aiosqlite 原生 SQL
 - **无连接池** — 单连接，`get_db()` 断言全局 `_db`
 - **无独立 DAL** — 路由直调 `database.query_one/query_all/execute`
-- **无 WebSocket** — 全部实时通信走 SSE（sse-starlette，4 个端点）
+- **无 WebSocket** — 全部实时通信走 SSE（sse-starlette）
 - **双运行模式** — 生产模式使用邮箱验证码/session；显式本地模式使用单一内部所有者且禁止在 production 启用
 - **无服务端渲染** — 纯 CSR
 - **无 Agent 间通信** — 4 个研究 agent 各自独立
 - **无 DI 容器** — MarketDataService 通过 `request.app.state.market` 手动注入
-
-完整清单见 CLAUDE.md → Architecture invariants 章节。
 
 ## 免责
 

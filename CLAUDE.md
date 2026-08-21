@@ -62,9 +62,10 @@ Pure-logic services have zero I/O dependencies — unit-testable without mocking
 | research_orch.py | 4-agent parallel research → team-lead → unified 13-chapter report |
 | llm_client.py | OpenAI-compatible client, 5 chat methods |
 | indicators.py | 7 numpy indicators (A-share SMA conventions, through MA250/VolMA10) |
-| tools_definitions.py | 9 local BaseTool subtypes + ToolRegistry singleton |
+| tools_definitions.py | 13 local BaseTool subtypes + ToolRegistry singleton |
 | alpha_service.py | WQ alpha field search (4367 fields) |
 | docs/ARCHITECTURE.md | Full architecture doc (start here) |
+| docs/TECH_STACK.md | Tech stack authority (唯一权威来源) |
 | docs/API_CONTRACT.md | 134-endpoint API catalog (update on endpoint change) |
 | docs/HANDOVER.md | Gap analysis, fix priorities |
 | docs/ROUTER_MAP.md | All 23 routers |
