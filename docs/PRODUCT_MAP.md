@@ -37,26 +37,26 @@
 
 ### 2.2 所有页面清单（18 个路由）
 
-| # | 页面 | URL | 分组 | 类型 |
-|---|------|-----|------|------|
-| 1 | 今日概览 | `/` | 今日 | 信息聚合 |
-| 2 | 研究工作区 | `/research` | 研究 | 核心工作台 |
-| 3 | 深度研究 | `/research/reports` | 研究 | 报告列表 |
-| 4 | 比较工作区 | `/compare` | 研究 | 对比分析 |
-| 5 | 快速问答 | `/chat` | 研究 | AI 对话 |
-| 6 | 多视角审查 | `/discussion` | 研究 | 多 Agent 讨论 |
-| 7 | 投资论文 | `/thesis` | 研究 | 投资假设管理 |
-| 8 | 个股分析 | `/analysis/:ticker` | (隐式) | 个股深度分析 |
-| 9 | 策略实验室 | `/strategy-lab/ma-crossover` | 策略 | 回测与验证 |
-| 10 | 选股器 | `/screening` | 策略 | 动量筛选 |
-| 11 | Alpha 因子 | `/alpha` | 策略 | WQ 因子库 |
-| 12 | 持仓与风险 | `/portfolio` | 组合 | 组合管理 |
-| 13 | 预警中心 | `/alerts` | 组合 | 信号监控 |
-| 14 | 知识库 | `/knowledge` | 知识 | 策略教育 + 记忆 |
-| 15 | 模型管理 | `/models` | 系统工具 | LLM 配置 |
-| 16 | MCP 工具管理 | `/mcp-market` | 系统工具 | 外部工具 |
-| 17 | 系统设置 | `/settings` | 系统工具 | 全局配置 |
-| 18 | 登录 | `/login` | (独立) | 认证 |
+| # | 页面 | URL | 分组 | 类型 | 状态 |
+|---|------|-----|------|------|------|
+| 1 | 今日概览 | `/` | 今日 | 信息聚合 | ✅ |
+| 2 | 研究工作区 | `/research` | 研究 | 核心工作台 | ✅ |
+| 3 | 深度研究 | `/research/reports` | 研究 | 报告列表 | ✅ |
+| 4 | 比较工作区 | `/compare` | 研究 | 对比分析 | ✅ |
+| 5 | 快速问答 | `/chat` | 研究 | AI 对话 | ✅ |
+| 6 | 多视角审查 | `/discussion` | 研究 | 多 Agent 讨论 | ✅ |
+| 7 | 投资论文 | `/thesis` | 研究 | 投资假设管理 | ✅ |
+| 8 | 个股分析 | `/analysis/:ticker` | (隐式) | 个股深度分析 | ✅ |
+| 9 | 策略实验室 | `/strategy-lab/ma-crossover` | 策略 | 回测与验证 | ✅ |
+| 10 | 选股器 | `/screening` | 策略 | 动量筛选 | ✅ |
+| 11 | Alpha 因子 | `/alpha` | 策略 | WQ 因子库 | ✅ |
+| 12 | 持仓与风险 | `/portfolio` | 组合 | 组合管理 | ✅ |
+| 13 | 预警中心 | `/alerts` | 组合 | 信号监控 | ✅ |
+| 14 | 知识库 | `/knowledge` | 知识 | 策略教育 + 记忆 | ✅ |
+| 15 | 模型管理 | `/models` | 系统工具 | LLM 配置 | ✅ |
+| 16 | MCP 工具管理 | `/mcp-market` | 系统工具 | 外部工具 | ✅ |
+| 17 | 系统设置 | `/settings` | 系统工具 | 全局配置 | ✅ |
+| 18 | 登录 | `/login` | (独立) | 认证 | ✅ |
 
 ### 2.3 隐式页面（通过 URL 参数或弹窗触发）
 
@@ -77,92 +77,94 @@
 
 ## 3. 功能地图
 
+> **实现状态标注**（2026-08-21 审计）：✅ 已实现 | ⚠️ 部分实现 | ❌ 未实现 | 空白 待审计
+
 ### 3.1 按投资流程分类
 
 #### A. 投资发现
 
-| 功能 | 页面 | API | 说明 |
-|------|------|-----|------|
-| 市场概览 | 今日概览 | `/api/market/overview` | A/港/美主要指数 + 涨跌统计 |
-| 行业排行 | 今日概览 | `/api/market/sectors` | 行业/概念板块涨幅排行 |
-| 人气股 | 今日概览 | `/api/market/popular` | 东方财富人气排行 |
-| 涨停池 | 今日概览 | `/api/market/limit-up` | 涨停/封板/连板统计 |
-| 市场雷达 | 今日概览 | `/api/market/pulse` | 批量异动/资金/热度扫描 |
-| 主题分类 | 今日概览 | `/api/market/themes` | 关键词主题聚类 |
-| 自选股 | 今日概览 | 本地存储 + `/api/dashboard/watchlist/import` | CSV/TXT 导入 |
-| 动量选股 | 选股器 | `/api/screening` | 1-30 标的两阶段筛选 |
+| 功能 | 页面 | API | 说明 | 状态 |
+|------|------|-----|------|------|
+| 市场概览 | 今日概览 | `/api/market/overview` | A/港/美主要指数 + 涨跌统计 | ✅ |
+| 行业排行 | 今日概览 | `/api/market/sectors` | 行业/概念板块涨幅排行 | ⚠️ 后端有 API，前端无页面引用 |
+| 人气股 | 今日概览 | `/api/market/popular` | 东方财富人气排行 | ⚠️ 后端有 API，前端无页面引用 |
+| 涨停池 | 今日概览 | `/api/market/limit-up` | 涨停/封板/连板统计 | ⚠️ 后端有 API，前端无页面引用 |
+| 市场雷达 | 今日概览 | `/api/market/pulse` | 批量异动/资金/热度扫描 | ✅ |
+| 主题分类 | 今日概览 | `/api/market/themes` | 关键词主题聚类 | ⚠️ 后端有 API，前端无页面引用 |
+| 自选股 | 今日概览 | 本地存储 + `/api/dashboard/watchlist/import` | CSV/TXT 导入 | ⚠️ 仅 localStorage，无后端表 |
+| 动量选股 | 选股器 | `/api/screening` | 1-30 标的两阶段筛选 | ✅ |
 
 #### B. 投资研究
 
-| 功能 | 页面 | API | 说明 |
-|------|------|-----|------|
-| 标的搜索 | 研究工作区 | `/api/instruments/search` | 多市场统一搜索 |
-| 行情快照 | 研究工作区 | `/api/instruments/{symbol}/snapshot` | 实时行情 + provenance |
-| K 线与指标 | 研究工作区 | `/api/instruments/{symbol}/bars` | 日线 + 7 技术指标 |
-| 基本面数据 | 研究工作区 | `/api/instruments/{symbol}/fundamentals` | 多源基本面 + 质量标记 |
-| 筹码分布 | 研究工作区 | `/api/instruments/{symbol}/chip-distribution` | AkShare 120 日衰减模型 |
-| 个股分析 | 个股分析 | `POST /api/analysis/stock` (SSE) | 4 Agent 并行研究 |
-| 技术评分 | 个股分析 | `/api/analysis/{ticker}/indicators` | 综合评分 -100~+100 |
-| K 线图表 | 个股分析 | `/api/analysis/{ticker}/chart-data` | lightweight-charts 格式 |
-| 深度研究 | 研究工作区 | `POST /api/research` (SSE) | 4 Agent + team-lead 13 章报告 |
-| 研究历史 | 深度研究 | `/api/research` | 分页列表 + 按标的聚合 |
-| 研究导出 | 深度研究 | `/api/research/{id}/export` | md/html/pdf/docx |
-| 多视角审查 | 多视角审查 | `POST /api/discussion/rooms/{id}/start` (SSE) | 多 Agent 轮序讨论 |
-| 投资论文 | 投资论文 | `/api/thesis` CRUD | 假设管理 + 版本历史 |
-| 论文挑战 | 投资论文 | `POST /api/thesis/{id}/challenge` | AI 生成最强反证 |
-| 论文漂移核验 | 投资论文 | `POST /api/thesis/{id}/check` | 确定性漂移检测 |
-| 比较工作区 | 比较工作区 | 本地计算 | 研究/策略/组合对比 |
+| 功能 | 页面 | API | 说明 | 状态 |
+|------|------|-----|------|------|
+| 标的搜索 | 研究工作区 | `/api/instruments/search` | 多市场统一搜索 | ✅ |
+| 行情快照 | 研究工作区 | `/api/instruments/{symbol}/snapshot` | 实时行情 + provenance | ✅ |
+| K 线与指标 | 研究工作区 | `/api/instruments/{symbol}/bars` | 日线 + 7 技术指标 | ✅ |
+| 基本面数据 | 研究工作区 | `/api/instruments/{symbol}/fundamentals` | 多源基本面 + 质量标记 | ✅ |
+| 筹码分布 | 研究工作区 | `/api/instruments/{symbol}/chip-distribution` | AkShare 120 日衰减模型 | ✅ |
+| 个股分析 | 个股分析 | `POST /api/analysis/stock` (SSE) | 4 Agent 并行研究 | ✅ |
+| 技术评分 | 个股分析 | `/api/analysis/{ticker}/indicators` | 综合评分 -100~+100 | ✅ |
+| K 线图表 | 个股分析 | `/api/analysis/{ticker}/chart-data` | lightweight-charts 格式 | ✅ |
+| 深度研究 | 研究工作区 | `POST /api/research` (SSE) | 4 Agent + team-lead 13 章报告 | ✅ |
+| 研究历史 | 深度研究 | `/api/research` | 分页列表 + 按标的聚合 | ✅ |
+| 研究导出 | 深度研究 | `/api/research/{id}/export` | md/html/pdf/docx | ✅ |
+| 多视角审查 | 多视角审查 | `POST /api/discussion/rooms/{id}/start` (SSE) | 多 Agent 轮序讨论 | ✅ |
+| 投资论文 | 投资论文 | `/api/thesis` CRUD | 假设管理 + 版本历史 | ✅ |
+| 论文挑战 | 投资论文 | `POST /api/thesis/{id}/challenge` | AI 生成最强反证 | ✅ |
+| 论文漂移核验 | 投资论文 | `POST /api/thesis/{id}/check` | 确定性漂移检测 | ✅ |
+| 比较工作区 | 比较工作区 | 本地计算 | 研究/策略/组合对比 | ✅ |
 
 #### C. 投资决策
 
-| 功能 | 页面 | API | 说明 |
-|------|------|-----|------|
-| 策略实验室 | 策略实验室 | `POST /api/backtests` (异步) | MA 双均线回测 |
-| 策略 IR 解析 | 策略实验室 | `/api/backtests/strategy-ir/parse` | 自然语言→策略 IR |
-| 策略 IR 编译 | 策略实验室 | `/api/backtests/strategy-ir/compile` | IR→可执行草稿 |
-| 组合回测 | 策略实验室 | `POST /api/backtests/portfolio` | 多标的多市场回测 |
-| 回测验证 | 策略实验室 | 内置 Bootstrap/MC/WF | 统计稳健性验证 |
-| 组合风险 X 光 | 策略实验室 | 内置 | VaR/ES/集中度/分散化 |
-| 旧版回测 | (API 存在) | `POST /api/backtest/runs` | 同步 3 策略向量化 |
-| Alpha 因子搜索 | Alpha 因子 | `/api/wq/search` | 4367 字段搜索 |
-| Alpha 类别浏览 | Alpha 因子 | `/api/wq/categories` | 按类别组织 |
-| Alpha 因子模板 | Alpha 因子 | `/api/wq/templates` | 可用表达式模板 |
-| 本地因子模拟 | Alpha 因子 | `/api/wq/simulate/local` | 确定性多空模拟 |
-| BRAIN 模拟 | Alpha 因子 | `/api/wq/brain/simulations` | WorldQuant BRAIN 提交 |
-| 相关性计算 | Alpha 因子 | `/api/wq/correlation` | Pearson + p-value |
+| 功能 | 页面 | API | 说明 | 状态 |
+|------|------|-----|------|------|
+| 策略实验室 | 策略实验室 | `POST /api/backtests` (异步) | MA 双均线回测 | ✅ |
+| 策略 IR 解析 | 策略实验室 | `/api/backtests/strategy-ir/parse` | 自然语言→策略 IR | ✅ |
+| 策略 IR 编译 | 策略实验室 | `/api/backtests/strategy-ir/compile` | IR→可执行草稿 | ✅ |
+| 组合回测 | 策略实验室 | `POST /api/backtests/portfolio` | 多标的多市场回测 | ✅ |
+| 回测验证 | 策略实验室 | 内置 Bootstrap/MC/WF | 统计稳健性验证 | ✅ |
+| 组合风险 X 光 | 策略实验室 | 内置 | VaR/ES/集中度/分散化 | ✅ |
+| 旧版回测 | (API 存在) | `POST /api/backtest/runs` | 同步 3 策略向量化 | ✅ legacy，待下架 |
+| Alpha 因子搜索 | Alpha 因子 | `/api/wq/search` | 4367 字段搜索 | ✅ |
+| Alpha 类别浏览 | Alpha 因子 | `/api/wq/categories` | 按类别组织 | ✅ |
+| Alpha 因子模板 | Alpha 因子 | `/api/wq/templates` | 可用表达式模板 | ✅ |
+| 本地因子模拟 | Alpha 因子 | `/api/wq/simulate/local` | 确定性多空模拟 | ✅ |
+| BRAIN 模拟 | Alpha 因子 | `/api/wq/brain/simulations` | WorldQuant BRAIN 提交 | ✅ |
+| 相关性计算 | Alpha 因子 | `/api/wq/correlation` | Pearson + p-value | ✅ |
 
 #### D. 投资管理
 
-| 功能 | 页面 | API | 说明 |
-|------|------|-----|------|
-| 组合 CRUD | 持仓与风险 | `/api/portfolio` | 创建/编辑/删除组合 |
-| 持仓管理 | 持仓与风险 | `/api/portfolio/{id}/positions` | 添加/编辑/删除持仓 |
-| 实时盈亏 | 持仓与风险 | `/api/portfolio/{id}/pnl` | 多市场行情估值 |
-| 资产配置 | 持仓与风险 | 内置计算 | 饼图分布 |
-| 模拟组合 | 持仓与风险 | `/api/portfolio/paper` | Paper 账本 + ledger |
-| 模拟复盘 | 持仓与风险 | `/api/portfolio/paper/{id}/reviews` | hypothesis→review |
-| 组合风险 | 持仓与风险 | 内置组件 | VaR/ES/回撤/HHI |
-| 预警规则 | 预警中心 | `/api/alerts/rules` | 技术信号规则 CRUD |
-| 对象监控 | 预警中心 | `/api/alerts/monitor-targets/*` | Thesis/Portfolio/Strategy 绑定 |
-| 触发历史 | 预警中心 | `/api/alerts/triggers` | 触发记录查询 |
-| 决策收件箱 | 今日概览 | `/api/dashboard/decision-inbox` | 需复核的用户对象变化 |
+| 功能 | 页面 | API | 说明 | 状态 |
+|------|------|-----|------|------|
+| 组合 CRUD | 持仓与风险 | `/api/portfolio` | 创建/编辑/删除组合 | ✅ |
+| 持仓管理 | 持仓与风险 | `/api/portfolio/{id}/positions` | 添加/编辑/删除持仓 | ✅ |
+| 实时盈亏 | 持仓与风险 | `/api/portfolio/{id}/pnl` | 多市场行情估值 | ✅ |
+| 资产配置 | 持仓与风险 | 内置计算 | 饼图分布 | ✅ |
+| 模拟组合 | 持仓与风险 | `/api/portfolio/paper` | Paper 账本 + ledger | ✅ |
+| 模拟复盘 | 持仓与风险 | `/api/portfolio/paper/{id}/reviews` | hypothesis→review | ✅ |
+| 组合风险 | 持仓与风险 | 内置组件 | VaR/ES/回撤/HHI | ✅ |
+| 预警规则 | 预警中心 | `/api/alerts/rules` | 技术信号规则 CRUD | ✅ |
+| 对象监控 | 预警中心 | `/api/alerts/monitor-targets/*` | Thesis/Portfolio/Strategy 绑定 | ✅ |
+| 触发历史 | 预警中心 | `/api/alerts/triggers` | 触发记录查询 | ✅ |
+| 决策收件箱 | 今日概览 | `/api/dashboard/decision-inbox` | 需复核的用户对象变化 | ✅ |
 
 #### E. AI 基础设施
 
-| 功能 | 页面 | API | 说明 |
-|------|------|-----|------|
-| 单 Agent 对话 | 快速问答 | `POST /api/chat/sessions/{id}/messages` (SSE) | function calling 循环 |
-| 模型管理 | 模型管理 | `/api/models` | CRUD + 连通性测试 |
-| Agent 角色 | 系统设置 | `/api/agents` | 6 预设 + 自定义 |
-| MCP 服务器 | MCP 工具管理 | `/api/mcp/configs` | CRUD + 连接发现 |
-| MCP 工具开关 | MCP 工具管理 | `/api/mcp/tools/{name}` | 运行时启停 |
-| 外部推送 | 系统设置 | 内置 Sender | 企微/飞书/邮件 |
-| 定时研究 | 系统设置 | `/api/settings/research-jobs` | 5 字段 cron |
-| 研究记忆 | 知识库 | `/api/research/memory` | typed memory CRUD |
-| LLM 用量 | 系统设置 | `/api/usage` | 日聚合 + 场景分组 |
-| 凭据管理 | 系统设置 | `/api/me/credentials` | Fernet 加密存储 |
-| Swarm 四大师 | 研究工作区 | `POST /api/swarm/analyze` (SSE) | DAG 编排多 Agent |
-| Swarm 财报精读 | 研究工作区 | `POST /api/swarm/teams/earnings-review/run` (SSE) | 财报专项团队 |
+| 功能 | 页面 | API | 说明 | 状态 |
+|------|------|-----|------|------|
+| 单 Agent 对话 | 快速问答 | `POST /api/chat/sessions/{id}/messages` (SSE) | function calling 循环 | ✅ |
+| 模型管理 | 模型管理 | `/api/models` | CRUD + 连通性测试 | ✅ |
+| Agent 角色 | 系统设置 | `/api/agents` | 6 预设 + 自定义 | ✅ |
+| MCP 服务器 | MCP 工具管理 | `/api/mcp/configs` | CRUD + 连接发现 | ✅ |
+| MCP 工具开关 | MCP 工具管理 | `/api/mcp/tools/{name}` | 运行时启停 | ✅ |
+| 外部推送 | 系统设置 | 内置 Sender | 企微/飞书/邮件 | ✅ |
+| 定时研究 | 系统设置 | `/api/settings/research-jobs` | 5 字段 cron | ✅ |
+| 研究记忆 | 知识库 | `/api/research/memory` | typed memory CRUD | ✅ |
+| LLM 用量 | 系统设置 | `/api/usage` | 日聚合 + 场景分组 | ✅ |
+| 凭据管理 | 系统设置 | `/api/me/credentials` | Fernet 加密存储 | ✅ |
+| Swarm 四大师 | 研究工作区 | `POST /api/swarm/analyze` (SSE) | DAG 编排多 Agent | ✅ |
+| Swarm 财报精读 | 研究工作区 | `POST /api/swarm/teams/earnings-review/run` (SSE) | 财报专项团队 | ✅ |
 
 ---
 

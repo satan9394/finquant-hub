@@ -7,6 +7,12 @@
 >
 > **目标读者**：Product Designer / Frontend Engineer / AI Coding Agent——三方均可直接开工。
 
+> **实现状态审计**（2026-08-21）：✅ 已实现 38 项 / ⚠️ 部分实现 13 项 / ❌ 未实现 8 项
+>
+> - **已实现**：18 页面路由、App Shell、证据四态体系、研究/策略/组合全部后端 API、13 章报告、13 工具、4367 Alpha 因子、Design System 组件
+> - **部分实现**：CommandBar placeholder 未按页变化、Market Pulse 无迷你图+情绪计、三栏研究工作台、组合 5-Tab、投资委员会角色不一致、自选/组合闭环按钮
+> - **未实现**：新一级导航 /home /assistant /workspace、L1/L2/L3 三级渐进、意图路由、今日推荐、Portfolio Risk 摘要、EvidenceTree、Portfolio Action 卡
+
 ---
 
 # 一、当前 UI 全景（CURRENT UI MAP）

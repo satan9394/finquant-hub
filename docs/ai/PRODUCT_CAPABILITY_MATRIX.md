@@ -5,6 +5,12 @@
 > 证据范围：当前工作树中的 React 路由/页面、前端 API 调用、FastAPI OpenAPI 与后端服务实现  
 > 限制：本任务是代码可达性审计，不代替 `PROD-002` 的浏览器截图和人工步骤基线
 
+> **实现状态审计**（2026-08-21）：EXEC_PLAN 90 DONE / 4 BLOCKED / 4 PARKED
+>
+> - **BLOCKED**：AIOS-004（Graphiti/Mem0 PoC）、AIOS-005（memory provider ADR）、AIOS-034（Graphiti read model）—— 外部依赖未安装
+> - **PARKED**：AIOS-071/072/073（公开 Artifact/Remix/模板市场）—— 需法律/隐私决定
+> - 其余全部 DONE，数据库 schema v23 / 54 张表 / 24 个 APIRouter / 133 个端点
+
 ## 1. 状态定义
 
 | 状态 | 含义 |

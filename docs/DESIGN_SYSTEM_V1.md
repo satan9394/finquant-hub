@@ -890,16 +890,18 @@ FinQuant Design System v1
 
 ## 10.5 验收清单
 
-1. 五个核心页面在 L1/L2/L3 下都保持同一信息结构。
-2. 所有研究结果可以从结论下钻到证据和方法。
-3. FACT/INFERENCE/MODEL_OUTPUT/UNKNOWN 与 OK/PARTIAL/UNKNOWN/UPSTREAM_ERROR 不混为一个维度。
-4. 价格方向全站红涨绿跌，且文字/符号可独立表达方向。
-5. Paper Portfolio、真实持仓记录与 AI 建议视觉和文案明确区分。
-6. AI 执行可停止，部分结果可保留，局部失败可解释。
-7. 任何状态变更都有显式人类确认；没有真实交易暗示。
-8. 关键页面覆盖 Empty、Loading、Streaming、Success、Partial、Error、Offline、No Model、No Data Source。
-9. 1440、1280、1024 宽度与 200% 缩放下可完成核心任务。
-10. 前端实现继续遵守现有 API、SSE、认证、用户隔离和 local-first 架构边界。
+> **实现状态**（2026-08-21 审计）：✅ 已验证 | ⚠️ 部分满足 | ❌ 未满足
+
+1. 五个核心页面在 L1/L2/L3 下都保持同一信息结构。 ❌ L1/L2/L3 三级渐进未实现
+2. 所有研究结果可以从结论下钻到证据和方法。 ⚠️ EvidenceDrawer 可展开，但无 EvidenceTree 证据树
+3. FACT/INFERENCE/MODEL_OUTPUT/UNKNOWN 与 OK/PARTIAL/UNKNOWN/UPSTREAM_ERROR 不混为一个维度。 ✅ EvidenceChip 四态 + CitationDetails 质量态
+4. 价格方向全站红涨绿跌，且文字/符号可独立表达方向。 ✅ --fq-price-up/down 红涨绿跌
+5. Paper Portfolio、真实持仓记录与 AI 建议视觉和文案明确区分。 ⚠️ Paper 和真实组合有标签区分，无 AI 建议卡
+6. AI 执行可停止，部分结果可保留，局部失败可解释。 ⚠️ SSE 流可中断，但无明确停止按钮
+7. 任何状态变更都有显式人类确认；没有真实交易暗示。 ✅ 模拟组合/论文保存均需确认
+8. 关键页面覆盖 Empty、Loading、Streaming、Success、Partial、Error、Offline、No Model、No Data Source。 ⚠️ 部分状态有覆盖，非全部页面
+9. 1440、1280、1024 宽度与 200% 缩放下可完成核心任务。 ✅ 390px 窄屏验证通过，200% 缩放已测试
+10. 前端实现继续遵守现有 API、SSE、认证、用户隔离和 local-first 架构边界。 ✅
 
 ---
 
