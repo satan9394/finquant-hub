@@ -26,10 +26,20 @@ test-results/
 *.db-wal
 *.db-shm
 *.sqlite3
+*.bak
+backend/data/
 logs/
 *.log
 .wrangler/
 output/
+
+# 工具产物（本地缓存/截图，不进仓库）
+.dsh-vision-router/
+artifacts/
+.dsh-artifacts/
+
+# 页面调试工具（bsk，独立 git 仓库，保留本地使用）
+/BrowserSkill/
 
 # 系统
 .DS_Store
