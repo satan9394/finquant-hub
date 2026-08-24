@@ -53,7 +53,7 @@ git diff --check
 ## 阻塞证据
 
 - native fixture 实测完成：6 cases，Recall@5 1.0000、Precision@5 0.9167，隔离泄漏与注入执行为 0。
-- Graphiti/Mem0 均未安装，pip cache 无对应包；包索引通过当前代理连接失败。
+- Graphiti/Mem0 均未安装，pip cache 无对应包。2026-08-23 通过规定代理 `127.0.0.1:7897` 直接运行 pip index，已可读取 `graphiti-core 0.29.3` 与 `mem0ai 2.0.18`；旧“包源不可达”外部阻塞已解除，但没有安装或执行候选。当前 runner 的 `external_network_lookup` 是历史硬编码字段，仍输出 `UPSTREAM_ERROR`，不得再把它当成实时连通性探测。
 - 两个候选均为 `NOT_RUN`，指标保持 `null`；不得把依赖探测描述为框架 benchmark。
-- harness focused pytest 2 passed，Ruff 与 diff check 通过。
-- 解除阻塞需要可用包源，以及对隔离临时依赖/可丢弃基础设施的明确授权；不得新增生产依赖。
+- 2026-08-23 runner 复验保持 native Recall@5 1.0000、Precision@5 0.9167；候选 executed=0、production writes=0；focused pytest 2 passed，Ruff 与 diff check 通过。
+- 解除阻塞仍需要对隔离临时依赖、LLM/embedder 与可丢弃图/向量基础设施的明确授权；不得新增生产依赖。

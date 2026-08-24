@@ -40,7 +40,7 @@ export default function ChatMessageBubble({ message, isStreaming, streamingConte
       ) : (
         <div style={{
           width: 36, height: 36, borderRadius: '50%',
-          background: isUser ? '#1890ff' : '#52c41a',
+          background: isUser ? 'var(--fq-ai-primary)' : '#52c41a',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: '#fff', fontSize: 16, flexShrink: 0,
         }}>

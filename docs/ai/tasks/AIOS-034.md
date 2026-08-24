@@ -62,6 +62,6 @@ git diff --check
 
 ## 阻塞证据
 
-- `graphiti_core` 未安装，AIOS-004 仍为 `BLOCKED`，没有真实候选 benchmark。
+- `graphiti_core` 未安装，AIOS-004 仍为 `BLOCKED`，没有真实候选 benchmark；2026-08-23 已确认包索引可读取 0.29.3，但未获准安装或执行。
 - 未获准安装候选依赖或启动 Neo4j/FalkorDB/embedding 服务；Graphiti fixture execution 为 0，所有框架指标为 `null`。
-- 因此项目自有 rebuild contract 已验证，但“Graphiti read model 同步”不能诚实标记 DONE；已写 pending ADR 并 `@Satanchen`，业务主路径保持 SQLite-only。
+- 因此项目自有 rebuild contract 已验证，但“Graphiti read model 同步”不能诚实标记 DONE。ADR-005 已接受 Native FTS5；本任务仅作为未来可选隔离 PoC 保持 `[BLOCKED]`，业务主路径保持 SQLite-only。

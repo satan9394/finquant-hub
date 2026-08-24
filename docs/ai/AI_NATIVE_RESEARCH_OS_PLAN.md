@@ -9,7 +9,7 @@
 
 > 2026-08-13 范围重置：项目当前由个人开发者维护，近期目标是 GitHub 可开源、他人可在自己的电脑上安装并自用，不是上线运营的现象级平台。公网分享、Remix、作者/模板市场、SaaS、多租户在线规模化和增长任务统一标记 `[PARKED]`，不进入 Local OSS v1 关键路径。
 
-> **实现状态审计**（2026-08-21）：Phase 1-8 核心能力全部 DONE，BLOCKED=4（Graphiti/Mem0 外部依赖），PARKED=4（公开 Artifact/Remix/模板市场）
+> **实现状态审计**（2026-08-24）：Phase 1-8 核心能力全部 DONE，BLOCKED=4（可选 Graphiti/Mem0 PoC 与阈值 ADR），PARKED=3（公开 Artifact/Remix/模板市场）
 
 ## 0. 结论
 
@@ -345,8 +345,8 @@ React CSR
 | `AIOS-001` | `[DONE]` | 建立版本化投资记忆 fixture 与 FTS5 baseline runner | 13 条 synthetic records、6 cases、Recall@5 1.0、Precision@5 0.9167、隔离/注入硬门通过 |
 | `AIOS-002` | `[DONE]` | 定义 `CanonicalProvenanceEnvelope` 与 JSON Schema | 3 类现有合同映射通过，7 类非法合同拒绝，UNKNOWN/派生输入规则固定 |
 | `AIOS-003` | `[DONE]` | 定义 `MemoryProvider`/`MemoryCandidate` 端口，不接第三方 | native provider 接管 chat/research，旧函数兼容，12 tests + Ruff + mypy |
-| `AIOS-004` | `[BLOCKED]` | Graphiti 与 Mem0 fixture-only shadow PoC | native 已实测；候选包缺失且包源代理失败，候选 `NOT_RUN`，见 `AIOS_MEMORY_SHADOW_POC.md` |
-| `AIOS-005` | `[BLOCKED]` | 根据 benchmark 做 ADR：native / Graphiti read model / 暂缓 | AIOS-004 无候选实测且 ADR 需要 `@Satanchen` 明确决定；未确认不引入主路径 |
+| `AIOS-004` | `[BLOCKED]` | Graphiti 与 Mem0 fixture-only shadow PoC | native 已实测；0.29.3/2.0.18 包索引现可访问但候选未安装、未获隔离执行授权，仍为 `NOT_RUN`，见 `AIOS_MEMORY_SHADOW_POC.md` |
+| `AIOS-005` | `[DONE]` | 根据 benchmark 做 ADR：native / Graphiti read model / Mem0 adapter | 2026-08-24 `@Satanchen` 批准保持 Native FTS5；ADR 已 `ACCEPTED`，第三方候选不进入主路径 |
 
 退出门槛：基线可重复；所有事实类型、时间语义和来源字段有唯一含义；外部框架没有进入业务主路径。
 
@@ -383,7 +383,7 @@ React CSR
 | `AIOS-031` | `[DONE]` | claim <-> evidence edges 与时间有效期 | schema v16；focused 17 passed；自动确定状态强制 evidence 回链 |
 | `AIOS-032` | `[DONE]` | Challenge My Thesis 产品动作 | owner-scoped 只读挑战；AI_INFERENCE/UNKNOWN；focused 13 backend + 3 frontend |
 | `AIOS-033` | `[DONE]` | deterministic + evidence-aware drift engine | thesis-drift/v1；双侧 evidence 门禁；文本相似度无状态权；focused 14 |
-| `AIOS-034` | `[BLOCKED]` | 可选 Graphiti read model 同步与重建 | native export/rebuild 2 passed；Graphiti 未安装/未运行，指标 null，pending ADR |
+| `AIOS-034` | `[BLOCKED]` | 可选 Graphiti read model 同步与重建 | native export/rebuild 2 passed；ADR-005 已接受 Native FTS5，Graphiti 未安装/未运行，仅保留未来隔离 PoC |
 | `AIOS-035` | `[DONE]` | Thesis 历史、差异和用户确认流程 | schema v17；append-only 用户确认；Phase 3 全门禁通过 |
 
 退出门槛：每条 Thesis 状态变化都有来源、时间、旧值、新值和用户控制。
@@ -453,7 +453,7 @@ React CSR
 
 退出门槛：干净克隆在声明支持的平台上按 README 成功启动；仅绑定 loopback；数据库 volume 持久化；无 key/上游失败有明确状态；核心旅程和完整质量门禁通过；GitHub 所需法律、安全、贡献和发布材料齐备。
 
-Phase 8 已达到 Local OSS v1 本地候选退出门槛。2026-08-16 的 `AIOS-088` 已修复旧镜像/入口缓存遮蔽当前产品壳和 Dashboard 信号摘要死请求。当前无新的 `[READY]`；`AIOS-004/005/034/062/063` 继续等待既定 ADR、第三方环境或阈值证据，`AIOS-071/072/073` 继续 `[PARKED]`。
+Phase 8 已达到 Local OSS v1 本地候选退出门槛。2026-08-16 的 `AIOS-088` 已修复旧镜像/入口缓存遮蔽当前产品壳和 Dashboard 信号摘要死请求。2026-08-24，AIOS-005 已接受 Native FTS5。当前无新的 `[READY]`；`AIOS-004/034` 作为可选第三方 PoC、`AIOS-062/063` 作为阈值触发 ADR 继续 `[BLOCKED]`，`AIOS-071/072/073` 继续 `[PARKED]`。
 
 ## 9. Codex 执行合同
 

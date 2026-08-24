@@ -108,3 +108,8 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-21 commit `e9b4be4`：技术栈整合——新建 docs/TECH_STACK.md（唯一权威来源），重写 task/PROJECT_CONTEXT.md（14→23 路由器、6→13 工具、15→52 表、66→133 端点），README/CLAUDE.md 加引用，functional-gap.md 加历史注释。
 - 2026-08-21 会话恢复校准：同步工作树状态（干净，无未提交修改）、EXEC_PLAN 全量完成（AIOS-000~088）、发布前剩余项（LICENSE + docs 引用注释）和 BLOCKED/PARKED 任务状态。
 - 2026-08-21 根目录 MD 梳理：删除 5 个与 docs/ 重复的 `FinQuant_*` 残留副本（SHA256 相同、已提交于 d3bbd0d，删除进回收站）；补充 .gitignore（.dsh-vision-router/、artifacts/、backend/data/、*.bak）。根目录 MD 收敛为 8 个正式文件（AGENTS/CHANGELOG/CLAUDE/CONTRIBUTING/design-qa/HANDOFF/README/SECURITY）。
+- 2026-08-23 BACKLOG-001 tasks 1-4 completed; AIOS-005 ADR package prepared; Batch 3 remains PARKED | 验证: backend 541 passed / 84.25%, Ruff passed, frontend build passed, static gates and localhost browser smoke passed
+
+- 2026-08-23 BACKLOG-001 follow-up refreshed Graphiti/Mem0 metadata and corrected stale package-source blocker evidence; no packages installed | 验证: pip index resolved graphiti-core 0.29.3 and mem0ai 2.0.18 via 7897; local imports absent; shadow PoC native measured, candidates NOT_RUN; focused 2 and Ruff passed
+
+- 2026-08-24 Accepted Native FTS5 as the Local OSS v1 production memory provider; marked ADR-005 ACCEPTED and AIOS-005/BACKLOG-001 DONE; kept AIOS-004/034 optional PoCs BLOCKED and AIOS-071/072/073 PARKED. | 验证: Approval recorded for 2026-08-24; cross-document status checks, release static gates, git diff --check, and harness audit passed. No code/schema/dependency changes from approval closure.

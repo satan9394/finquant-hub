@@ -12,7 +12,7 @@ interface RoleAvatarProps extends AvatarProps {
 
 const colorMap: Record<string, string> = {
   value_investor: '#722ed1',
-  tech_analyst: '#1890ff',
+  tech_analyst: 'var(--fq-ai-primary)',
   quant_researcher: '#13c2c2',
   risk_manager: '#fa8c16',
   macro_strategist: '#eb2f96',

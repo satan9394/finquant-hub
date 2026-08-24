@@ -148,6 +148,8 @@ E:\Code_file\Projects\finquant-hub/       ← 独立 git 仓库，与 Claude_Cod
 
 ### 3.2 技术栈
 
+> 技术栈详情见 [TECH_STACK.md](./TECH_STACK.md)。
+
 | 层 | 技术选型 | 理由 |
 |----|----------|------|
 | 后端框架 | FastAPI + sse-starlette | 原生 SSE 支持（经 sse-starlette）、异步、自动 OpenAPI 文档、Windows 兼容 |

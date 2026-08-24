@@ -403,10 +403,10 @@
 **范围**: 仅使用 synthetic fixture 比较候选；不注入模型、不写生产数据、不新增生产依赖。不可用候选必须明确报告并回退 native baseline。
 **前置**: AIOS-003 已完成。
 
-### [BLOCKED] AIOS-005: memory provider 选型 ADR
+### [DONE] AIOS-005: memory provider 选型 ADR
 
-**阻塞**: AIOS-004 只有 native 实测，Graphiti/Mem0 指标仍为 `NOT_RUN`；缺少可比较 benchmark，且任何主路径选型都需要在 `DECISIONS.md` 中记录并由 `@Satanchen` 明确决定。
-**阻塞证据**: native 6 cases 已实测；Graphiti/Mem0 本地未安装、pip cache 无包、包索引代理连接失败，因此候选均为 `NOT_RUN` 且指标为 `null`。harness focused pytest 2 passed、Ruff/diff check 通过；未把依赖探测冒充框架验证。
+**范围**: 基于可重复 native baseline 与第三方候选的真实证据边界，决定 Local OSS v1 的生产 memory provider；不把 `NOT_RUN` 冒充候选 benchmark。
+**证据**: native 6 cases 已实测；Graphiti/Mem0 均未安装，候选指标保持 `null`。2026-08-24，维护者 `@Satanchen` 明确批准保持 Native FTS5；`ADR-005-memory-provider.md` 已标记 `ACCEPTED`。AIOS-004/034 继续作为未来可选隔离 PoC 保持 `[BLOCKED]`，不再阻塞生产选型。
 
 ### [DONE] AIOS-010: Evidence object 与派生输入引用 schema
 
@@ -518,7 +518,7 @@
 **优先级**: P1
 **范围**: 仅在 fixture/shadow 边界内定义由 authoritative SQLite 重建的 temporal graph read model，验证删除后全量重建与双边计数；不得新增生产依赖或接入业务主路径。
 **前置**: AIOS-033 evidence-aware drift engine 已完成；AIOS-004 外部 Graphiti 包仍为 BLOCKED，因此本任务先执行无第三方依赖的 adapter contract、export fixture 与 rebuild harness。
-**证据**: thesis-graph-export/v1 与内存 sink clear/rebuild 通过，五类 source/export/sink 计数一致、跨用户泄漏 0；focused 2、Ruff/mypy/diff check。Graphiti 包未安装且未运行，候选指标均 null，pending ADR 已 `@Satanchen`，故不能标 DONE。
+**证据**: thesis-graph-export/v1 与内存 sink clear/rebuild 通过，五类 source/export/sink 计数一致、跨用户泄漏 0；focused 2、Ruff/mypy/diff check。Graphiti 包未安装且未运行，候选指标均 null。ADR-005 已接受 Native FTS5；本任务仅作为未来可选隔离 PoC 保持 `[BLOCKED]`。
 
 ### [DONE] AIOS-035: Thesis 历史、差异和用户确认流程
 
@@ -704,4 +704,11 @@
 **范围**: 删除无权威数据来源的 `/api/signals/summary` 前端死调用，以显式 `UNKNOWN` 和个股分析入口替代；Local doctor 对比镜像与构建输入时间；同步当前六组导航和 Dashboard 产品矩阵。不得新增聚合后端、schema、依赖或修改 `reference/`。
 **证据**: 删除死请求与伪 mock，跨标的信号保持 UNKNOWN；frontend 52 files/166 tests、backend 536/84.19%（测试进程显式关闭现有 `.env` local-only）、Ruff/mypy/TypeScript/build、E2E 11 通过。doctor 重建前 stale WARN、重建后双 PASS；HTML no-cache/哈希资源 immutable，内置浏览器纯 URL 新标签显示新状态且 console 0，600519 修复路径通过。未改 backend/schema/依赖/`reference/`，未 commit/push/publish。
 
-AIOS-088 已完成，当前无 `[READY]`。既有 `[BLOCKED]` ADR/第三方 PoC 与 `[PARKED]` 公网运营任务保持原状态，等待新的维护者决定或触发证据。
+AIOS-088 已完成，当前无 `[READY]`。AIOS-005 已接受 Native FTS5；其余 `[BLOCKED]` 第三方 PoC/阈值 ADR 与 `[PARKED]` 公网运营任务保持原状态，等待新的维护者决定或触发证据。
+
+## 发布前收尾与长期路线图
+
+### [DONE] BACKLOG-001: 发布前收尾与长期路线图
+
+**任务卡**: `docs/ai/tasks/BACKLOG-001.md`
+**证据**: 任务 1-4 已完成：LICENSE 当前事实校准、PRD/PRODUCT_MAP 技术栈引用和两项 legacy color gate 迁移；backend 541/84.25%、Ruff、frontend build、静态门禁与浏览器验证通过。2026-08-24，`@Satanchen` 明确批准保持 Native FTS5，AIOS-005 与 ADR-005 已关闭；公开 Artifact/Remix/模板市场按范围继续 `[PARKED]`。

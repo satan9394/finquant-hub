@@ -20,6 +20,8 @@
 
 **技术栈**：FastAPI + aiosqlite (WAL) + React 18 + Ant Design 5 + lightweight-charts + DeepSeek API
 
+> 技术栈详情见 [TECH_STACK.md](./TECH_STACK.md)。
+
 ---
 
 ## 2. 信息架构

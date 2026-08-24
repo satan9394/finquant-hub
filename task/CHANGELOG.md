@@ -149,3 +149,18 @@
 - Evidence policy: every section keeps source status; Tonghuashun batch coverage and failures are explicit, raw fund values retain the provider's `wan_cny` unit, and unavailable dimensions are never filled with estimates.
 - Scope boundary: this reproduces the reference monitor's public dimensions, not either platform's paid, private, login-only, or complete internal dataset.
 - What changed: added keyword-driven theme classification over the complete EastMoney board catalog, with built-in related-term groups for robots, compute infrastructure, power/grid, and semiconductors; matching boards expose constituents, four ranking modes, deduplicated candidates, and bounded Tonghuashun fund enrichment.
+
+## 2026-08-23
+- What changed: completed BACKLOG-001 tasks 1-4 and prepared the blocked AIOS-005 provider ADR; added TECH_STACK references and migrated the explicit `#dce5ef`/`#1890ff` gates to existing `--fq-*` tokens.
+- Why: close runnable Local OSS v1 release cleanup while keeping Graphiti/Mem0 and public-operation work behind their existing approval gates.
+- Docs updated: `docs/PRD.md`, `docs/PRODUCT_MAP.md`, `docs/ai/AI_NATIVE_RESEARCH_OS_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/decisions/ADR-005-memory-provider.md`, and task evidence.
+- Verification: backend 541 passed / 84.25% with `LOCAL_ONLY_MODE=false`, Ruff passed, frontend production build passed, static color/link gates passed, and localhost browser smoke check passed.
+- Risk: low; no backend/schema/dependency changes, and third-party providers remain uninstalled and blocked.
+- Follow-up evidence: package metadata is now reachable through the mandated `127.0.0.1:7897` proxy (`graphiti-core 0.29.3`, `mem0ai 2.0.18`), but both imports remain absent; AIOS-004 rerun kept both candidates `NOT_RUN`, with focused 2 passed and Ruff clean.
+
+## 2026-08-24
+- What changed: recorded maintainer approval of Native FTS5, accepted ADR-005, and closed AIOS-005 and BACKLOG-001 while leaving AIOS-004/034 as optional blocked PoCs and Batch 3 parked.
+- Why: finalize the Local OSS v1 memory-provider decision without adding unverified third-party dependencies or infrastructure.
+- Docs updated: `docs/ai/decisions/ADR-005-memory-provider.md`, `docs/ai/tasks/AIOS-005.md`, `docs/ai/tasks/BACKLOG-001.md`, `docs/ai/AI_NATIVE_RESEARCH_OS_PLAN.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: maintainer explicitly approved “保持 Native FTS5”; status counts and cross-document task states were synchronized; no code, schema, dependency, or production-data changes.
+- Risk: low; this is a documentation and decision-state closure only.

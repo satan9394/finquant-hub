@@ -444,7 +444,7 @@ export default function Portfolio() {
 
   // ---------- 汇总卡片 ----------
   const summaryCards = summary ? [
-    { title: '总投入', value: summary.total_invested, prefix: '¥', precision: 2, color: '#1890ff' },
+    { title: '总投入', value: summary.total_invested, prefix: '¥', precision: 2, color: 'var(--fq-ai-primary)' },
     { title: '当前市值', value: summary.total_current, prefix: '¥', precision: 2, color: '#722ed1' },
     { title: '总盈亏', value: summary.total_profit, prefix: '¥', precision: 2, color: profitColor(summary.total_profit) },
     { title: '收益率', value: summary.total_profit_percent, suffix: '%', precision: 2, color: profitColor(summary.total_profit_percent) },
