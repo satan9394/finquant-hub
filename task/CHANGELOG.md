@@ -159,8 +159,108 @@
 - Follow-up evidence: package metadata is now reachable through the mandated `127.0.0.1:7897` proxy (`graphiti-core 0.29.3`, `mem0ai 2.0.18`), but both imports remain absent; AIOS-004 rerun kept both candidates `NOT_RUN`, with focused 2 passed and Ruff clean.
 
 ## 2026-08-24
+- What changed: completed the eight-route visible zh/en migration for Today, Research, Strategy, Portfolio, Monitor, evidence/provenance surfaces, and converged remaining explicit radii to the 6-8px token system.
+- Why: finish the code, i18n, and anti-slop portions of UI-000 through UI-004 without changing backend contracts or fabricating unavailable financial data.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `HANDOFF.md` via handoff log.
+- Risk: medium; production build and full frontend 60 files / 180 tests pass, translation dictionaries are 1,596/1,596 with zero duplicates/diff, while the required screenshot matrix remains policy-blocked.
+
 - What changed: recorded maintainer approval of Native FTS5, accepted ADR-005, and closed AIOS-005 and BACKLOG-001 while leaving AIOS-004/034 as optional blocked PoCs and Batch 3 parked.
 - Why: finalize the Local OSS v1 memory-provider decision without adding unverified third-party dependencies or infrastructure.
 - Docs updated: `docs/ai/decisions/ADR-005-memory-provider.md`, `docs/ai/tasks/AIOS-005.md`, `docs/ai/tasks/BACKLOG-001.md`, `docs/ai/AI_NATIVE_RESEARCH_OS_PLAN.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: maintainer explicitly approved “保持 Native FTS5”; status counts and cross-document task states were synchronized; no code, schema, dependency, or production-data changes.
 - Risk: low; this is a documentation and decision-state closure only.
+- What changed: recorded the current Agent Extension Plane status and future compatibility direction for Skills, plugin Agents, MCP, and external Agent ecosystems.
+- Why: preserve the distinction between the existing extensible Agent kernel and a future marketplace-grade plugin platform.
+- Docs updated: `docs/ai/AGENT_EXTENSION_STATUS.md`, `docs/ai/DECISIONS.md`, and `task/CHANGELOG.md`.
+- Verification: documentation-only update; no backend, schema, dependency, or runtime changes.
+- Risk: low; the extension platform remains pending and no third-party plugin code was installed or executed.
+
+## 2026-08-24
+- What changed: implemented the UI-000–UI-003 Research OS shell, entity research, Monitor/Today, Strategy/Discover/Portfolio workspaces, and the safe UI-004 token/anti-slop subset across frontend routes, components, styles, i18n, and tests.
+- Why: execute the approved FinQuant Hub UI optimization chain while preserving real-data provenance, `UNKNOWN` gaps, old-route compatibility, and backend boundaries.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, and `docs/ai/tasks/UI-000.md` through `UI-004.md`.
+- Risk: medium; production build and 44 targeted UI tests pass, but the required screenshot matrix is blocked by browser URL policy and 432 legacy hardcoded-color lines remain for a separate audited migration.
+
+## 2026-08-24
+- What changed: removed unused legacy dashboard CSS, migrated all active CSS and TS/TSX color literals to semantic `--fq-*` tokens, added a canvas-safe runtime token resolver, and moved the Research, Today, and Library primary surfaces toward shared `t(key)` copy.
+- Why: continue UI-004 design-system convergence without changing backend behavior or fabricating financial data.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, and `docs/ai/tasks/UI-004.md`.
+- Risk: medium; production build passes and focused UI suites pass, while remaining full-site i18n and the policy-blocked screenshot matrix keep UI-004 blocked.
+
+## 2026-08-24
+- What changed: refreshed UI-000 through UI-004 blocker evidence after revalidating the current local server and built-in browser runtime.
+- Why: distinguish the resolved URL-policy condition from the current webview-attachment failure and avoid claiming unobserved visual/WCAG proof.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, and `task/CHANGELOG.md`.
+- Verification: `127.0.0.1:5173` returned HTTP 200 from the expected Node dev server; the built-in browser was discoverable, but two fresh local tabs timed out before webview attachment. No code, backend, schema, dependency, auth, or screenshot files changed.
+- Risk: low; documentation-only evidence correction, with all five UI stages intentionally remaining `[BLOCKED]` on the visual matrix.
+
+## 2026-08-24
+- What changed: corrected the service occupying port 5173, started FinQuant Hub with its existing local-only authentication contract, accepted two stable desktop/light/zh screenshots, converted them to actual PNG encoding, and recycled four loading-state captures.
+- Why: advance the UI visual gate with evidence that was actually rendered and inspected while rejecting spinner-only or mislabeled image artifacts.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: Today and Discover screenshots were opened and inspected; both show the real FinQuant three-column shell without a Vite overlay or loading spinner. Research, Strategy, Portfolio, and Monitor captures were rejected and sent to the recycle bin. The remaining matrix and rendered WCAG checks were stopped by Browser URL policy.
+- Risk: low; no product code, backend code, schema, authentication contract, dependency, commit, push, publish, or deploy change.
+
+## 2026-08-24
+- What changed: tightened nine light-theme semantic color tokens and added a standard-library contrast audit for light/dark text, semantic states, focus, evidence chips, and status chips.
+- Why: close the deterministic UI-004 token-level contrast gap without changing component behavior, data binding, backend contracts, or dependencies.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: contrast audit 58/58 passed with a 4.50:1 minimum; script Ruff and production build passed. The full frontend rerun was load-sensitive at 55/60 files and 175/180 tests, while the exact five-file failure set passed independently at 5/5 files and 28/28 tests. `git diff --check` reported no errors.
+- Risk: low; the two accepted screenshots predate the token fix and are only partial evidence. The final 64-state screenshot matrix and rendered WCAG regression remain blocked by Browser URL policy; no commit, push, publish, or deploy was performed.
+
+## 2026-08-25
+- What changed: restored the local FinQuant frontend/backend preview and replaced the prior load-sensitive aggregate test result with a clean exact full-suite rerun.
+- Why: keep the user-visible preview available on the mandated port and close the explicit `bun run test` gate before final visual acceptance.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: frontend HTTP 200 with title `FinQuant Hub`; backend health `ok` with SQLite WAL; exact `bun run test` passed 60/60 files and 180/180 tests in 476.64s while both preview servers remained online.
+- Risk: low; the Browser URL policy still blocks agent-side localhost capture, so post-fix visual evidence remains incomplete. No commit, push, publish, or deploy was performed.
+
+- What changed: fixed four browser-observed 390px defects (Today grid min-content overflow, Research long-link overflow, Portfolio table containment, and mobile Agent Rail default state) and accepted 24 current mobile screenshots across six primary routes, both themes, and both languages.
+- Why: advance the hard UI-000/UI-004 visual gate using only stable current-run browser evidence and reject loading, overlay, stale-theme, or horizontally overflowing states.
+- Docs updated: `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,219 modules; single-worker full Vitest passed 60/60 files and 180/180 tests in 766.94s; all six accepted 390px routes satisfy `scrollWidth <= innerWidth`, show no Vite overlay, and produced no console error. Frontend preview was restored on port 5173 after the test run.
+- Risk: low; Library/Settings, all 1440 states, keyboard/focus, and the complete rendered WCAG matrix remain Browser-policy blocked. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+
+- What changed: completed a requirement-by-requirement UI-000–UI-004 code audit; migrated Entity/Thesis/Evidence/Review/Compare chrome to shared i18n, made Discover Filter Chips selectable without auto-running, made Strategy result Tabs switch real panels, replaced RoleAvatar emoji placeholders with existing icons, and disabled unbound AgentRun actions.
+- Why: close code-side acceptance gaps without fabricating unavailable financial data or pretending unsupported Pause/Change scope and Run now contracts exist.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,219 modules; focused Research/Compare/Discover/Strategy tests passed; final single-worker suite passed 60/60 files and 183/183 tests in 725.40s; zh/en dictionaries are 1,728/1,728 with zero duplicates or parity differences; frontend and backend HTTP are 200.
+- Risk: low; Discover's four earlier 390 screenshots are now historical because the visible chips changed, leaving 20 current mobile screenshots. Browser visual/WCAG gates and unsupported backend action contracts remain explicit blockers. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+
+- What changed: wired the Monitor card `Run now` action to the existing per-ticker indicators analysis flow, refreshed trigger history after completion, added bilingual feedback/loading state, and covered the interaction in Alerts and Monitor card tests.
+- Why: complete the UI-002 single-rule immediate-check interaction without adding a backend contract or fabricating monitor results.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-002.md`.
+- Verification: production build passed with 4,219 modules; focused Vitest passed 2/2 files and 8/8 tests; zh/en dictionaries are 1,729/1,729 with zero duplicates or parity differences. Two default single-worker full-suite runs each ended at 59/60 files and 183/184 tests with a different unchanged test timing out at 5 seconds; `AlphaTemplateCatalog` then passed 1/1 alone and `PortfolioRiskWorkbench` passed 8/8 alone. The aggregate gate is recorded as load-sensitive, not passed.
+- Risk: low; enabled rules for the selected ticker are evaluated from real market data through the existing analysis endpoint, while disabled rules remain non-runnable.
+
+- What changed: replaced Research mode placeholders with the existing Fast, Deep Research, Review, and Thesis v2 capabilities; preserved legacy-route query parameters; wired Compare Ask Agent and Entity Watch; disabled unbound Add to Thesis; and migrated Chat, Deep, Review, Thesis, and Agent status copy to shared zh/en dictionaries.
+- Why: complete the code-side Research Workspace chain without adding backend contracts, dependencies, fabricated data, or visual-only controls that appear functional.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-001.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,232 modules; related suites passed 19/19 and 26/26 tests; final full Vitest passed 61/61 files and 189/189 tests in 417.14s; zh/en dictionaries are 2,001/2,001 with zero duplicates or parity differences; `git diff --check` passed after one trailing-space correction.
+- Risk: medium; Research/Entity/Deep/Review/Compare/Thesis visible states changed and need a new screenshot/WCAG matrix. Deep Pause/Change scope still lacks a backend contract, so UI-001 remains `[BLOCKED]`. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+
+- What changed: completed a second UI-000–UI-004 completion audit; added real Deep Research plan/progress/activity, removed the Review chat timeline, wired Entity evidence into a prefilled Thesis, consumed Discover command queries, preserved ticker context for Portfolio/Thesis actions, and migrated remaining active system/shared UI copy to the common zh/en dictionary.
+- Why: close concrete full-chain interaction and bilingual gaps discovered after the first implementation audit while preserving honest `UNKNOWN` states and existing backend contracts.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,233 modules; full Vitest passed 64/64 files and 201/201 tests in 437.15s; zh/en dictionaries are 2,176/2,176 with zero duplicates or parity differences; token contrast passed 58/58 with a 4.50:1 minimum; `git diff --check` passed. Frontend `http://localhost:5173/` returned HTTP 200 with title `FinQuant Hub`, and backend health returned `status=ok`, `db=wal`.
+- Risk: medium; current-run screenshot comparison and rendered keyboard/focus/WCAG evidence remain blocked by the existing Browser URL-policy failure, and Deep Pause/Change scope still has no backend contract. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+
+- What changed: replaced mouse-only Today recent-context rows with native links, added an explicit Thesis-list open action, and moved the Today eyebrow plus action labels into shared zh/en resources.
+- Why: close code-level keyboard and bilingual gaps found during the final UI-000–UI-004 accessibility audit.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,233 modules; focused tests passed 2/2 files and 15/15 tests; full Vitest passed 64/64 files and 201/201 tests in 385.29s; zh/en dictionaries are 2,178/2,178 with no duplicate/parity differences; contrast passed 58/58 with a 4.50:1 minimum; non-native clickable-list scan returned zero findings.
+- Risk: low; the full current screenshot/rendered WCAG matrix and Deep Pause/Change scope remain blocked. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+- Runtime correction: FinQuant Hub was restored on port 8000 only temporarily. The fixed port was subsequently reclaimed by the unrelated `src.api.app:app --reload` service; the latest read-only check returns OpenAPI title `海之子 · 工地安全风险 AI 识别系统 API` and health models `minimax-m3` / `glm-5.3`, so no current FinQuant backend-health claim is made.
+- Runtime recovery after recheck: the unrelated listener later exited and port 8000 became free. Started the project backend with `backend/.venv` on `127.0.0.1:8000`; OpenAPI now identifies `FinQuant Hub` with 134 paths, and both direct and Vite-proxied health checks return `status=ok`, `db=wal`. Frontend 5173 remains HTTP 200 with title `FinQuant Hub`.
+- Runtime full-chain smoke: exercised 20 representative read-only endpoints through the live 5173 Vite proxy across Today (4), Research (3), Discover (2), Strategy (1), Portfolio (2), Monitor (3), Library (1), and Settings (4); all 20 returned HTTP 200. No records were created or mutated.
+- Runtime route smoke: requested all eight primary routes, six merged legacy routes, and two system-tool routes from the live 5173 server; 16/16 returned HTTP 200 HTML with title `FinQuant Hub`, no Vite error-overlay marker, and no route returned 404.
+- Runtime response-contract smoke: parsed the same 20 representative API responses and asserted the top-level arrays, totals, metadata, source/as-of fields, settings objects, and product-metric objects consumed by the current frontend; 20/20 shape checks passed with no data mutation.
+- Follow-up evidence: re-audited the live OpenAPI document plus backend routers/services and frontend callers. Research exposes create/read/export, Swarm start, and scheduled-run history/run operations, but no pause/resume/change-scope contract; the existing disabled controls remain the only honest UI state within the frontend-only scope.
+
+## 2026-08-29
+- What changed: replaced the always-green shell health claim with a real `/api/health`-backed checking/ok/unavailable indicator; localized remaining active shell, page-eyebrow, loading, language-switcher, portfolio and evidence copy; and removed the unreachable pre-Research-OS 13-chapter `StockAnalysis` implementation from the compile path.
+- Why: close the final code-audit gaps without inventing health, market, source or portfolio data, and remove an inaccessible legacy surface that still carried mouse-only and hardcoded copy.
+- Docs updated: `docs/UI_OPTIMIZATION_PLAN.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/tasks/UI-000.md` through `UI-004.md`, `task/CHANGELOG.md`, and `HANDOFF.md` via handoff log.
+- Verification: production build passed with 4,231 modules; `StockAnalysis` chunk reduced from 196.67 kB / 63.07 kB gzip to 179.87 kB / 57.32 kB gzip; full Vitest passed 64/64 files and 203/203 tests in 487.37s; zh/en dictionaries are 2,202/2,202 with zero duplicates/parity differences; contrast passed 58/58 with a 4.50:1 minimum; active import-graph scan covered 130 files with zero non-native clickables and zero visible form controls lacking an explicit accessible name; `git diff --check` passed; frontend returned HTTP 200. The latest fixed-port check found an unrelated API on 8000, so current FinQuant backend health remains unverified. The 24 final-labelled narrow captures are real PNGs, but 23 encode at 375×812 and one at 390×844, so they are retained only as historical reference rather than claimed as a complete exact-390 matrix.
+- Completion audit: re-read the full-chain goal and UI-000 through UI-004 cards against the current tree. All 13 required first-class components exist and have active consumers; eight navigation groups, legacy redirects, bilingual persistence, command routing, Entity/Research/Monitor/Today/Strategy/Discover/Portfolio structures, token/static accessibility gates, and existing regression gates have direct code or test evidence. The remaining acceptance requirements are the current-run screenshot/rendered-WCAG matrix and Deep Research Pause/Change scope; neither has an in-scope executable path while Browser capture is policy-blocked and the backend contract is absent.
+- Risk: low; the full current screenshot/rendered WCAG matrix and Deep Pause/Change scope remain blocked. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.

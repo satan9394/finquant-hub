@@ -12,6 +12,15 @@
 - **状态**: accepted / rejected / pending
 ```
 
+## 2026-08-24: 记录 Agent Extension Plane 演进方向
+
+- **提出者**: Codex（应 @Satanchen 要求记录）
+- **触发**: DSH、Codex、Claude Code、Pi、OpenCode 等 Agent 产品正在把 Skills、Agents、Tools/MCP、Hooks、权限和 UI 组合成可分发插件；FinQuant Hub 需要评估后续兼容性。
+- **方案**: 保留当前 `LLMClient + ToolRegistry + DAGRuntime + SSE + SQLite/Native FTS5` 核心；后续增加独立 Extension Plane，逐步支持 Skill、插件 Agent、manifest、权限、审计和本地 registry。MCP 作为互操作入口，不作为完整插件安全模型。
+- **理由**: 当前项目的差异化是证据优先、金融语义、owner isolation 和确定性 DAG，而不是通用 coding harness 的插件数量。直接引入通用 Agent 框架会扩大依赖和运维面，不能自动解决金融数据正确性。
+- **状态**: pending（现状与方向记录；尚未批准实施插件平台，也未改变当前生产架构）
+- **详细记录**: [`AGENT_EXTENSION_STATUS.md`](AGENT_EXTENSION_STATUS.md)
+
 ## 2026-07-29: 保留两个研究 SSE 入口的独立收尾逻辑
 
 - **提出者**: Codex

@@ -16,7 +16,8 @@
     "hooks": { "configured": false, "file": ".claude/settings.json" },
     "handoff": "HANDOFF.md",
     "architecture": "docs/ARCHITECTURE.md",
-    "notes": false
+    "notes": false,
+    "quickstart": false
   },
   "verify": {
     "audit_exit": null,

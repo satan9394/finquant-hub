@@ -113,3 +113,51 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-23 BACKLOG-001 follow-up refreshed Graphiti/Mem0 metadata and corrected stale package-source blocker evidence; no packages installed | 验证: pip index resolved graphiti-core 0.29.3 and mem0ai 2.0.18 via 7897; local imports absent; shadow PoC native measured, candidates NOT_RUN; focused 2 and Ruff passed
 
 - 2026-08-24 Accepted Native FTS5 as the Local OSS v1 production memory provider; marked ADR-005 ACCEPTED and AIOS-005/BACKLOG-001 DONE; kept AIOS-004/034 optional PoCs BLOCKED and AIOS-071/072/073 PARKED. | 验证: Approval recorded for 2026-08-24; cross-document status checks, release static gates, git diff --check, and harness audit passed. No code/schema/dependency changes from approval closure.
+
+- 2026-08-24 Implemented UI-000 through UI-003 and the safe UI-004 token subset; synchronized BLOCKED evidence for browser screenshot policy and legacy palette residual. | 验证: Frontend production build passed; changed-surface Vitest 11 files / 44 tests passed; Strategy 10/10, Alerts 5/5, Compare 4/4, Portfolio 8/8. Full default suite hit aggregate Windows timeouts.
+
+- 2026-08-24 UI-004 palette convergence: removed unused legacy CSS, migrated CSS and TS/TSX colors to semantic tokens, added canvas runtime token resolution, and advanced Research/Today/Library i18n | 验证: frontend build passed; focused UI suites 30/30, 7/7, and 8/8 passed; CSS non-token and TS/TSX color literal audits both report 0
+
+- 2026-08-24 UI-004 i18n: migrated the complete Strategy Lab flow to shared zh/en t(key) copy | 验证: StrategyLab.tsx Chinese literal audit 0; production build passed; StrategyLab test suite 10/10 passed
+
+- 2026-08-24 Completed UI-000 to UI-004 code-side closure: eight-route visible zh/en migration, evidence-first UNKNOWN states, Strategy/Research/Today/Portfolio/Monitor i18n, and 6-8px token convergence; screenshot matrix remains policy-blocked. | 验证: Frontend production build passed (4219 modules); full Vitest 60 files / 180 tests passed in 775.01s; zh/en 1596 keys each with 0 duplicates and 0 parity diff; hardcoded colors and 100vh/h-screen audits 0; 13/13 first-class components present.
+
+- 2026-08-24 Revalidated UI-000 to UI-004 visual gate: localhost 5173 is healthy and Browser runtime is discoverable, but two fresh tabs timed out at webview attachment; updated blocker evidence without claiming screenshots. | 验证: HTTP 200 on 127.0.0.1:5173; screenshot folder remains 17 historical plus 6 partial current images; no code/backend/schema/dependency/auth changes.
+
+- 2026-08-24 Corrected the 5173 service, entered FinQuant through the supported local-only contract, accepted Today and Discover desktop/light/zh screenshots as real PNGs, and recycled four spinner-only captures. | 验证: Two screenshots manually inspected; no Vite overlay or loading state. Remaining matrix and rendered WCAG checks stopped by Browser URL policy; no product code/auth/schema/dependency changes.
+
+- 2026-08-24 Added a token-level WCAG contrast gate, tightened nine light-theme semantic tokens, and synchronized pre-fix screenshot limitations across UI-000 to UI-004. | 验证: Contrast 58/58 with 4.50:1 minimum; Ruff and frontend build passed; full Vitest 175/180 under load, exact failed set 28/28 on focused rerun; final rendered matrix remains Browser-policy blocked.
+
+- 2026-08-25 Restored the FinQuant localhost preview and closed the exact frontend test gate after the contrast-token update. | 验证: Frontend HTTP 200; backend health ok with WAL; bun run test passed 60/60 files and 180/180 tests in 476.64s while preview servers remained online; visual matrix remains Browser-policy blocked.
+
+- 2026-08-25 Fixed four 390px UI defects and accepted 24 current mobile screenshots across Today/Research/Discover/Strategy/Portfolio/Monitor in light/dark and zh/en; Library/Settings and all 1440 states remain Browser-policy blocked. | 验证: Production build passed (4219 modules); single-worker Vitest passed 60/60 files and 180/180 tests in 766.94s; accepted routes had scrollWidth <= innerWidth, no Vite overlay, and no console error; frontend 5173 preview restored.
+
+- 2026-08-25 Completed UI-000-UI-004 code acceptance audit: Research/Compare i18n, Discover filter chips, Strategy result tabs, real icon avatars, and honest disabled unsupported actions; Discover screenshots invalidated after visible change. | 验证: Production build 4219 modules; focused suites green; full single-worker frontend 60/60 files and 183/183 tests in 725.40s; zh/en 1728 keys each with zero duplicate/parity diff; frontend/backend HTTP 200. Browser visual matrix remains blocked pending manual reload.
+
+- 2026-08-25 UI-002 Monitor Run now wired to existing indicators analysis, bilingual feedback/loading and regression tests; local preview restored on fixed ports | 验证: build 4219 modules; focused 8/8; full suite twice 59/60 files and 183/184 with rotating 5s timeouts, both failed files pass isolated; zh/en 1729 parity; frontend 5173 HTTP 200; backend health ok WAL
+
+- 2026-08-25 Research 内接入 Fast/Deep/Review/Thesis 真实能力，保留旧路由参数，接通 Compare Ask Agent 与 Entity Watch，并完成模式页 zh/en 迁移 | 验证: build 4232 modules；专项 19/19 与 26/26；全量 Vitest 61/61 files、189/189 tests；i18n 2001/2001 parity
+
+- 2026-08-25 Completed second UI-000 through UI-004 audit: real Deep plan/progress/activity, structured Review only, Evidence-to-Thesis prefill, Discover query consumption, Portfolio Thesis context, and active-route/shared-component i18n completion. | 验证: Frontend build 4233 modules; Vitest 64/64 files and 201/201 tests; zh/en 2176/2176 keys with no duplicates/diff; contrast 58/58 minimum 4.50:1; diff check passed; localhost:5173 HTTP 200; backend health ok/WAL. Browser screenshot/WCAG matrix and Deep Pause/Change scope remain blocked.
+
+- 2026-08-25 Closed code-level keyboard accessibility gaps in Today recent context and Thesis selection; added bilingual action/eyebrow copy and synchronized UI-000 through UI-004 evidence. | 验证: Frontend build 4233 modules; focused 2/2 files 15/15 tests; full Vitest 64/64 files 201/201 tests in 385.29s; i18n 2178/2178 no duplicates/diff; contrast 58/58 min 4.50:1; non-native clickable-list scan zero.
+
+- 2026-08-29 2026-08-29 UI full-chain audit: honest health indicator, active-copy i18n completion, unreachable legacy StockAnalysis removal, and evidence sync. | 验证: Frontend build 4231 modules; Vitest 64/64 files and 202/202 tests in 401.72s; i18n 2200/2200 parity; contrast 58/58 min 4.50:1; diff check and fixed-port health passed. Screenshot/rendered WCAG matrix and Deep Pause/Change scope remain blocked.
+
+- 2026-08-29 UI screenshot evidence audit corrected the narrow-capture dimensions and retained all captures as historical reference only. | 验证: 24 final-labelled files are valid PNG; 23 are 375x812 and one is 390x844. Exact 390/current 1440 light-dark zh-en matrix remains Browser-policy blocked; no files deleted or converted.
+
+- 2026-08-29 Re-audited the live research control contract before attempting Deep Pause or Change scope. | 验证: Live OpenAPI plus backend router/service and frontend caller scans expose no pause, resume, or change-scope operation; controls remain honestly disabled within the frontend-only goal boundary.
+
+- 2026-08-29 Closed active-route form accessible-name gaps across Deep Research, Chat, Discussion, Thesis, and Entity search. | 验证: Active import graph covered 130 files; visible controls without an explicit or Form.Item accessible name reduced from 9 to 0; build 4231 modules; focused 5/5 plus isolated Thesis 1/1; full Vitest 64/64 files and 203/203 tests in 487.37s; i18n 2202/2202 parity.
+
+- 2026-08-29 Recovered FinQuant backend after port 8000 drifted to an unrelated local API. | 验证: Stopped only PID 13732 child process, restored FinQuant uvicorn on PID 25496 at 127.0.0.1:8000; frontend 5173 HTTP 200, /api/health ok/wal, OpenAPI title FinQuant Hub.
+
+- 2026-08-29 Corrected the current fixed-port runtime record after read-only re-verification showed port 8000 had been reclaimed by an unrelated local API. | 验证: Frontend 5173 returned HTTP 200; port 8000 OpenAPI title was 海之子 · 工地安全风险 AI 识别系统 API and health reported minimax-m3/glm-5.3, so FinQuant backend health is not currently claimed.
+
+- 2026-08-29 Completed a requirement-by-requirement audit of the UI full-chain goal and UI-000 through UI-004 against the current tree. | 验证: All code-side criteria retain direct code/test evidence, all 13 required components have active consumers, and no further independent in-scope implementation remains; current screenshot/rendered-WCAG capture is policy-blocked, Deep Pause/Change scope lacks an API contract, and 8000 still serves an unrelated API.
+
+- 2026-08-29 Restored the FinQuant Hub backend after the unrelated 8000 listener exited. | 验证: Uvicorn session 74494 started backend/.venv app.main:app on 127.0.0.1:8000; OpenAPI title FinQuant Hub with 134 paths; direct and Vite-proxied health status ok/db wal; frontend 5173 HTTP 200.
+
+- 2026-08-29 Completed a live read-only API smoke across all eight primary UI modules after restoring the fixed backend port. | 验证: 20/20 representative endpoints through the 5173 Vite proxy returned HTTP 200: Today 4, Research 3, Discover 2, Strategy 1, Portfolio 2, Monitor 3, Library 1, Settings 4; no records mutated.
+
+- 2026-08-29 Completed live route fallback smoke for primary, legacy, and system-tool UI paths. | 验证: 16/16 routes on 5173 returned HTTP 200 HTML titled FinQuant Hub with no Vite error-overlay marker: eight primary, six merged legacy, two system tools; no route returned 404.

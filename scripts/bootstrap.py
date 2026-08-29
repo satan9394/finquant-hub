@@ -31,7 +31,7 @@ harness-engineering bootstrap.py — 把 templates/ 骨架复制到目标目录�
 --init（v4.11.0 一键嵌入）：把 --type map/minimal + --install-scripts + hooks 接线 + 交接档案 +
     架构地图 + manifest 清单 + notes 决策记录 + 装完自检合并为一条命令。八件事：
     1. 探测运行时 → 写指令文件（CLAUDE.md / AGENTS.md / .cursor/rules）
-    2. 装 10 脚本 + templates + STATE.json + .harness/config.json
+    2. 装 11 脚本 + templates + STATE.json + .harness/config.json
     3. 接 4 领域 skill 进 .claude/skills/
     4. hooks 接线：写/合并 .claude/settings.json 的 PostToolUse（record-error，matcher 收窄示例）
        + Stop（handoff-log --from-transcript，会话结束自动追加 HANDOFF 变更日志事实记录）
@@ -77,7 +77,7 @@ INIT_STOP_COMMAND = "python .claude/hooks/handoff-log.py --from-transcript \"%s\
 # v4.11.0 --init：脚本复制清单（与 install_scripts 保持一致）
 INIT_SCRIPTS = ("audit.py", "record-error.py", "bootstrap.py", "gen-eval-fixtures.py",
                 "skill-router.py", "gate-dag.py", "state-diff-merge.py", "harness-mcp.py",
-                "note-lifecycle.py", "handoff-log.py")
+                "note-lifecycle.py", "handoff-log.py", "harness-check.py")
 
 
 def _merge_settings_hooks(out_dir):
@@ -149,6 +149,7 @@ def _write_manifest(out_dir, project_name, runtime, instruction_file, installed_
             "handoff": "HANDOFF.md",
             "architecture": "docs/ARCHITECTURE.md",
             "notes": os.path.isfile(os.path.join(out_dir, "notes", "README.md")),
+            "quickstart": os.path.isfile(os.path.join(out_dir, "docs", "HARNESS-QUICKSTART.md")),
         },
         "verify": {"audit_exit": audit_exit, "wiring_ok": wiring_ok, "checked_at": checked_at},
     }
@@ -241,7 +242,7 @@ def init_embed(out_dir, name=None, runtime="auto", mode="single", modifiers=None
     hook_status, hook_path = _merge_settings_hooks(out_dir)
     print("4/8 hooks 接线: %s（%s，PostToolUse record-error + Stop handoff-log）" % (hook_status, hook_path))
 
-    # 5) HANDOFF + ARCHITECTURE 占位
+    # 5) HANDOFF + ARCHITECTURE 占位 + HARNESS 快速上手
     handoff_path = os.path.join(out_dir, "HANDOFF.md")
     if not os.path.isfile(handoff_path):
         _copy2_skip_same(os.path.join(TEMPLATES, "HANDOFF.md"), handoff_path, "HANDOFF.md")
@@ -250,6 +251,10 @@ def init_embed(out_dir, name=None, runtime="auto", mode="single", modifiers=None
     arch_path = os.path.join(arch_dir, "ARCHITECTURE.md")
     if not os.path.isfile(arch_path):
         _copy2_skip_same(os.path.join(TEMPLATES, "ARCHITECTURE.md"), arch_path, "docs/ARCHITECTURE.md")
+    quickstart_path = os.path.join(arch_dir, "HARNESS-QUICKSTART.md")
+    if not os.path.isfile(quickstart_path):
+        _copy2_skip_same(os.path.join(TEMPLATES, "HARNESS-QUICKSTART.md"), quickstart_path,
+                         "docs/HARNESS-QUICKSTART.md")
 
     # 6) notes/ 决策记录树（Agent Notes 四态：README + 归档冻结清单）
     notes_dir = os.path.join(out_dir, "notes")
@@ -285,8 +290,11 @@ def init_embed(out_dir, name=None, runtime="auto", mode="single", modifiers=None
     print("audit 退出码: %s（0=健康，1=NOT-OK，2=参数错，3=drift）" % audit_exit)
     print("skill-router wiring: %s" % ("OK" if wiring_ok else "NOT-OK（声明 vs 发现漂移）"))
     print("manifest: schema v1 / harness v4.11.0 / %s" % checked_at)
-    print("\n下一步: 编辑 HANDOFF.md 填目标与验证命令 → 跑 python scripts/record-error.py --init → 进生长回路")
-    print("决策记录: python scripts/note-lifecycle.py new --class architecture --title \"你的决策\"")
+    print("\n== 下一步三件事（装完怎么用，详见 docs/HARNESS-QUICKSTART.md）==")
+    print("  1. 读 HANDOFF.md → 填当前目标 / 完成标准 / 验证命令")
+    print("  2. 跑 python scripts/audit.py . → 看健康度（0=健康）")
+    print("  3. 收尾时 python scripts/handoff-log.py --append \"做了什么\" --verify \"结果\" → 追加变更日志")
+    print("  记决策: python scripts/note-lifecycle.py new --class architecture --title \"你的决策\"")
     return 0
 
 
@@ -405,7 +413,7 @@ def install_scripts(out_dir, mode="single", modifiers=None, force_profile=False)
     dest_scripts = os.path.join(out_dir, "scripts")
     os.makedirs(dest_scripts, exist_ok=True)
     for f in ("audit.py", "record-error.py", "bootstrap.py", "gen-eval-fixtures.py", "skill-router.py", "gate-dag.py",
-              "state-diff-merge.py", "harness-mcp.py", "note-lifecycle.py", "handoff-log.py"):
+              "state-diff-merge.py", "harness-mcp.py", "note-lifecycle.py", "handoff-log.py", "harness-check.py"):
         s = os.path.join(src_scripts, f)
         if os.path.isfile(s):
             if _copy2_skip_same(s, os.path.join(dest_scripts, f), "scripts/%s" % f):

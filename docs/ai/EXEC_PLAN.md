@@ -712,3 +712,51 @@ AIOS-088 已完成，当前无 `[READY]`。AIOS-005 已接受 Native FTS5；其�
 
 **任务卡**: `docs/ai/tasks/BACKLOG-001.md`
 **证据**: 任务 1-4 已完成：LICENSE 当前事实校准、PRD/PRODUCT_MAP 技术栈引用和两项 legacy color gate 迁移；backend 541/84.25%、Ruff、frontend build、静态门禁与浏览器验证通过。2026-08-24，`@Satanchen` 明确批准保持 Native FTS5，AIOS-005 与 ADR-005 已关闭；公开 Artifact/Remix/模板市场按范围继续 `[PARKED]`。
+
+## UI 优化阶段 — FinQuant Research OS
+
+> 依据 `docs/UI_OPTIMIZATION_PLAN.md`（`[APPROVED]`，2026-08-24）。维护者已确认：① 删除独立页面并入 Research；② 中英文双语切换。执行 agent 按 UI-000 → UI-004 顺序推进，每任务独立验证。
+
+### [BLOCKED] UI-000: Global Shell 与 i18n 双语基础
+
+**优先级**: P0
+**任务卡**: `docs/ai/tasks/UI-000.md`
+**范围**: 三栏 Shell + 8 组一级导航（Today/Research/Discover/Strategy/Portfolio/Monitor/Library/Settings）+ Global Command Bar 意图识别 + 系统状态降级 + Model Selector 语义层 + 纯前端自建 i18n（zh/en 持久化切换）。删除的独立页面保留旧路由重定向，不 404。
+
+**证据**: Shell、8 导航、旧路由重定向与 zh/en 持久化实现通过；模型管理、MCP 市场、登录、通知中心及活跃共享组件的剩余硬编码文案已进入同一字典。右上角系统状态先显示检查中，仅在 `/api/health` 明确返回 `ok` 后显示 `System OK`，失败时显示状态未知。最新生产构建通过（4,231 modules），全量前端复测 64/64 files、203/203 tests 通过（487.37s），zh/en 各 2,202 keys 且无重复/差异。正确入口 `http://localhost:5173/` 已以 HTTP 200 复验；2026-08-29 最新复验中，固定端口 8000 的 OpenAPI 为 `FinQuant Hub`（134 paths），直连及 5173 代理健康均为 `status=ok` / `db=wal`，八个一级模块抽样的 20/20 个只读代理 API 均返回 HTTP 200，按前端实际消费契约检查的顶层 JSON 结构也为 20/20 通过；八个一级路由、六个旧路由和两个系统工具路由共 16/16 个真实 5173 地址均返回标题 `FinQuant Hub` 的 HTTP 200 HTML，无 Vite error overlay 标记。Browser 截图能力仍被既有 URL policy 错误阻断，Discover、Library/Settings、修正后主链与全部 1440 状态未补拍，最终矩阵未完成，详见任务卡。
+
+### [BLOCKED] UI-001: Research Workspace 重构
+
+**优先级**: P0
+**前置**: UI-000 已完成。
+**任务卡**: `docs/ai/tasks/UI-001.md`
+**范围**: Entity 页头 + 8 tab、Agent 模式（Fast/Analyst/Deep/Review）、Thesis 数据对象化（drift/conviction/evidence）、Evidence 引用系统、Multi-Agent 改 Review、Compare 自然语言化。
+
+**证据**: Fast、Deep Research、Review 与完整 Thesis v2 已在 `/research` 上下文内加载真实能力；Deep 按真实 Agent 状态展示 Plan/Progress/Activity 且未知来源数不伪造为 0，Review 只保留结构化委员会输出。旧能力路由保留原查询参数，Compare 行级 Ask Agent、Entity Watch 和 Entity Evidence → 新 Thesis ticker/claim 预填均已接线；Thesis 列表使用明确的键盘原生“打开”按钮。不可达的旧版 13 章个股页已从 `StockAnalysis` 编译路径移除，当前只保留 Entity Workspace。最新生产构建通过（4,231 modules），全量 64/64 files、203/203 tests 通过（487.37s），zh/en 各 2,202 keys、重复 0、差异 0；Deep ticker、Chat、Discussion、Thesis status 与 Entity search 均已有显式可访问名称。2026-08-29 运行中 OpenAPI 复审确认研究相关路径只有 `/api/research` 创建/读取/导出、Swarm start 及 Scheduled Research Run，没有 pause/resume/change-scope 端点；修正后 Entity/Deep/Review/Compare/Thesis 与全部 1440 状态仍需重拍，故继续 `[BLOCKED]`，详见任务卡。
+
+### [BLOCKED] UI-002: Monitor 一级化与 Today 重做
+
+**优先级**: P1
+**前置**: UI-000 已完成。
+**任务卡**: `docs/ai/tasks/UI-002.md`
+**范围**: Monitor 一级模块（10 种类型 + MonitorCard）+ Today 重做（处理队列 → My Universe → 市场脉搏 → Research Runs），系统状态退出首屏。
+
+**证据**: Today/Monitor 可见组件共享 i18n 静态扫描为 0；Today 与 Monitor 的窄屏历史 PNG 已逐张复核；Today 个性化上下文卡片溢出已修复，近期会话/讨论条目已改为原生链接，Monitor 类型条只在自身容器滚动。单规则 `Run now` 复用既有 indicators 分析合同，立即检查真实行情/信号并刷新触发记录。最新生产构建 4,231 modules、全量 64/64 files/203/203 tests 通过（487.37s）。剩余精确 390/1440 截图门禁未完成，详见任务卡。
+
+### [BLOCKED] UI-003: Strategy / Discover / Portfolio 归位
+
+**优先级**: P1
+**前置**: UI-000、UI-001 已完成。
+**任务卡**: `docs/ai/tasks/UI-003.md`
+**范围**: Strategy Lab 自然语言优先 + 结果视图、Discover 合并选股器与 Alpha、Portfolio P&L 首页 + Portfolio↔Research 双向连接。
+
+**证据**: Strategy、Discover、Portfolio 可见组件共享 i18n 静态扫描为 0；Discover 四个 Filter Chips 可选/可取消且只预填，Global Command Bar 的 `query` 参数现由 Discover 实际读取；Strategy 六个结果 Tabs 切换对应内容；Portfolio 与全局 Thesis 动作会携带 ticker/new 上下文。最新生产构建 4,231 modules、全量 64/64 files/203/203 tests 通过（487.37s）。Strategy/Portfolio 的窄屏历史 PNG 已逐张复核；Discover 重拍和精确 390/1440 截图门禁仍未完成，详见任务卡。
+
+### [BLOCKED] UI-004: 视觉 Token 收敛与反 slop 审计
+
+**优先级**: P2
+**前置**: UI-000 ~ UI-003 已完成。
+**任务卡**: `docs/ai/tasks/UI-004.md`
+**范围**: `--fq-*` tokens 全站收敛（radius/shadow/spacing）、行情与系统状态颜色分离、13 个第一等组件落地、taste-skill 反 slop 审计清单全过。
+
+**证据**: 最新生产构建通过（4,231 modules）；`scripts/ui-contrast-audit.py` 对 light/dark 的文本、语义色、focus、evidence/status chip 共 58 组 token 组合复测 58/58 通过，最低 4.50:1；全量前端复测 64/64 files、203/203 tests 通过（487.37s），`git diff --check` 通过。13/13 组件齐全，radius 统一为 6/8px（仅语义胶囊保留 999px），soft shadow 为 none，`100vh`/`h-screen`、纯黑与 token 定义外硬编码色值均为 0。zh/en 各 2,202 keys、重复 0、差异 0；活跃导入图覆盖 130 个文件，可见表单控件无显式可访问名称缺口由 9 降为 0；RoleAvatar 与 Settings Agent 占位均已移除 emoji，活跃页面眉题、语言切换和图表加载态已进入字典；不可达的旧版 StockAnalysis 已移出编译路径。当前视觉证据仍非修正后的完整矩阵；Discover、Library/Settings、全部 1440 与完整渲染态 WCAG 仍因 Browser URL policy 未完成。
