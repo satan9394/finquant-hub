@@ -161,3 +161,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-29 Completed a live read-only API smoke across all eight primary UI modules after restoring the fixed backend port. | 验证: 20/20 representative endpoints through the 5173 Vite proxy returned HTTP 200: Today 4, Research 3, Discover 2, Strategy 1, Portfolio 2, Monitor 3, Library 1, Settings 4; no records mutated.
 
 - 2026-08-29 Completed live route fallback smoke for primary, legacy, and system-tool UI paths. | 验证: 16/16 routes on 5173 returned HTTP 200 HTML titled FinQuant Hub with no Vite error-overlay marker: eight primary, six merged legacy, two system tools; no route returned 404.
+
+- 2026-08-29 读取 Codex 全链路会话（rollout-2026-08-24T03-06-38）最终进度：会话以 task_complete 结束，最后在验证"HTTP 200 但数据形状错误"层（八个模块代表 API 的 JSON 顶层结构核对，并同步 UI_OPTIMIZATION_PLAN 最终构建/测试证据）。| 验证: 全链路收尾证据 = build 4231 modules、Vitest 64/64 files 203/203 tests（487.37s）、i18n 2202/2202 parity、对比度 58/58、16/16 路由 200 无 404、20/20 API 200。剩余真实阻塞：① 截图/WCAG 矩阵被浏览器 URL policy 阻断；② Deep Pause/Change scope 无后端合同；③ 8000 端口曾漂移（已在会话内恢复 FinQuant）。
