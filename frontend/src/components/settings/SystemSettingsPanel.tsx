@@ -6,9 +6,11 @@ import {
   updateSystemSettings,
   type SystemSettings,
 } from '../../services/settingsApi';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 
 export default function SystemSettingsPanel() {
+  const { t } = useLanguage();
   const [form] = Form.useForm<SystemSettings>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,7 +25,7 @@ export default function SystemSettingsPanel() {
       form.setFieldsValue(response.settings);
       setVersion(response.metadata.app_version);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '系统配置加载失败');
+      setError(cause instanceof Error ? cause.message : t('settings.system.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -43,9 +45,9 @@ export default function SystemSettingsPanel() {
     try {
       const response = await updateSystemSettings(values);
       form.setFieldsValue(response.settings);
-      message.success('系统配置已保存并应用');
+      message.success(t('settings.system.saved'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '系统配置保存失败');
+      setError(cause instanceof Error ? cause.message : t('settings.system.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -53,7 +55,7 @@ export default function SystemSettingsPanel() {
 
   return (
     <Card
-      title="盘后任务调度"
+      title={t('settings.system.title')}
       extra={<Typography.Text type="secondary">FinQuant Hub {version}</Typography.Text>}
       data-testid="system-settings-panel"
     >
@@ -61,41 +63,41 @@ export default function SystemSettingsPanel() {
       <Alert
         type="info"
         showIcon
-        message="这里只开放非敏感运行参数；API Key 和环境变量值不会返回浏览器。"
+        message={t('settings.system.notice')}
         style={{ marginBottom: 18 }}
       />
       {loading ? <Skeleton active paragraph={{ rows: 5 }} /> : (
         <Form form={form} layout="vertical">
-          <Form.Item name="scheduler_enabled" label="启用每日盘后任务" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="停用" />
+          <Form.Item name="scheduler_enabled" label={t('settings.system.enableDaily')} valuePropName="checked">
+            <Switch checkedChildren={t('settings.system.enabled')} unCheckedChildren={t('settings.system.disabled')} />
           </Form.Item>
           <Row gutter={16}>
             <Col xs={24} md={12}>
-              <Form.Item name="scheduler_hour" label="执行小时（本地时间）" rules={[{ required: true }]}>
+              <Form.Item name="scheduler_hour" label={t('settings.system.hour')} rules={[{ required: true }]}>
                 <InputNumber min={0} max={23} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="scheduler_minute" label="执行分钟" rules={[{ required: true }]}>
+              <Form.Item name="scheduler_minute" label={t('settings.system.minute')} rules={[{ required: true }]}>
                 <InputNumber min={0} max={59} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="scheduler_concurrency" label="最大并发研究数" rules={[{ required: true }]}>
+              <Form.Item name="scheduler_concurrency" label={t('settings.system.concurrency')} rules={[{ required: true }]}>
                 <InputNumber min={1} max={20} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item name="scheduler_max_targets" label="单轮最大标的数" rules={[{ required: true }]}>
+              <Form.Item name="scheduler_max_targets" label={t('settings.system.maxTargets')} rules={[{ required: true }]}>
                 <InputNumber min={1} max={1000} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
           <Space>
             <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>
-              保存并应用
+              {t('settings.system.save')}
             </Button>
-            <Button onClick={() => void load()}>恢复当前值</Button>
+            <Button onClick={() => void load()}>{t('settings.restore')}</Button>
           </Space>
         </Form>
       )}

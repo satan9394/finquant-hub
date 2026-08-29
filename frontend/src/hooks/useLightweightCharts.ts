@@ -21,68 +21,69 @@ import {
   type Time,
 } from 'lightweight-charts';
 import type { ThemeMode, CandleData, AreaChartData, VolumeData, ChartConfig } from '../types';
+import { readChartTokens, withAlpha } from '../styles/themeTokens';
 
 // ------------------------------------------------------------------
 // 主题调色板（A 股风格：红涨绿跌）
 // ------------------------------------------------------------------
 
-function getThemeOptions(theme: ThemeMode) {
-  const isDark = theme === 'dark';
+function getThemeOptions(_theme: ThemeMode) {
+  const colors = readChartTokens();
   return {
     chart: {
       layout: {
-        background: { type: ColorType.Solid, color: isDark ? '#131722' : '#ffffff' },
-        textColor: isDark ? '#d1d4dc' : '#191919',
+        background: { type: ColorType.Solid, color: colors.background },
+        textColor: colors.textPrimary,
         fontSize: 12,
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif",
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: isDark ? '#2B2B43' : '#e0e3eb' },
-        horzLines: { color: isDark ? '#2B2B43' : '#e0e3eb' },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
       crosshair: {
         mode: CrosshairMode.Magnet,
-        vertLine: { color: isDark ? '#555a66' : '#9B9B9B', width: 1, style: LineStyle.Dashed, labelBackgroundColor: isDark ? '#363a45' : '#F0F0F0' },
-        horzLine: { color: isDark ? '#555a66' : '#9B9B9B', width: 1, style: LineStyle.Dashed, labelBackgroundColor: isDark ? '#363a45' : '#F0F0F0' },
+        vertLine: { color: colors.gridStrong, width: 1, style: LineStyle.Dashed, labelBackgroundColor: colors.surface },
+        horzLine: { color: colors.gridStrong, width: 1, style: LineStyle.Dashed, labelBackgroundColor: colors.surface },
       },
       timeScale: {
-        borderColor: isDark ? '#2B2B43' : '#e0e3eb',
+        borderColor: colors.grid,
         timeVisible: true,
         secondsVisible: false,
         fixRightEdge: true,
         shiftVisibleRangeOnNewBar: true,
       },
       rightPriceScale: {
-        borderColor: isDark ? '#2B2B43' : '#e0e3eb',
+        borderColor: colors.grid,
         scaleMargins: { top: 0.08, bottom: 0.25 },
       },
       handleScroll: { vertTouchDrag: true },
     },
     candlestick: {
-      upColor: '#f23645',
-      downColor: '#089981',
-      borderUpColor: '#f23645',
-      borderDownColor: '#089981',
-      wickUpColor: '#f23645',
-      wickDownColor: '#089981',
+      upColor: colors.up,
+      downColor: colors.down,
+      borderUpColor: colors.up,
+      borderDownColor: colors.down,
+      wickUpColor: colors.up,
+      wickDownColor: colors.down,
     },
     area: {
-      topColor: isDark ? 'rgba(242, 54, 69, 0.3)' : 'rgba(242, 54, 69, 0.15)',
-      bottomColor: 'rgba(242, 54, 69, 0)',
-      lineColor: '#f23645',
+      topColor: withAlpha(colors.up, 0.2),
+      bottomColor: withAlpha(colors.up, 0),
+      lineColor: colors.up,
       lineWidth: 2,
       lineType: LineType.Curved,
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: '#f23645',
-      crosshairMarkerBackgroundColor: isDark ? '#131722' : '#ffffff',
+      crosshairMarkerBorderColor: colors.up,
+      crosshairMarkerBackgroundColor: colors.background,
       lastPriceAnimation: LastPriceAnimationMode.OnDataUpdate,
       priceLineVisible: true,
-      priceLineColor: '#555a66',
+      priceLineColor: colors.gridStrong,
     },
     volume: {
-      color: isDark ? '#3d5a80' : '#4a90d9',
+      color: colors.secondary,
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
     },
@@ -174,15 +175,16 @@ export function useLightweightCharts(
     const chart = chartRef.current;
     if (!chart || data.length === 0) return;
     if (!volumeRef.current) {
+      const colors = readChartTokens();
       volumeRef.current = chart.addHistogramSeries({
-        color: '#4a90d9',
+        color: colors.secondary,
         priceFormat: { type: 'volume' },
         priceScaleId: 'volume',
       });
       chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     }
     volumeRef.current.setData(data as HistogramData<Time>[]);
-  }, []);
+  }, [config.theme]);
 
   /** 切换为 K 线 + 成交量 */
   const switchToCandlestick = useCallback(

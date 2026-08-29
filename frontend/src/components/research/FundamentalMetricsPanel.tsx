@@ -3,6 +3,7 @@ import { Alert, Card, Col, List, Row, Space, Tag, Typography } from 'antd';
 import { formatP1Metric, P1_DOMAINS, p1FundamentalMetrics } from '../../features/fundamentalMetrics';
 import type { FundamentalsResponse } from '../../types/research';
 import CitationDetails, { type CitationStatus } from '../CitationDetails';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 const { Text } = Typography;
 
@@ -19,15 +20,17 @@ export default function FundamentalMetricsPanel({
   fundamentals: FundamentalsResponse | null;
   error?: string;
 }) {
+  const { lang, t } = useLanguage();
   const metrics = p1FundamentalMetrics(fundamentals?.items);
+  const domainKeys = { '估值': 'valuation', '经营质量': 'quality', '偿债风险': 'solvency' } as const;
 
   return (
-    <Card title="P1 基本面与估值可用性" className="surface-card" style={{ marginTop: 18 }}>
+    <Card title={t('research.fundamentals.title')} className="surface-card" style={{ marginTop: 18 }}>
       {error ? (
         <Alert
           type="warning"
           showIcon
-          message="真实基本面当前不可用；P1 指标保持 UNKNOWN"
+          message={t('research.fundamentals.unavailable')}
           description={error}
           style={{ marginBottom: 12 }}
         />
@@ -35,14 +38,14 @@ export default function FundamentalMetricsPanel({
         <Alert
           type="info"
           showIcon
-          message="只展示提供方原值或兼容真实字段的确定性派生值；缺少必要字段时不估算。"
+          message={t('research.fundamentals.policy')}
           style={{ marginBottom: 12 }}
         />
       )}
       <Row gutter={[12, 12]}>
         {P1_DOMAINS.map((domain) => (
           <Col xs={24} xl={8} key={domain}>
-            <Card size="small" title={domain} style={{ height: '100%' }}>
+            <Card size="small" title={t(`research.fundamentals.domain.${domainKeys[domain]}`)} style={{ height: '100%' }}>
               <List
                 size="small"
                 dataSource={metrics.filter((metric) => metric.domain === domain)}
@@ -50,19 +53,19 @@ export default function FundamentalMetricsPanel({
                   <List.Item>
                     <div style={{ width: '100%' }}>
                       <Space wrap>
-                        <Text strong>{metric.label}</Text>
+                        <Text strong>{t(`research.fundamentals.metric.${metric.key}.label`)}</Text>
                         {metric.item ? (
                           <Tag color={metric.item.components?.length ? 'purple' : 'green'}>
-                            {metric.item.components?.length ? '确定性派生' : '提供方原值'}
+                            {t(metric.item.components?.length ? 'research.fundamentals.derived' : 'research.fundamentals.providerValue')}
                           </Tag>
                         ) : <Tag>UNKNOWN</Tag>}
                       </Space>
                       {metric.item ? (
                         <>
-                          <div style={{ marginTop: 4, fontSize: 18, fontWeight: 650 }}>{formatP1Metric(metric)}</div>
-                          <Text type="secondary" style={{ display: 'block' }}>{metric.formula ?? '提供方报告值'}</Text>
+                          <div style={{ marginTop: 4, fontSize: 18, fontWeight: 650 }}>{formatP1Metric(metric, lang === 'zh' ? 'zh-CN' : 'en-US')}</div>
+                          <Text type="secondary" style={{ display: 'block' }}>{metric.formula ? t(`research.fundamentals.metric.${metric.key}.formula`) : t('research.fundamentals.providerReport')}</Text>
                           <Text type="secondary" style={{ display: 'block' }}>
-                            {metric.item.source ?? metric.item.provider ?? fundamentals?.provider ?? '来源未知'} · {metric.item.period_type ?? '期间未知'} · {metric.item.as_of ?? '截止未知'}
+                            {metric.item.source ?? metric.item.provider ?? fundamentals?.provider ?? t('research.fundamentals.unknownSource')} · {metric.item.period_type ?? t('research.fundamentals.unknownPeriod')} · {metric.item.as_of ?? t('research.fundamentals.unknownAsOf')}
                           </Text>
                           {(metric.item.quality_flags ?? []).map((flag) => <Tag key={flag} color="gold">{flag}</Tag>)}
                           <CitationDetails
@@ -81,7 +84,7 @@ export default function FundamentalMetricsPanel({
                         </>
                       ) : (
                         <>
-                          <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>{metric.unavailableReason}</Text>
+                          <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>{t(`research.fundamentals.metric.${metric.key}.reason`)}</Text>
                           <CitationDetails
                             status={citationStatus(fundamentals?.quality_flags, false, Boolean(error))}
                             source={fundamentals?.provider}
@@ -92,7 +95,7 @@ export default function FundamentalMetricsPanel({
                             adjustment={fundamentals?.adjustment}
                             frequency={fundamentals?.frequency}
                             qualityFlags={error ? ['UPSTREAM_ERROR'] : fundamentals?.quality_flags}
-                            formula={metric.formula}
+                            formula={metric.formula ? t(`research.fundamentals.metric.${metric.key}.formula`) : undefined}
                           />
                         </>
                       )}

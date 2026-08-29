@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import Login from '../src/pages/Login';
+import { LanguageProvider } from '../src/i18n/LanguageContext';
 import { useAuthStore } from '../src/store/authStore';
 
 const mocks = vi.hoisted(() => ({
@@ -85,5 +86,20 @@ describe('passwordless authentication', () => {
     expect(await screen.findByText('受保护设置页')).toBeTruthy();
     await waitFor(() => expect(mocks.verifyCode).toHaveBeenCalledWith('user@example.com', '123456'));
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+
+  test('renders the login route in English', () => {
+    localStorage.setItem('finquant_lang', 'en');
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes><Route path="/login" element={<Login />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByText('Sign in to FinQuant Hub')).toBeTruthy();
+    expect(screen.getByLabelText('Email')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send verification code' })).toBeTruthy();
   });
 });

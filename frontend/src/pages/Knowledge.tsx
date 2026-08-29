@@ -4,21 +4,25 @@ import { Button, Card, Descriptions, Menu, Typography } from 'antd';
 import { BookOutlined, ExperimentOutlined } from '@ant-design/icons';
 import { INDICATOR_KEYS, INDICATOR_KNOWLEDGE, isIndicatorKey } from '../features/indicatorKnowledge';
 import MemoryManager from '../components/MemoryManager';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Title, Text } = Typography;
 
-const strategies = [
-  { key: 'm1', label: '双均线策略', file: 'm1-移动平均策略.html', group: '可直接实验' },
-  { key: 'm2', label: '均值回归策略', file: 'm2-均值回归策略.html', group: '教学参考' },
-  { key: 'm3', label: '动量策略', file: 'm3-动量策略.html', group: '教学参考' },
-  { key: 'm4', label: '市场中性策略', file: 'm4-市场中性策略.html', group: '教学参考' },
-  { key: 'm5', label: '统计套利策略', file: 'm5-统计套利策略.html', group: '教学参考' },
-  { key: 'm6', label: '事件驱动策略', file: 'm6-事件驱动策略.html', group: '进阶概念' },
-  { key: 'm7', label: '机器学习策略', file: 'm7-机器学习策略.html', group: '进阶概念' },
-  { key: 'm8', label: '高频交易策略', file: 'm8-高频交易策略.html', group: '进阶概念' },
+type StrategyGroup = 'experiment' | 'teaching' | 'advanced';
+
+const strategies: Array<{ key: string; file: string; group: StrategyGroup }> = [
+  { key: 'm1', file: 'm1-移动平均策略.html', group: 'experiment' },
+  { key: 'm2', file: 'm2-均值回归策略.html', group: 'teaching' },
+  { key: 'm3', file: 'm3-动量策略.html', group: 'teaching' },
+  { key: 'm4', file: 'm4-市场中性策略.html', group: 'teaching' },
+  { key: 'm5', file: 'm5-统计套利策略.html', group: 'teaching' },
+  { key: 'm6', file: 'm6-事件驱动策略.html', group: 'advanced' },
+  { key: 'm7', file: 'm7-机器学习策略.html', group: 'advanced' },
+  { key: 'm8', file: 'm8-高频交易策略.html', group: 'advanced' },
 ];
 
 export default function Knowledge() {
+  const { lang, t } = useLanguage();
   const [selectedKey, setSelectedKey] = useState(strategies[0].key);
   const [frameHeight, setFrameHeight] = useState(1100);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -39,8 +43,8 @@ export default function Knowledge() {
     <main className="product-page">
       <div className="knowledge-shell surface-card">
         <aside className="knowledge-nav">
-          <div style={{ padding: '16px', borderBottom: '1px solid #eef1f5' }}>
-            <Title level={5} style={{ margin: 0 }}><BookOutlined /> 策略知识库</Title>
+          <div style={{ padding: '16px', borderBottom: '1px solid var(--fq-border)' }}>
+            <Title level={5} style={{ margin: 0 }}><BookOutlined /> {t('library.title')}</Title>
           </div>
           <Menu
             mode="inline"
@@ -59,28 +63,28 @@ export default function Knowledge() {
             items={[
               {
                 type: 'group',
-                key: '我的研究',
-                label: '我的研究',
-                children: [{ key: 'memory', icon: <BookOutlined />, label: '研究记忆' }],
+                key: 'my-research',
+                label: t('library.myResearch'),
+                children: [{ key: 'memory', icon: <BookOutlined />, label: t('library.memory') }],
               },
               {
                 type: 'group',
-                key: '指标速查',
-                label: '指标速查',
+                key: 'indicator-reference',
+                label: t('library.indicators'),
                 children: INDICATOR_KEYS.map((key) => ({
                   key: `indicator:${key}`,
                   icon: <BookOutlined />,
                   label: INDICATOR_KNOWLEDGE[key].shortName,
                 })),
               },
-              ...['可直接实验', '教学参考', '进阶概念'].map((group) => ({
+              ...(['experiment', 'teaching', 'advanced'] as StrategyGroup[]).map((group) => ({
                 type: 'group' as const,
                 key: group,
-                label: group,
+                label: t(`library.group.${group}`),
                 children: strategies.filter((strategy) => strategy.group === group).map((strategy) => ({
                   key: strategy.key,
                   icon: <BookOutlined />,
-                  label: strategy.label,
+                  label: t(`library.strategy.${strategy.key}`),
                 })),
               })),
             ]}
@@ -93,22 +97,22 @@ export default function Knowledge() {
             <>
               <div className="knowledge-toolbar">
                 <div>
-                  <Text className="eyebrow">INDICATOR KNOWLEDGE · DAILY</Text>
-                  <Title level={4} style={{ margin: '4px 0' }}>{indicator.title}</Title>
-                  <Text type="secondary">与个股分析共用同一解释口径；具体数值仍以标的响应和截止日为准。</Text>
+                  <Text className="eyebrow">{t('library.indicatorEyebrow')}</Text>
+                  <Title level={4} style={{ margin: '4px 0' }}>{t(`library.indicator.${indicator.key}.title`)}</Title>
+                  <Text type="secondary">{t('library.indicatorNotice')}</Text>
                 </div>
                 {indicator.key === 'ma' && (
                   <Button icon={<BookOutlined />} onClick={() => { setSearchParams({}); setSelectedKey('m1'); }}>
-                    阅读双均线策略
+                    {t('library.readMa')}
                   </Button>
                 )}
               </div>
               <Card className="indicator-knowledge-card">
                 <Descriptions column={1} bordered size="small">
-                  <Descriptions.Item label="用途">{indicator.purpose}</Descriptions.Item>
-                  <Descriptions.Item label="怎么读">{indicator.reading}</Descriptions.Item>
-                  <Descriptions.Item label="参数与公式">{indicator.method}</Descriptions.Item>
-                  <Descriptions.Item label="常见误区">{indicator.pitfall}</Descriptions.Item>
+                  <Descriptions.Item label={t('library.purpose')}>{t(`library.indicator.${indicator.key}.purpose`)}</Descriptions.Item>
+                  <Descriptions.Item label={t('library.reading')}>{t(`library.indicator.${indicator.key}.reading`)}</Descriptions.Item>
+                  <Descriptions.Item label={t('library.method')}>{t(`library.indicator.${indicator.key}.method`)}</Descriptions.Item>
+                  <Descriptions.Item label={t('library.pitfall')}>{t(`library.indicator.${indicator.key}.pitfall`)}</Descriptions.Item>
                 </Descriptions>
               </Card>
             </>
@@ -116,28 +120,35 @@ export default function Knowledge() {
             <>
               <div className="knowledge-toolbar">
                 <div>
-                  <Text className="eyebrow">KNOWLEDGE · TEACHING DEMO</Text>
-                  <Title level={4} style={{ margin: '4px 0' }}>{current.label}</Title>
+                  <Text className="eyebrow">{t('library.teachingEyebrow')}</Text>
+                  <Title level={4} style={{ margin: '4px 0' }}>{t(`library.strategy.${current.key}`)}</Title>
                   <Text type="secondary">
-                    {current.group === '可直接实验'
-                      ? '可带入策略实验室，以真实行情、费用与回撤指标回测。'
-                      : '教学内容中的随机曲线仅用于示意，不作为研究或回测数据。'}
+                    {current.group === 'experiment'
+                      ? t('library.experimentNotice')
+                      : t('library.teachingNotice')}
                   </Text>
                 </div>
                 {selectedKey === 'm1' && (
                   <Button type="primary" icon={<ExperimentOutlined />} onClick={() => navigate('/strategy-lab/ma-crossover')}>
-                    在策略实验室打开
+                    {t('library.openStrategy')}
                   </Button>
                 )}
               </div>
-              <iframe
-                ref={iframeRef}
-                src={`/knowledge/${current.file}`}
-                style={{ width: '100%', height: frameHeight, border: 0, display: 'block' }}
-                title={current.label}
-                scrolling="no"
-                onLoad={resizeFrame}
-              />
+              {lang === 'zh' ? (
+                <iframe
+                  ref={iframeRef}
+                  src={`/knowledge/${current.file}`}
+                  style={{ width: '100%', height: frameHeight, border: 0, display: 'block' }}
+                  title={t(`library.strategy.${current.key}`)}
+                  scrolling="no"
+                  onLoad={resizeFrame}
+                />
+              ) : (
+                <Card title={t('library.original.title')}>
+                  <Typography.Paragraph type="secondary">{t('library.original.description')}</Typography.Paragraph>
+                  <Button href={`/knowledge/${current.file}`} target="_blank" rel="noreferrer">{t('library.original.open')}</Button>
+                </Card>
+              )}
             </>
           )}
         </section>

@@ -1,4 +1,5 @@
 import GlobalTaskEntry from './GlobalTaskEntry';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface CommandBarProps {
   onNavigate: (path: string) => void;
@@ -12,10 +13,11 @@ interface CommandBarProps {
  * keeps page context available to assistive technology.
  */
 export default function CommandBar({ onNavigate, context, variant = 'inline' }: CommandBarProps) {
+  const { t } = useLanguage();
   return (
     <div className={`command-bar command-bar--${variant}`} data-context={context || undefined}>
       <GlobalTaskEntry onNavigate={onNavigate} />
-      {context ? <span className="command-bar__context" aria-label={`当前上下文：${context}`}>{context}</span> : null}
+      {context ? <span className="command-bar__context" aria-label={t('command.currentContext', { context })}>{context}</span> : null}
     </div>
   );
 }

@@ -18,6 +18,8 @@ import ResultLayer from '../components/ResultLayer';
 import AgentStatusCard from '../components/AgentStatusCard';
 import ResearchArtifact from '../components/ResearchArtifact';
 import type { EvidenceRecord } from '../components/EvidenceDrawer';
+import { useLanguage } from '../i18n/LanguageContext';
+import ResearchPlan, { type AgentRunStep } from '../components/ResearchPlan';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -25,12 +27,12 @@ const { TextArea } = Input;
 // ==================== Agent 定义 ====================
 const AGENT_KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor', 'report_lead'];
 
-const AGENT_LABELS: Record<string, { name: string; role: string; icon: string }> = {
-  business_analyst: { name: '商业模式', role: '业务、护城河与竞争力', icon: '🏢' },
-  financial_analyst: { name: '财务分析', role: '估值与财务健康度', icon: '📊' },
-  industry_researcher: { name: '行业研究', role: '产业链与行业周期', icon: '🔬' },
-  risk_assessor: { name: '风险评估', role: '独立识别投资风险', icon: '🛡️' },
-  report_lead: { name: '投研主编', role: '综合评审与 13 章定稿', icon: '🧠' },
+const AGENT_LABELS: Record<string, { nameKey: string; roleKey: string }> = {
+  business_analyst: { nameKey: 'deep.agent.business.name', roleKey: 'deep.agent.business.role' },
+  financial_analyst: { nameKey: 'deep.agent.financial.name', roleKey: 'deep.agent.financial.role' },
+  industry_researcher: { nameKey: 'deep.agent.industry.name', roleKey: 'deep.agent.industry.role' },
+  risk_assessor: { nameKey: 'deep.agent.risk.name', roleKey: 'deep.agent.risk.role' },
+  report_lead: { nameKey: 'deep.agent.editor.name', roleKey: 'deep.agent.editor.role' },
 };
 
 type StoredReport = {
@@ -59,7 +61,9 @@ type ResearchStreamData = {
   message?: string;
 };
 
-function reportToMarkdown(report: Record<string, unknown>): string {
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+function reportToMarkdown(report: Record<string, unknown>, t: Translate): string {
   if (Array.isArray(report.chapters)) {
     return report.chapters
       .filter((chapter): chapter is { title: string; content: string } => (
@@ -71,9 +75,9 @@ function reportToMarkdown(report: Record<string, unknown>): string {
       .join('\n\n');
   }
   const sections: [string, string][] = [
-    ['执行摘要', 'executive_summary'], ['商业模式', 'business_model_analysis'],
-    ['财务分析', 'financial_analysis'], ['行业分析', 'industry_analysis'],
-    ['风险提示', 'risk_analysis'], ['技术分析说明', 'technical_analysis'], ['综合结论', 'verdict'],
+    [t('deep.section.executive'), 'executive_summary'], [t('deep.section.business'), 'business_model_analysis'],
+    [t('deep.section.financial'), 'financial_analysis'], [t('deep.section.industry'), 'industry_analysis'],
+    [t('deep.section.risk'), 'risk_analysis'], [t('deep.section.technical'), 'technical_analysis'], [t('deep.section.verdict'), 'verdict'],
   ];
   return sections
     .map(([title, key]) => report[key] ? `## ${title}\n${String(report[key])}` : '')
@@ -113,7 +117,7 @@ function MarkdownContent({ content }: { content: string }) {
 function splitReportLayers(content: string): { summary: string; evidence: string } {
   const blocks = content.split(/(?=^##\s)/m).map((block) => block.trim()).filter(Boolean);
   if (!blocks.length) return { summary: '', evidence: '' };
-  const summaryBlocks = blocks.filter((block) => /^##\s+(执行摘要|综合结论|风险提示)/.test(block));
+  const summaryBlocks = blocks.filter((block) => /^##\s+(执行摘要|综合结论|风险提示|Executive Summary|Verdict|Risk Notes)/i.test(block));
   const selectedSummary = summaryBlocks.length ? summaryBlocks : blocks.slice(0, 1);
   return {
     summary: selectedSummary.join('\n\n'),
@@ -122,12 +126,13 @@ function splitReportLayers(content: string): { summary: string; evidence: string
 }
 
 // ==================== 页面组件 ====================
-export default function Research() {
+export default function Research({ initialTicker }: { initialTicker?: string } = {}) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedReportId = Number(searchParams.get('report'));
   const currentModelId = useModelStore((state) => state.currentModelId);
-  const [ticker, setTicker] = useState(searchParams.get('symbol') ?? '');
+  const [ticker, setTicker] = useState(initialTicker?.trim() || searchParams.get('symbol') || '');
   const [running, setRunning] = useState(false);
   const [agents, setAgents] = useState<ResearchAgent[]>([]);
   const [reportContent, setReportContent] = useState('');
@@ -144,22 +149,22 @@ export default function Research() {
       const response = await apiClient.get('/research/history');
       setHistory(response.data.items ?? []);
     } catch (error: any) {
-      message.error(error.message || '加载研究历史失败');
+      message.error(error.message || t('deep.history.loadFailed'));
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
   // 初始化 agent 状态
   const resetAgents = useCallback(() => {
     setAgents(AGENT_KEYS.map((key) => ({
-      name: AGENT_LABELS[key]?.name ?? key,
-      role: AGENT_LABELS[key]?.role ?? '',
+      name: t(AGENT_LABELS[key]?.nameKey ?? key),
+      role: t(AGENT_LABELS[key]?.roleKey ?? key),
       status: 'pending' as AgentStatus,
     })));
-  }, []);
+  }, [t]);
 
   const openStoredReport = useCallback(async (id: number) => {
     try {
@@ -168,18 +173,18 @@ export default function Research() {
       const resultMap = report.agent_results ?? {};
       setSelectedReportId(id);
       setTicker(report.ticker);
-      setReportTitle(`${(report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker} 研究报告`);
-      setReportContent(reportToMarkdown(report.report_data));
+      setReportTitle(t('deep.report.title', { name: (report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker }));
+      setReportContent(reportToMarkdown(report.report_data, t));
       setDone(report.status === 'completed');
       setAgents(AGENT_KEYS.map((key) => ({
-        name: AGENT_LABELS[key]?.name ?? key,
-        role: AGENT_LABELS[key]?.role ?? '',
+        name: t(AGENT_LABELS[key]?.nameKey ?? key),
+        role: t(AGENT_LABELS[key]?.roleKey ?? key),
         status: resultMap[key]?.content?.startsWith('【分析失败】') ? 'failed' as AgentStatus : 'completed' as AgentStatus,
       })));
     } catch (error: any) {
-      message.error(error.message || '加载研究报告失败');
+      message.error(error.message || t('deep.report.loadFailed'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (Number.isInteger(requestedReportId) && requestedReportId > 0) void openStoredReport(requestedReportId);
@@ -203,25 +208,25 @@ export default function Research() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (error: any) {
-      message.error(error.message || '导出失败，请稍后重试');
+      message.error(error.message || t('deep.export.failed'));
     }
-  }, [selectedReportId]);
+  }, [selectedReportId, t]);
 
   const saveAsThesis = useCallback(async () => {
     if (!selectedReportId) return;
     try {
       const response = await apiClient.post(`/thesis/from-report/${selectedReportId}`);
-      message.success(`已存为投资论文 #${response.data.id}`);
-      navigate(`/thesis?id=${response.data.id}`);
+      message.success(t('deep.thesis.saved', { id: response.data.id }));
+      navigate(`/research?mode=thesis&id=${response.data.id}`);
     } catch (error: unknown) {
-      message.error(error instanceof Error ? error.message : '存为投资论文失败');
+      message.error(error instanceof Error ? error.message : t('deep.thesis.failed'));
     }
-  }, [navigate, selectedReportId]);
+  }, [navigate, selectedReportId, t]);
 
   // 开始研究
   const handleStart = useCallback(async () => {
     const code = ticker.trim();
-    if (!code) { message.warning('请输入股票代码'); return; }
+    if (!code) { message.warning(t('deep.ticker.required')); return; }
 
     setRunning(true);
     setDone(false);
@@ -241,7 +246,7 @@ export default function Research() {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ detail: '请求失败' }));
+        const errData = await response.json().catch(() => ({ detail: t('deep.request.default') }));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
@@ -277,14 +282,14 @@ export default function Research() {
             break;
           }
           case 'report_progress': {
-            setReportContent(`正在整合报告：${data.name ?? '处理中'}`);
+            setReportContent(t('deep.progress.integrating', { name: data.name ?? t('deep.progress.processing') }));
             break;
           }
           case 'done': {
             const report = data.report ?? {};
-            setReportTitle(`${report.company_name ?? code} 研究报告`);
-            accContent = reportToMarkdown(report);
-            setReportContent(accContent || '报告生成完成，但没有可展示的正文。');
+            setReportTitle(t('deep.report.title', { name: String(report.company_name ?? code) }));
+            accContent = reportToMarkdown(report, t);
+            setReportContent(accContent || t('deep.report.empty'));
             setDone(true);
             streamCompleted = true;
             setRunning(false);
@@ -292,30 +297,30 @@ export default function Research() {
             break;
           }
           case 'error': {
-            const errorMessage = data.error ?? data.message ?? '研究请求失败';
+            const errorMessage = data.error ?? data.message ?? t('deep.request.failed');
             const idx = AGENT_KEYS.indexOf(agentKey ?? '');
             if (idx >= 0) setAgents((prev) => prev.map((agent, i) => i === idx ? { ...agent, status: 'failed' as AgentStatus, progress: errorMessage } : agent));
             else message.error(errorMessage);
             break;
           }
         }
-      }, '研究服务未返回事件流');
+      }, t('deep.stream.missing'));
       if (!streamCompleted && !abortRef.current.signal.aborted) {
         setAgents((prev) => prev.map((agent) => agent.status === 'running'
-          ? { ...agent, status: 'failed' as AgentStatus, progress: '研究流意外中断' }
+          ? { ...agent, status: 'failed' as AgentStatus, progress: t('deep.stream.interruptedStage') }
           : agent));
-        setReportContent((current) => current || '研究服务在生成报告前中断，请重试。');
-        message.error('研究服务在生成报告前中断');
+        setReportContent((current) => current || t('deep.stream.interruptedContent'));
+        message.error(t('deep.stream.interruptedError'));
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        message.error(err.message || '研究请求失败');
+        message.error(err.message || t('deep.request.failed'));
       }
     } finally {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [ticker, currentModelId, loadHistory, resetAgents]);
+  }, [ticker, currentModelId, loadHistory, resetAgents, t]);
 
   // 停止
   const handleStop = () => {
@@ -324,13 +329,33 @@ export default function Research() {
   };
 
   const reportLayers = splitReportLayers(reportContent);
+  const planSteps: AgentRunStep[] = AGENT_KEYS.map((key, index) => ({
+    title: t(AGENT_LABELS[key]?.nameKey ?? key),
+    status: agents[index]?.status === 'running'
+      ? 'process'
+      : agents[index]?.status === 'completed'
+        ? 'finish'
+        : agents[index]?.status === 'failed'
+          ? 'error'
+          : 'wait',
+  }));
+  const completedSteps = agents.filter((agent) => agent.status === 'completed').length;
+  const activeAgent = agents.find((agent) => agent.status === 'running');
+  const planProgress = running || done || agents.length
+    ? Math.round(((completedSteps + (activeAgent ? 0.5 : 0)) / AGENT_KEYS.length) * 100)
+    : null;
+  const planActivity = activeAgent?.name
+    ? t('deep.plan.activityRunning', { name: activeAgent.name })
+    : done
+      ? t('deep.plan.activityCompleted')
+      : t('deep.plan.activityIdle');
 
   // ==================== 渲染 ====================
   return (
     <div className="research-report-page">
-      <Title className="research-report-page__title" level={4}>深度研究</Title>
+      <Title className="research-report-page__title" level={4}>{t('deep.page.title')}</Title>
       <Text className="research-report-page__subtitle" type="secondary">
-        输入股票代码，由多智能体协同完成基本面、技术面综合分析并生成报告
+        {t('deep.page.subtitle')}
       </Text>
 
       {/* 输入区 */}
@@ -338,12 +363,13 @@ export default function Research() {
         <Alert
           type="warning"
           showIcon
-          message="模型额度：开始后将调用多个研究角色并整合报告，消耗相对较高；打开或预填本页不会运行。"
+          message={t('deep.page.quota')}
           style={{ marginBottom: 12 }}
         />
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <Input
-            placeholder="输入股票代码，如 600519"
+            aria-label={t('deep.page.placeholder')}
+            placeholder={t('deep.page.placeholder')}
             value={ticker}
             onChange={(e) => setTicker(e.target.value)}
             onPressEnter={!running ? handleStart : undefined}
@@ -352,14 +378,22 @@ export default function Research() {
             allowClear
           />
           {running ? (
-            <Button danger onClick={handleStop}>停止</Button>
+            <Button danger onClick={handleStop}>{t('deep.page.stop')}</Button>
           ) : (
             <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStart} disabled={!ticker.trim()}>
-              开始研究
+              {t('deep.page.start')}
             </Button>
           )}
         </div>
       </Card>
+
+      <ResearchPlan
+        title={t('deep.plan.title')}
+        progress={planProgress}
+        steps={planSteps}
+        sources={null}
+        activity={planActivity}
+      />
 
       {/* Agent 进度 */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
@@ -369,7 +403,12 @@ export default function Research() {
           const status = agent?.status === 'running' ? 'running' : agent?.status === 'completed' ? 'completed' : agent?.status === 'failed' ? 'failed' : 'waiting';
           return (
             <Col xs={12} sm={6} key={key}>
-              <AgentStatusCard name={info?.name ?? key} role={info?.role} avatar={info?.icon} status={status} stage={agent?.progress} />
+              <AgentStatusCard
+                name={t(info?.nameKey ?? key)}
+                role={t(info?.roleKey ?? key)}
+                status={status}
+                stage={agent?.progress}
+              />
             </Col>
           );
         })}
@@ -381,18 +420,18 @@ export default function Research() {
           <div className="research-report-layout__content">
           <ResultLayer
             layer="summary"
-            title="深度研究摘要"
-            description="优先展示执行摘要、风险提示和综合结论。"
+            title={t('deep.summary.title')}
+            description={t('deep.summary.description')}
             actions={selectedReportId && done ? (
               <Space size={4} wrap>
                 <Popconfirm
-                  title="从这份报告创建投资论文？"
-                  description="将保存报告核心结论，并生成价格、持仓、基本面和报告变化验证条件；创建后仍可编辑。"
-                  okText="创建并查看"
-                  cancelText="取消"
+                  title={t('deep.thesis.confirmTitle')}
+                  description={t('deep.thesis.confirmDescription')}
+                  okText={t('deep.thesis.confirm')}
+                  cancelText={t('deep.thesis.cancel')}
                   onConfirm={() => void saveAsThesis()}
                 >
-                  <Button size="small" icon={<FileTextOutlined />}>创建论文与验证条件</Button>
+                  <Button size="small" icon={<FileTextOutlined />}>{t('deep.thesis.create')}</Button>
                 </Popconfirm>
                 <Button size="small" icon={<DownloadOutlined />} onClick={() => void downloadReport('html')}>HTML</Button>
                 <Button size="small" onClick={() => void downloadReport('md')}>MD</Button>
@@ -404,85 +443,85 @@ export default function Research() {
             <ResearchArtifact
               type="Research Report"
               state={done ? 'ready' : running ? 'streaming' : 'draft'}
-              title={reportTitle || '研究报告中...'}
-              summary="模型整理的研究摘要；请沿证据和方法继续核验，不把模型输出当作事实。"
-              evidence={[{ kind: 'MODEL_OUTPUT', quality: done ? 'PARTIAL' : 'UNKNOWN', title: reportTitle || '研究报告', detail: '报告由多角色研究流生成；来源与质量应按正文逐条核验。', source: null, asOf: null } satisfies EvidenceRecord]}
+              title={reportTitle || t('deep.artifact.runningTitle')}
+              summary={t('deep.artifact.summary')}
+              evidence={[{ kind: 'MODEL_OUTPUT', quality: done ? 'PARTIAL' : 'UNKNOWN', title: reportTitle || t('deep.artifact.evidenceTitle'), detail: t('deep.artifact.evidenceDetail'), source: null, asOf: null } satisfies EvidenceRecord]}
             >
-              {reportLayers.summary ? <MarkdownContent content={reportLayers.summary} /> : <div style={{ textAlign: 'center', padding: 40 }}><Spin /><div style={{ marginTop: 12 }}>等待智能体返回摘要...</div></div>}
+              {reportLayers.summary ? <MarkdownContent content={reportLayers.summary} /> : <div style={{ textAlign: 'center', padding: 40 }}><Spin /><div style={{ marginTop: 12 }}>{t('deep.artifact.waiting')}</div></div>}
             </ResearchArtifact>
           </ResultLayer>
 
-          <ResultLayer layer="evidence" title="报告证据与分析正文">
+          <ResultLayer layer="evidence" title={t('deep.evidence.title')}>
             <Card size="small">
-              {reportLayers.evidence ? <MarkdownContent content={reportLayers.evidence} /> : <Empty description="报告尚未返回独立证据章节" />}
+              {reportLayers.evidence ? <MarkdownContent content={reportLayers.evidence} /> : <Empty description={t('deep.evidence.empty')} />}
             </Card>
           </ResultLayer>
 
           <ResultLayer layer="method">
             <Card size="small">
               <Descriptions column={{ xs: 1, md: 3 }} size="small">
-                <Descriptions.Item label="标的">{ticker || '未知'}</Descriptions.Item>
-                <Descriptions.Item label="报告版本">{selectedReportId ? `#${selectedReportId}` : '尚未保存'}</Descriptions.Item>
-                <Descriptions.Item label="模型">{currentModelId ? `#${currentModelId}` : '当前默认模型'}</Descriptions.Item>
-                <Descriptions.Item label="参与角色">{agents.filter((agent) => agent.status === 'completed').length}/{AGENT_KEYS.length} 完成</Descriptions.Item>
-                <Descriptions.Item label="内容类型">MODEL_OUTPUT</Descriptions.Item>
-                <Descriptions.Item label="状态">{done ? '已完成' : running ? '生成中' : '未完成'}</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.ticker')}>{ticker || t('deep.common.unknown')}</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.version')}>{selectedReportId ? `#${selectedReportId}` : t('deep.method.unsaved')}</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.model')}>{currentModelId ? `#${currentModelId}` : t('deep.method.defaultModel')}</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.roles')}>{t('deep.method.completedCount', { completed: agents.filter((agent) => agent.status === 'completed').length, total: AGENT_KEYS.length })}</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.contentType')}>MODEL_OUTPUT</Descriptions.Item>
+                <Descriptions.Item label={t('deep.method.status')}>{done ? t('deep.status.completed') : running ? t('deep.status.running') : t('deep.status.incomplete')}</Descriptions.Item>
               </Descriptions>
-              <Alert type="warning" showIcon message="报告中的事实、来源和截止时间需按正文逐条核对；MODEL_OUTPUT 不能替代原始数据证据。" />
+              <Alert type="warning" showIcon message={t('deep.method.warning')} />
             </Card>
           </ResultLayer>
           </div>
-          <aside className="research-report-rail" aria-label="报告阅读导航">
-            <span className="research-report-rail__eyebrow">REPORT READING</span>
-            <h2>先结论，后证据</h2>
+          <aside className="research-report-rail" aria-label={t('deep.rail.aria')}>
+            <span className="research-report-rail__eyebrow">{t('deep.reportReading')}</span>
+            <h2>{t('deep.rail.title')}</h2>
             <ol>
-              <li><strong>01 摘要</strong><span>执行摘要、综合结论与风险提示。</span></li>
-              <li><strong>02 证据</strong><span>逐段展开分析、数据和来源线索。</span></li>
-              <li><strong>03 方法</strong><span>确认版本、模型、角色与待核验项。</span></li>
+              <li><strong>{t('deep.rail.summaryLabel')}</strong><span>{t('deep.rail.summaryDescription')}</span></li>
+              <li><strong>{t('deep.rail.evidenceLabel')}</strong><span>{t('deep.rail.evidenceDescription')}</span></li>
+              <li><strong>{t('deep.rail.methodLabel')}</strong><span>{t('deep.rail.methodDescription')}</span></li>
             </ol>
-            <p>数值、来源和不确定状态会保留在正文中，不用视觉美化掩盖数据边界。</p>
+            <p>{t('deep.rail.note')}</p>
           </aside>
         </div>
       ) : (
         <Card size="small" style={{ minHeight: 200 }}>
-          <Empty description={'输入股票代码并点击「开始研究」以生成深度分析报告'} />
+          <Empty description={t('deep.empty')} />
         </Card>
       )}
 
       <Card
         size="small"
-        title="研究历史与数据记录"
-        extra={<Button size="small" icon={<ReloadOutlined />} loading={historyLoading} onClick={() => void loadHistory()}>刷新</Button>}
+        title={t('deep.history.title')}
+        extra={<Button size="small" icon={<ReloadOutlined />} loading={historyLoading} onClick={() => void loadHistory()}>{t('deep.history.refresh')}</Button>}
         style={{ marginTop: 16 }}
       >
         <Collapse
           items={history.map((group) => ({
             key: group.ticker,
-            label: <span>{group.company_name || group.ticker} <Text type="secondary">{group.ticker}</Text> <Tag color="blue">{group.run_count} 个版本</Tag></span>,
-            extra: <Text type="secondary">最近：{group.latest_at}</Text>,
+            label: <span>{group.company_name || group.ticker} <Text type="secondary">{group.ticker}</Text> <Tag color="blue">{t('deep.history.versionCount', { count: group.run_count })}</Tag></span>,
+            extra: <Text type="secondary">{t('deep.history.latest', { time: group.latest_at })}</Text>,
             children: (
               <List
                 size="small"
                 dataSource={group.runs}
                 renderItem={(item, index) => (
-                  <List.Item actions={[<Button key="open" type="link" onClick={() => void openStoredReport(item.id)}>查看此版本</Button>]}>
+                  <List.Item actions={[<Button key="open" type="link" onClick={() => void openStoredReport(item.id)}>{t('deep.history.open')}</Button>]}>
                     <List.Item.Meta
-                      title={`版本 ${group.run_count - index}`}
-                      description={`${item.created_at} · ${item.status === 'completed' ? '已完成' : item.status === 'running' ? '进行中' : '失败'}${item.model_id ? ` · 模型 #${item.model_id}` : ''}`}
+                      title={t('deep.history.version', { version: group.run_count - index })}
+                      description={`${item.created_at} · ${item.status === 'completed' ? t('deep.status.completed') : item.status === 'running' ? t('deep.status.running') : t('deep.status.failed')}${item.model_id ? ` · ${t('deep.history.model', { id: item.model_id })}` : ''}`}
                     />
-                    {selectedReportId === item.id && <Tag color="blue">当前查看</Tag>}
+                    {selectedReportId === item.id && <Tag color="blue">{t('deep.history.current')}</Tag>}
                   </List.Item>
                 )}
               />
             ),
           }))}
         />
-        {!historyLoading && history.length === 0 && <Empty description="暂无已保存的研究记录" />}
+        {!historyLoading && history.length === 0 && <Empty description={t('deep.history.empty')} />}
       </Card>
 
       {/* 免责声明 */}
-      <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 24 }}>
-        此内容由 AI 生成，不构成投资建议
+      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fq-text-tertiary)', marginTop: 24 }}>
+        {t('deep.disclaimer')}
       </div>
     </div>
   );

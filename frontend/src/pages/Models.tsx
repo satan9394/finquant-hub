@@ -1,25 +1,33 @@
-/* ============================================================
- * Models — 模型管理页
- * ============================================================ */
+/* Models management page. */
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Button, Modal, Form, Input, InputNumber, Select, Popconfirm, Tag, message, Typography,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CheckCircleOutlined, StarOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
+import { useLanguage } from '../i18n/LanguageContext';
+import { translate } from '../i18n';
 import { useModelStore } from '../store/modelStore';
 import type { ModelConfig, ModelTestResult } from '../types';
 
 const { Text } = Typography;
 
-export function modelCredentialLabel(model: ModelConfig) {
-  if (model.credential_source === 'stored') return '已安全保存';
-  if (model.credential_source === 'environment') return `环境变量已载入：${model.api_key_env}`;
-  if (model.api_key_env) return `等待环境变量：${model.api_key_env}`;
-  return '未配置';
+type Translator = (key: string, values?: Record<string, string | number>) => string;
+
+export function modelCredentialLabel(
+  model: ModelConfig,
+  t: Translator = (key, values) => translate('zh', key, values),
+) {
+  if (model.credential_source === 'stored') return t('models.credentials.stored');
+  if (model.credential_source === 'environment') {
+    return t('models.credentials.environment', { variable: model.api_key_env || '' });
+  }
+  if (model.api_key_env) return t('models.credentials.waiting', { variable: model.api_key_env });
+  return t('models.credentials.missing');
 }
 
 export default function Models() {
+  const { t } = useLanguage();
   const models = useModelStore((s) => s.models);
   const setModels = useModelStore((s) => s.setModels);
 
@@ -44,7 +52,6 @@ export default function Models() {
 
   useEffect(() => { loadModels(); }, [loadModels]);
 
-  // 打开新增/编辑
   const openModal = (model?: ModelConfig) => {
     if (model) {
       setEditingModel(model);
@@ -56,16 +63,15 @@ export default function Models() {
     setModalOpen(true);
   };
 
-  // 保存
   const handleSave = async () => {
     const values = await form.validateFields();
     try {
       if (editingModel) {
         await apiClient.put(`/models/${editingModel.id}`, values);
-        message.success('已更新');
+        message.success(t('models.message.updated'));
       } else {
         await apiClient.post('/models', values);
-        message.success('已创建');
+        message.success(t('models.message.created'));
       }
       setModalOpen(false);
       loadModels();
@@ -74,18 +80,16 @@ export default function Models() {
     }
   };
 
-  // 删除
   const handleDelete = async (id: number) => {
     try {
       await apiClient.delete(`/models/${id}`);
-      message.success('已删除');
+      message.success(t('models.message.deleted'));
       loadModels();
     } catch (e: any) {
       message.error(e.message);
     }
   };
 
-  // 测试连通性
   const handleTest = async (id: number) => {
     setTestLoading(id);
     setTestResult(null);
@@ -101,11 +105,10 @@ export default function Models() {
     }
   };
 
-  // 设为默认
   const handleSetDefault = async (id: number) => {
     try {
       await apiClient.post(`/models/${id}/set-default`);
-      message.success('已设为默认');
+      message.success(t('models.message.defaultSet'));
       loadModels();
     } catch (e: any) {
       message.error(e.message);
@@ -113,34 +116,34 @@ export default function Models() {
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', render: (v: string, r: ModelConfig) => (
-      <span>{v} {r.is_default === 1 && <Tag color="gold" icon={<StarOutlined />}>默认</Tag>}</span>
+    { title: t('models.column.name'), dataIndex: 'name', key: 'name', render: (v: string, r: ModelConfig) => (
+      <span>{v} {r.is_default === 1 && <Tag color="gold" icon={<StarOutlined />}>{t('models.default')}</Tag>}</span>
     )},
-    { title: '供应商', dataIndex: 'provider', key: 'provider', width: 100 },
+    { title: t('models.column.provider'), dataIndex: 'provider', key: 'provider', width: 100 },
     { title: 'Endpoint', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
-    { title: '模型名', dataIndex: 'model_name', key: 'model_name' },
-    { title: '凭据', key: 'credentials', width: 150, render: (_: unknown, record: ModelConfig) => (
+    { title: t('models.column.model'), dataIndex: 'model_name', key: 'model_name' },
+    { title: t('models.column.credentials'), key: 'credentials', width: 150, render: (_: unknown, record: ModelConfig) => (
       <Text type={record.has_api_key ? undefined : 'danger'}>
-        {modelCredentialLabel(record)}
+        {modelCredentialLabel(record, t)}
       </Text>
     ) },
     { title: 'Temperature', dataIndex: 'temperature', key: 'temperature', width: 110, render: (v: number) => v?.toFixed(1) },
-    { title: '操作', key: 'actions', width: 280, render: (_: any, record: ModelConfig) => (
+    { title: t('models.column.actions'), key: 'actions', width: 280, render: (_: any, record: ModelConfig) => (
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
+        <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>{t('models.action.edit')}</Button>
         <Button
           size="small"
           icon={<ApiOutlined />}
           loading={testLoading === record.id}
           onClick={() => handleTest(record.id)}
         >
-          测试
+          {t('models.action.test')}
         </Button>
         {record.is_default !== 1 && (
-          <Button size="small" icon={<StarOutlined />} onClick={() => handleSetDefault(record.id)}>设为默认</Button>
+          <Button size="small" icon={<StarOutlined />} onClick={() => handleSetDefault(record.id)}>{t('models.action.setDefault')}</Button>
         )}
-        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+        <Popconfirm title={t('models.confirmDelete')} onConfirm={() => handleDelete(record.id)}>
+          <Button size="small" danger icon={<DeleteOutlined />}>{t('models.action.delete')}</Button>
         </Popconfirm>
       </div>
     )},
@@ -149,8 +152,8 @@ export default function Models() {
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title="模型管理"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新增模型</Button>}
+        title={t('models.title')}
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>{t('models.action.new')}</Button>}
       >
         <Table
           dataSource={models}
@@ -160,59 +163,57 @@ export default function Models() {
           pagination={false}
         />
 
-        {/* 测试结果显示 */}
         {testResult && (
-          <div style={{ marginTop: 16, padding: 12, background: testResult.result.ok ? '#f6ffed' : '#fff2f0', borderRadius: 4 }}>
+          <div style={{ marginTop: 16, padding: 12, background: testResult.result.ok ? 'color-mix(in srgb, var(--fq-opportunity) 10%, var(--fq-surface-1))' : 'color-mix(in srgb, var(--fq-system-error) 10%, var(--fq-surface-1))', borderRadius: 4 }}>
             <Text strong>
-              {testResult.result.ok ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : <ApiOutlined style={{ color: '#ff4d4f' }} />}
-              {' '}测试结果
+              {testResult.result.ok ? <CheckCircleOutlined style={{ color: 'var(--fq-opportunity)' }} /> : <ApiOutlined style={{ color: 'var(--fq-system-error)' }} />}
+              {' '}{t('models.testResult.title')}
             </Text>
             <div style={{ marginTop: 4, fontSize: 13 }}>
               <div>{testResult.result.message}</div>
               {testResult.result.latency_ms != null && (
-                <div>延迟: {testResult.result.latency_ms}ms</div>
+                <div>{t('models.testResult.latency', { value: testResult.result.latency_ms })}</div>
               )}
               {testResult.result.reply && (
-                <div>回复: {testResult.result.reply}</div>
+                <div>{t('models.testResult.reply', { value: testResult.result.reply })}</div>
               )}
             </div>
           </div>
         )}
       </Card>
 
-      {/* 新增/编辑 Modal */}
       <Modal
-        title={editingModel ? '编辑模型' : '新增模型'}
+        title={editingModel ? t('models.modal.editTitle') : t('models.modal.newTitle')}
         open={modalOpen}
         onOk={handleSave}
         onCancel={() => setModalOpen(false)}
-        okText="保存"
-        cancelText="取消"
+        okText={t('models.action.save')}
+        cancelText={t('models.action.cancel')}
         width={520}
       >
         <Form form={form} layout="vertical" initialValues={{ provider: 'openai', temperature: 0.7, max_tokens: 4096 }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入模型名称' }]}>
-            <Input placeholder="如 DeepSeek Flash" />
+          <Form.Item name="name" label={t('models.column.name')} rules={[{ required: true, message: t('models.validation.name') }]}>
+            <Input placeholder={t('models.placeholder.name')} />
           </Form.Item>
-          <Form.Item name="provider" label="供应商">
+          <Form.Item name="provider" label={t('models.column.provider')}>
             <Select options={[
-              { label: 'OpenAI 兼容', value: 'openai' },
-              { label: 'DeepSeek（OpenAI 兼容）', value: 'deepseek' },
-              { label: 'OpenRouter（OpenAI 兼容）', value: 'openrouter' },
-              { label: '其他 OpenAI 兼容接口', value: 'custom' },
+              { label: t('models.provider.openai'), value: 'openai' },
+              { label: t('models.provider.deepseek'), value: 'deepseek' },
+              { label: t('models.provider.openrouter'), value: 'openrouter' },
+              { label: t('models.provider.custom'), value: 'custom' },
             ]} />
           </Form.Item>
           <Form.Item name="base_url" label="Endpoint" rules={[{ required: true }]}>
             <Input placeholder="https://api.deepseek.com" />
           </Form.Item>
-          <Form.Item name="model_name" label="模型名" rules={[{ required: true }]}>
+          <Form.Item name="model_name" label={t('models.column.model')} rules={[{ required: true }]}>
             <Input placeholder="deepseek-v4-flash" />
           </Form.Item>
-          <Form.Item name="api_key" label="API Key（仅写入，不会再次展示）">
-            <Input.Password placeholder="sk-xxx；留空则保留既有值" />
+          <Form.Item name="api_key" label={t('models.form.apiKey')}>
+            <Input.Password placeholder={t('models.placeholder.apiKey')} />
           </Form.Item>
-          <Form.Item name="api_key_env" label="API Key 环境变量（推荐）">
-            <Input placeholder="如 OPENAI_API_KEY；未保存密钥时从环境变量读取" />
+          <Form.Item name="api_key_env" label={t('models.form.apiKeyEnv')}>
+            <Input placeholder={t('models.placeholder.apiKeyEnv')} />
           </Form.Item>
           <Form.Item name="temperature" label="Temperature">
             <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />

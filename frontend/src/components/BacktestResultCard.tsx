@@ -1,5 +1,7 @@
 import { Card, Col, Collapse, Empty, Row, Statistic, Tag, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
+import { readChartTokens } from '../styles/themeTokens';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
 
@@ -34,27 +36,32 @@ function EquityCurve({ data, benchmark }: {
   data: BacktestResult['equity_curve'];
   benchmark: BacktestResult['benchmark_curve'];
 }) {
+  const { t } = useLanguage();
+  const colors = readChartTokens();
+  const strategyEquity = t('backtestCard.chart.strategy');
+  const buyAndHold = t('backtestCard.chart.buyHold');
   const option = {
     tooltip: { trigger: 'axis' },
-    legend: { top: 0, data: ['策略净值', '买入持有'] },
+    legend: { top: 0, data: [strategyEquity, buyAndHold] },
     grid: { left: 48, right: 18, top: 34, bottom: 34 },
     xAxis: { type: 'category', data: data.map((point) => point.day), axisLabel: { hideOverlap: true } },
-    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#f0f0f0' } } },
+    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: colors.grid } } },
     dataZoom: [{ type: 'inside' }],
     series: [
-      { name: '策略净值', type: 'line', symbol: 'none', data: data.map((point) => point.equity), lineStyle: { color: '#1677ff', width: 2 }, areaStyle: { color: 'rgba(22,119,255,.16)' } },
-      { name: '买入持有', type: 'line', symbol: 'none', data: (benchmark ?? []).map((point) => point.equity), lineStyle: { color: '#8c8c8c', width: 2 } },
+      { name: strategyEquity, type: 'line', symbol: 'none', data: data.map((point) => point.equity), lineStyle: { color: colors.primary, width: 2 }, areaStyle: { color: colors.primary, opacity: 0.16 } },
+      { name: buyAndHold, type: 'line', symbol: 'none', data: (benchmark ?? []).map((point) => point.equity), lineStyle: { color: colors.unknown, width: 2 } },
     ],
   };
   return <ReactECharts option={option} style={{ height: 220 }} notMerge />;
 }
 
 export default function BacktestResultCard({ ticker, result }: BacktestResultCardProps) {
+  const { t } = useLanguage();
   const { metrics } = result;
   const returnPositive = metrics.total_return_pct >= 0;
   const title = (
     <span>
-      回测结果 <Tag color="blue">{ticker}</Tag><Tag>{result.strategy}</Tag>
+      {t('backtestCard.title')} <Tag color="blue">{ticker}</Tag><Tag>{result.strategy}</Tag>
     </span>
   );
 
@@ -62,16 +69,16 @@ export default function BacktestResultCard({ ticker, result }: BacktestResultCar
     <Card size="small" title={title} style={{ margin: '8px 48px 16px', maxWidth: 860 }}>
       <Row gutter={[16, 12]}>
         <Col xs={12} sm={6}>
-          <Statistic title="收益率" value={metrics.total_return_pct} precision={2} suffix="%" valueStyle={{ color: returnPositive ? '#3f8600' : '#cf1322' }} />
+          <Statistic title={t('backtestCard.metric.return')} value={metrics.total_return_pct} precision={2} suffix="%" valueStyle={{ color: returnPositive ? 'var(--fq-price-up)' : 'var(--fq-price-down)' }} />
         </Col>
         <Col xs={12} sm={6}>
-          <Statistic title="夏普比率" value={metrics.sharpe_ratio} precision={3} />
+          <Statistic title={t('backtestCard.metric.sharpe')} value={metrics.sharpe_ratio} precision={3} />
         </Col>
         <Col xs={12} sm={6}>
-          <Statistic title="最大回撤" value={metrics.max_drawdown_pct} precision={2} suffix="%" valueStyle={{ color: '#cf1322' }} />
+          <Statistic title={t('backtestCard.metric.drawdown')} value={metrics.max_drawdown_pct} precision={2} suffix="%" valueStyle={{ color: 'var(--fq-risk)' }} />
         </Col>
         <Col xs={12} sm={6}>
-          <Statistic title="交易次数" value={metrics.trade_count} />
+          <Statistic title={t('backtestCard.metric.trades')} value={metrics.trade_count} />
         </Col>
       </Row>
 
@@ -81,30 +88,30 @@ export default function BacktestResultCard({ ticker, result }: BacktestResultCar
         items={[
           {
             key: 'equity',
-            label: '策略权益 vs. 买入持有基准',
+            label: t('backtestCard.equityTitle'),
             children: result.equity_curve.length > 0
               ? <EquityCurve data={result.equity_curve} benchmark={result.benchmark_curve} />
-              : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有可展示的权益曲线" />,
+              : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('backtestCard.noEquity')} />,
           },
           {
             key: 'details',
-            label: '更多指标',
+            label: t('backtestCard.moreMetrics'),
             children: (
               <Row gutter={[16, 12]}>
-                <Col span={8}><Text type="secondary">年化收益</Text><br />{metrics.annual_return_pct.toFixed(2)}%</Col>
-                <Col span={8}><Text type="secondary">胜率</Text><br />{metrics.win_rate_pct.toFixed(1)}%</Col>
+                <Col span={8}><Text type="secondary">{t('backtestCard.metric.annualReturn')}</Text><br />{metrics.annual_return_pct.toFixed(2)}%</Col>
+                <Col span={8}><Text type="secondary">{t('backtestCard.metric.winRate')}</Text><br />{metrics.win_rate_pct.toFixed(1)}%</Col>
                 <Col span={8}><Text type="secondary">Sortino</Text><br />{metrics.sortino_ratio?.toFixed(3) ?? '—'}</Col>
                 <Col span={8}><Text type="secondary">Calmar</Text><br />{metrics.calmar_ratio?.toFixed(3) ?? '—'}</Col>
-                <Col span={8}><Text type="secondary">信息比率</Text><br />{metrics.information_ratio?.toFixed(3) ?? '—'}</Col>
-                <Col span={8}><Text type="secondary">盈亏比</Text><br />{metrics.profit_factor?.toFixed(3) ?? '—'}</Col>
-                <Col span={8}><Text type="secondary">买入持有</Text><br />{result.buy_hold_return_pct.toFixed(2)}%</Col>
+                <Col span={8}><Text type="secondary">{t('backtestCard.metric.informationRatio')}</Text><br />{metrics.information_ratio?.toFixed(3) ?? '—'}</Col>
+                <Col span={8}><Text type="secondary">{t('backtestCard.metric.profitFactor')}</Text><br />{metrics.profit_factor?.toFixed(3) ?? '—'}</Col>
+                <Col span={8}><Text type="secondary">{t('backtestCard.chart.buyHold')}</Text><br />{result.buy_hold_return_pct.toFixed(2)}%</Col>
               </Row>
             ),
           },
         ]}
       />
       <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-        回测区间：{result.period.from} 至 {result.period.to}（{result.period.days} 个交易日）
+        {t('backtestCard.period', { from: result.period.from, to: result.period.to, days: result.period.days })}
       </Text>
     </Card>
   );

@@ -1,6 +1,4 @@
-/* ============================================================
- * Settings — 系统设置页（角色管理 + 主题切换）
- * ============================================================ */
+/* Settings page: preferences, credentials, agents, usage, and appearance. */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Alert, Card, Col, Table, Button, Modal, Form, Input, Row, Select, Popconfirm,
@@ -15,6 +13,7 @@ import MCPServerSettingsPanel from '../components/settings/MCPServerSettingsPane
 import SystemSettingsPanel from '../components/settings/SystemSettingsPanel';
 import FundamentalsSourcePanel from '../components/settings/FundamentalsSourcePanel';
 import ProfessionalPreferencesPanel from '../components/settings/ProfessionalPreferencesPanel';
+import { useLanguage } from '../i18n/LanguageContext';
 
 
 interface UsageSummary {
@@ -57,6 +56,7 @@ interface ScheduledResearchRun {
 }
 
 export function ScheduledResearchLinkagePanel() {
+  const { t } = useLanguage();
   const [jobs, setJobs] = useState<ScheduledResearchJob[]>([]);
   const [runs, setRuns] = useState<ScheduledResearchRun[]>([]);
   const [selected, setSelected] = useState<ScheduledResearchJob | null>(null);
@@ -69,7 +69,7 @@ export function ScheduledResearchLinkagePanel() {
       const response = await apiClient.get('/settings/research-jobs');
       setJobs(response.data.items);
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '定时研究任务读取失败');
+      setError(reason instanceof Error ? reason.message : t('settings.scheduled.loadFailed'));
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void loadJobs(); }, [loadJobs]);
@@ -80,24 +80,24 @@ export function ScheduledResearchLinkagePanel() {
       const response = await apiClient.get(`/settings/research-jobs/${job.id}/runs`);
       setRuns(response.data.items);
     } catch (reason: unknown) {
-      setRuns([]); setError(reason instanceof Error ? reason.message : '运行链路读取失败');
+      setRuns([]); setError(reason instanceof Error ? reason.message : t('settings.scheduled.runsFailed'));
     } finally { setLoading(false); }
   };
 
   return (
-    <Card title="定时研究运行链路" loading={loading} extra={<Button onClick={() => void loadJobs()}>刷新</Button>}>
+    <Card title={t('settings.scheduled.title')} loading={loading} extra={<Button onClick={() => void loadJobs()}>{t('settings.refresh')}</Button>}>
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
-      <Table rowKey="id" pagination={false} dataSource={jobs} locale={{ emptyText: '暂无定时研究任务' }} columns={[
-        { title: '任务', dataIndex: 'name' }, { title: '标的', dataIndex: 'ticker' },
-        { title: '状态', dataIndex: 'last_status', render: (value: string) => <Tag>{value}</Tag> },
-        { title: '操作', render: (_: unknown, job: ScheduledResearchJob) => <Button onClick={() => void showRuns(job)}>运行历史</Button> },
+      <Table rowKey="id" pagination={false} dataSource={jobs} locale={{ emptyText: t('settings.scheduled.empty') }} columns={[
+        { title: t('settings.scheduled.job'), dataIndex: 'name' }, { title: t('settings.ticker'), dataIndex: 'ticker' },
+        { title: t('settings.status'), dataIndex: 'last_status', render: (value: string) => <Tag>{value}</Tag> },
+        { title: t('settings.actions'), render: (_: unknown, job: ScheduledResearchJob) => <Button onClick={() => void showRuns(job)}>{t('settings.scheduled.runHistory')}</Button> },
       ]} />
-      {selected ? <Table style={{ marginTop: 16 }} rowKey="id" pagination={false} dataSource={runs} locale={{ emptyText: '暂无运行历史' }} columns={[
-        { title: '尝试', dataIndex: 'attempt', render: (value: number, run: ScheduledResearchRun) => `#${value}${run.retry_of_run_id ? ` · 重试 ${run.retry_of_run_id}` : ''}` },
-        { title: '运行状态', dataIndex: 'status' },
-        { title: '证据质量', dataIndex: 'evidence_status', render: (value: string) => <Tag color={value === 'OK' ? 'green' : value === 'UPSTREAM_ERROR' ? 'red' : 'default'}>{value}</Tag> },
-        { title: '回链', render: (_: unknown, run: ScheduledResearchRun) => `报告 ${run.report_id ?? 'UNKNOWN'} · evidence ${run.evidence_ids.length} · memory ${run.memory_record_ids.length}` },
-        { title: '错误', dataIndex: 'error', render: (value: string | null) => value || '—' },
+      {selected ? <Table style={{ marginTop: 16 }} rowKey="id" pagination={false} dataSource={runs} locale={{ emptyText: t('settings.scheduled.noRuns') }} columns={[
+        { title: t('settings.scheduled.attempt'), dataIndex: 'attempt', render: (value: number, run: ScheduledResearchRun) => `#${value}${run.retry_of_run_id ? ` · ${t('settings.scheduled.retry', { id: run.retry_of_run_id })}` : ''}` },
+        { title: t('settings.scheduled.runStatus'), dataIndex: 'status' },
+        { title: t('settings.scheduled.evidenceQuality'), dataIndex: 'evidence_status', render: (value: string) => <Tag color={value === 'OK' ? 'green' : value === 'UPSTREAM_ERROR' ? 'red' : 'default'}>{value}</Tag> },
+        { title: t('settings.scheduled.links'), render: (_: unknown, run: ScheduledResearchRun) => t('settings.scheduled.linksValue', { report: run.report_id ?? 'UNKNOWN', evidence: run.evidence_ids.length, memory: run.memory_record_ids.length }) },
+        { title: t('settings.scheduled.error'), dataIndex: 'error', render: (value: string | null) => value || '—' },
       ]} /> : null}
     </Card>
   );
@@ -122,6 +122,7 @@ interface ProductMetricsSummary {
 }
 
 export function ProductMetricsPanel() {
+  const { t } = useLanguage();
   const [summary, setSummary] = useState<ProductMetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -133,7 +134,7 @@ export function ProductMetricsPanel() {
       const response = await apiClient.get('/settings/product-metrics');
       setSummary(response.data as ProductMetricsSummary);
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '本地产品指标读取失败');
+      setError(reason instanceof Error ? reason.message : t('settings.metrics.loadFailed'));
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -144,7 +145,7 @@ export function ProductMetricsPanel() {
       const response = await apiClient.patch('/settings/product-metrics', { enabled });
       setSummary(response.data as ProductMetricsSummary);
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '本地产品指标设置失败');
+      setError(reason instanceof Error ? reason.message : t('settings.metrics.saveFailed'));
     } finally { setSaving(false); }
   };
 
@@ -153,71 +154,77 @@ export function ProductMetricsPanel() {
     try {
       await apiClient.delete('/settings/product-metrics/events');
       await load();
-      message.success('当前用户的本地产品事件已清除');
+      message.success(t('settings.metrics.cleared'));
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '本地产品指标清除失败');
+      setError(reason instanceof Error ? reason.message : t('settings.metrics.clearFailed'));
     } finally { setSaving(false); }
   };
 
   return (
     <Card
-      title="本地产品指标"
+      title={t('settings.metrics.title')}
       loading={loading}
-      extra={<Space><Typography.Text>记录</Typography.Text><Switch aria-label="启用本地产品指标" checked={Boolean(summary?.enabled)} loading={saving} onChange={(checked) => void toggle(checked)} /></Space>}
+      extra={<Space><Typography.Text>{t('settings.metrics.record')}</Typography.Text><Switch aria-label={t('settings.metrics.enableAria')} checked={Boolean(summary?.enabled)} loading={saving} onChange={(checked) => void toggle(checked)} /></Space>}
     >
       <Alert
         type="info"
         showIcon
-        message="默认关闭，仅保存在本机当前用户下"
-        description="只记录 TTFV 毫秒、保存/继续计数和重复研究天数；不记录 ticker、对象 ID、查询、金融正文、模型回答或凭据。"
+        message={t('settings.metrics.notice')}
+        description={t('settings.metrics.noticeDescription')}
         style={{ marginBottom: 12 }}
       />
-      {error ? <Alert type="error" showIcon message="本地产品指标不可用" description={error} style={{ marginBottom: 12 }} /> : null}
-      {!summary?.enabled ? <Alert type="warning" showIcon message="指标已关闭，事件写入为零" /> : summary.events_total === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无本地产品事件" />
+      {error ? <Alert type="error" showIcon message={t('settings.metrics.unavailable')} description={error} style={{ marginBottom: 12 }} /> : null}
+      {!summary?.enabled ? <Alert type="warning" showIcon message={t('settings.metrics.disabled')} /> : summary.events_total === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('settings.metrics.empty')} />
       ) : (
         <>
-          {summary.ttfv.insufficient_sample ? <Alert type="warning" showIcon message={`TTFV 样本 ${summary.ttfv.count} 条；少于 10 条时不显示中位数或 P90。`} style={{ marginBottom: 12 }} /> : null}
+          {summary.ttfv.insufficient_sample ? <Alert type="warning" showIcon message={t('settings.metrics.insufficient', { count: summary.ttfv.count })} style={{ marginBottom: 12 }} /> : null}
           <Row gutter={[12, 12]}>
-            <Col xs={12} md={6}><Statistic title="事件数" value={summary.events_total} /></Col>
-            <Col xs={12} md={6}><Statistic title="TTFV 中位数" value={summary.ttfv.median_ms ?? '样本不足'} suffix={summary.ttfv.median_ms == null ? undefined : 'ms'} /></Col>
-            <Col xs={12} md={6}><Statistic title="保存" value={summary.counts.result_saved} /></Col>
-            <Col xs={12} md={6}><Statistic title="继续工作流" value={summary.counts.workflow_continued} /></Col>
-            <Col xs={12} md={6}><Statistic title="重复研究" value={summary.counts.repeat_research} /></Col>
-            <Col xs={12} md={6}><Statistic title="7 日内重复" value={summary.counts.repeat_research_within_7d} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.events')} value={summary.events_total} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.median')} value={summary.ttfv.median_ms ?? t('settings.metrics.insufficientValue')} suffix={summary.ttfv.median_ms == null ? undefined : 'ms'} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.saved')} value={summary.counts.result_saved} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.continued')} value={summary.counts.workflow_continued} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.repeat')} value={summary.counts.repeat_research} /></Col>
+            <Col xs={12} md={6}><Statistic title={t('settings.metrics.repeat7d')} value={summary.counts.repeat_research_within_7d} /></Col>
           </Row>
         </>
       )}
       <Popconfirm
-        title="清除当前用户的全部本地产品事件？"
-        description="开关状态保留；事件删除后不可恢复。"
-        okText="确认清除"
-        cancelText="取消"
+        title={t('settings.metrics.clearConfirm')}
+        description={t('settings.metrics.clearDescription')}
+        okText={t('settings.metrics.clearOk')}
+        cancelText={t('settings.cancel')}
         onConfirm={() => void clear()}
         disabled={!summary?.events_total || saving}
       >
-        <Button danger disabled={!summary?.events_total || saving} style={{ marginTop: 16 }}>清除本地指标</Button>
+        <Button danger disabled={!summary?.events_total || saving} style={{ marginTop: 16 }}>{t('settings.metrics.clear')}</Button>
       </Popconfirm>
     </Card>
   );
 }
 
 const CREDENTIAL_SERVICES = [
-  { service: 'tushare', label: 'Tushare Token', provider: 'tushare.pro', hint: 'A 股基本面数据' },
-  { service: 'tavily', label: 'Tavily API Key', provider: 'tavily', hint: '新闻与网页搜索' },
-  { service: 'serpapi', label: 'SerpAPI Key', provider: 'serpapi', hint: 'Google 新闻搜索' },
-  { service: 'bocha', label: '博查 API Key', provider: 'bocha', hint: '中文网页搜索' },
-  { service: 'brave', label: 'Brave Search Key', provider: 'brave', hint: 'Brave 新闻搜索' },
-  { service: 'searxng', label: 'SearXNG 地址', provider: 'searxng', hint: '自托管搜索端点' },
-  { service: 'mcp:default', label: 'MCP Bearer Token', provider: 'mcp', hint: '受保护 MCP 服务' },
+  { service: 'tushare', labelKey: 'settings.credentials.label.tushare', provider: 'tushare.pro', hintKey: 'settings.credentials.hint.tushare' },
+  { service: 'tavily', labelKey: 'settings.credentials.label.tavily', provider: 'tavily', hintKey: 'settings.credentials.hint.tavily' },
+  { service: 'serpapi', labelKey: 'settings.credentials.label.serpapi', provider: 'serpapi', hintKey: 'settings.credentials.hint.serpapi' },
+  { service: 'bocha', labelKey: 'settings.credentials.label.bocha', provider: 'bocha', hintKey: 'settings.credentials.hint.bocha' },
+  { service: 'brave', labelKey: 'settings.credentials.label.brave', provider: 'brave', hintKey: 'settings.credentials.hint.brave' },
+  { service: 'searxng', labelKey: 'settings.credentials.label.searxng', provider: 'searxng', hintKey: 'settings.credentials.hint.searxng' },
+  { service: 'mcp:default', labelKey: 'settings.credentials.label.mcp', provider: 'mcp', hintKey: 'settings.credentials.hint.mcp' },
 ] as const;
 
+type CredentialServiceView = (typeof CREDENTIAL_SERVICES)[number] & {
+  label: string;
+  hint: string;
+  status?: CredentialStatus;
+};
 
 function CredentialPanel() {
+  const { t } = useLanguage();
   const [items, setItems] = useState<CredentialStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState<(typeof CREDENTIAL_SERVICES)[number] | null>(null);
+  const [selected, setSelected] = useState<CredentialServiceView | null>(null);
   const [secret, setSecret] = useState('');
 
   const loadCredentials = useCallback(async () => {
@@ -226,7 +233,7 @@ function CredentialPanel() {
       const response = await apiClient.get<{ items: CredentialStatus[] }>('/me/credentials');
       setItems(response.data.items);
     } catch (reason: unknown) {
-      message.error(reason instanceof Error ? reason.message : '凭据状态读取失败');
+      message.error(reason instanceof Error ? reason.message : t('settings.credentials.statusFailed'));
     } finally {
       setLoading(false);
     }
@@ -236,6 +243,8 @@ function CredentialPanel() {
   const statusByService = new Map(items.map((item) => [item.service, item]));
   const rows = CREDENTIAL_SERVICES.map((service) => ({
     ...service,
+    label: t(service.labelKey),
+    hint: t(service.hintKey),
     status: statusByService.get(service.service),
   }));
 
@@ -255,10 +264,10 @@ function CredentialPanel() {
         value,
         provider: pending.provider,
       });
-      message.success(`${pending.label} 已加密保存`);
+      message.success(t('settings.credentials.saved', { label: pending.label }));
       await loadCredentials();
     } catch (reason: unknown) {
-      message.error(reason instanceof Error ? reason.message : '凭据保存失败');
+      message.error(reason instanceof Error ? reason.message : t('settings.credentials.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -267,19 +276,19 @@ function CredentialPanel() {
   const removeCredential = async (service: string) => {
     try {
       await apiClient.delete(`/me/credentials/${encodeURIComponent(service)}`);
-      message.success('凭据已删除');
+      message.success(t('settings.credentials.deleted'));
       await loadCredentials();
     } catch (reason: unknown) {
-      message.error(reason instanceof Error ? reason.message : '凭据删除失败');
+      message.error(reason instanceof Error ? reason.message : t('settings.credentials.deleteFailed'));
     }
   };
 
   return (
-    <Card title="API 密钥管理" extra={<Button onClick={() => void loadCredentials()}>刷新</Button>}>
+    <Card title={t('settings.credentials.title')} extra={<Button onClick={() => void loadCredentials()}>{t('settings.refresh')}</Button>}>
       <Alert
         type="info"
         showIcon
-        message="密钥使用 Fernet 加密，仅写入；保存后浏览器和 API 都不会再次显示明文。"
+        message={t('settings.credentials.notice')}
         style={{ marginBottom: 16 }}
       />
       <Table
@@ -289,7 +298,7 @@ function CredentialPanel() {
         dataSource={rows}
         columns={[
           {
-            title: '服务',
+            title: t('settings.credentials.service'),
             key: 'service',
             render: (_value, row) => (
               <Space direction="vertical" size={0}>
@@ -299,35 +308,35 @@ function CredentialPanel() {
             ),
           },
           {
-            title: '状态',
+            title: t('settings.status'),
             key: 'status',
             width: 130,
             render: (_value, row) => row.status?.has_key
-              ? <Tag color="success">已配置</Tag>
-              : <Tag>未配置</Tag>,
+              ? <Tag color="success">{t('settings.credentials.configured')}</Tag>
+              : <Tag>{t('settings.credentials.notConfigured')}</Tag>,
           },
           {
-            title: '更新时间',
+            title: t('settings.credentials.updatedAt'),
             key: 'updated_at',
             width: 180,
             render: (_value, row) => row.status?.updated_at || '—',
           },
           {
-            title: '操作',
+            title: t('settings.actions'),
             key: 'actions',
             width: 190,
             render: (_value, row) => (
               <Space>
                 <Button icon={<KeyOutlined />} onClick={() => setSelected(row)}>
-                  {row.status?.has_key ? '更新' : '配置'}
+                  {t(row.status?.has_key ? 'settings.credentials.update' : 'settings.credentials.configure')}
                 </Button>
                 {row.status?.has_key ? (
                   <Popconfirm
-                    title="删除这项凭据？"
-                    description="依赖该凭据的数据源将不可用。"
+                    title={t('settings.credentials.deleteConfirm')}
+                    description={t('settings.credentials.deleteDescription')}
                     onConfirm={() => void removeCredential(row.service)}
                   >
-                    <Button danger>删除</Button>
+                    <Button danger>{t('settings.delete')}</Button>
                   </Popconfirm>
                 ) : null}
               </Space>
@@ -337,23 +346,23 @@ function CredentialPanel() {
       />
       {selected ? (
         <Modal
-          title={`配置 ${selected.label}`}
+          title={t('settings.credentials.modalTitle', { label: selected.label })}
           open
           onCancel={closeEditor}
           onOk={() => void saveCredential()}
           okButtonProps={{ disabled: !secret, loading: saving }}
-          okText="加密保存"
-          cancelText="取消"
+          okText={t('settings.credentials.encryptSave')}
+          cancelText={t('settings.cancel')}
         >
           <Typography.Paragraph type="secondary">
-            新值只在本次提交期间保存在页面内存中，提交后立即清空。
+            {t('settings.credentials.editorNotice')}
           </Typography.Paragraph>
           <Input.Password
-            aria-label={`${selected.label} 凭据`}
+            aria-label={t('settings.credentials.aria', { label: selected.label })}
             autoComplete="new-password"
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
-            placeholder="输入新凭据"
+            placeholder={t('settings.credentials.placeholder')}
             autoFocus
           />
         </Modal>
@@ -364,6 +373,7 @@ function CredentialPanel() {
 
 
 function UsagePanel() {
+  const { t } = useLanguage();
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -375,7 +385,7 @@ function UsagePanel() {
       const response = await apiClient.get<UsageSummary>('/usage', { params: { days: 30 } });
       setUsage(response.data);
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '用量读取失败');
+      setError(reason instanceof Error ? reason.message : t('settings.usage.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -384,38 +394,38 @@ function UsagePanel() {
   useEffect(() => { loadUsage(); }, [loadUsage]);
 
   return (
-    <Card title="最近 30 天 LLM 用量" loading={loading} extra={<Button onClick={loadUsage}>刷新</Button>}>
+    <Card title={t('settings.usage.title')} loading={loading} extra={<Button onClick={loadUsage}>{t('settings.refresh')}</Button>}>
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={12} lg={6}><Statistic title="总 Token" value={usage?.total.total_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title="输入 Token" value={usage?.total.prompt_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title="输出 Token" value={usage?.total.completion_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title="模型请求" value={usage?.total.request_count ?? 0} /></Col>
+        <Col xs={12} lg={6}><Statistic title={t('settings.usage.total')} value={usage?.total.total_tokens ?? 0} /></Col>
+        <Col xs={12} lg={6}><Statistic title={t('settings.usage.input')} value={usage?.total.prompt_tokens ?? 0} /></Col>
+        <Col xs={12} lg={6}><Statistic title={t('settings.usage.output')} value={usage?.total.completion_tokens ?? 0} /></Col>
+        <Col xs={12} lg={6}><Statistic title={t('settings.usage.requests')} value={usage?.total.request_count ?? 0} /></Col>
       </Row>
-      <Typography.Title level={5}>按场景</Typography.Title>
+      <Typography.Title level={5}>{t('settings.usage.byScenario')}</Typography.Title>
       <Table
         size="small"
         rowKey="session_type"
         pagination={false}
         dataSource={usage?.by_session_type ?? []}
         columns={[
-          { title: '场景', dataIndex: 'session_type' },
+          { title: t('settings.usage.scenario'), dataIndex: 'session_type' },
           { title: 'Token', dataIndex: 'total_tokens' },
-          { title: '请求数', dataIndex: 'request_count' },
+          { title: t('settings.usage.requestCount'), dataIndex: 'request_count' },
         ]}
       />
-      <Typography.Title level={5} style={{ marginTop: 20 }}>按日</Typography.Title>
+      <Typography.Title level={5} style={{ marginTop: 20 }}>{t('settings.usage.byDay')}</Typography.Title>
       <Table
         size="small"
         rowKey="day"
         pagination={{ pageSize: 10, hideOnSinglePage: true }}
         dataSource={usage?.items ?? []}
         columns={[
-          { title: '日期（UTC）', dataIndex: 'day' },
-          { title: '输入 Token', dataIndex: 'prompt_tokens' },
-          { title: '输出 Token', dataIndex: 'completion_tokens' },
-          { title: '总 Token', dataIndex: 'total_tokens' },
-          { title: '请求数', dataIndex: 'request_count' },
+          { title: t('settings.usage.dateUtc'), dataIndex: 'day' },
+          { title: t('settings.usage.input'), dataIndex: 'prompt_tokens' },
+          { title: t('settings.usage.output'), dataIndex: 'completion_tokens' },
+          { title: t('settings.usage.total'), dataIndex: 'total_tokens' },
+          { title: t('settings.usage.requestCount'), dataIndex: 'request_count' },
         ]}
       />
     </Card>
@@ -424,6 +434,7 @@ function UsagePanel() {
 
 
 export default function Settings() {
+  const { t } = useLanguage();
   const models = useModelStore((s) => s.models);
 
   const [agents, setAgents] = useState<AgentPreset[]>([]);
@@ -455,7 +466,7 @@ export default function Settings() {
   }, [editingAgent, modalOpen]);
 
 
-  // 打开编辑
+  // Open the role editor.
   const openEdit = (agent?: AgentPreset) => {
     if (agent) {
       setEditingAgent(agent);
@@ -465,17 +476,17 @@ export default function Settings() {
     setModalOpen(true);
   };
 
-  // 保存角色
+  // Save a role.
   const handleSave = async () => {
     const values = await formRef.current?.validateFields();
     if (!values) return;
     try {
       if (editingAgent) {
         await apiClient.put(`/agents/${editingAgent.id}`, values);
-        message.success('已更新');
+        message.success(t('settings.agents.updated'));
       } else {
         await apiClient.post('/agents', values);
-        message.success('已创建');
+        message.success(t('settings.agents.created'));
       }
       setModalOpen(false);
       loadAgents();
@@ -484,11 +495,11 @@ export default function Settings() {
     }
   };
 
-  // 删除角色
+  // Delete a role.
   const handleDelete = async (id: number) => {
     try {
       await apiClient.delete(`/agents/${id}`);
-      message.success('已删除');
+      message.success(t('settings.agents.deleted'));
       loadAgents();
     } catch (e: any) {
       message.error(e.message);
@@ -496,16 +507,16 @@ export default function Settings() {
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '标识', dataIndex: 'role_key', key: 'role_key' },
-    { title: '头像', dataIndex: 'avatar', key: 'avatar', width: 60 },
-    { title: '预置', dataIndex: 'is_preset', key: 'is_preset', width: 80, render: (v: number) => v === 1 ? '系统' : '用户' },
+    { title: t('settings.agents.name'), dataIndex: 'name', key: 'name' },
+    { title: t('settings.agents.key'), dataIndex: 'role_key', key: 'role_key' },
+    { title: t('settings.agents.avatar'), dataIndex: 'avatar', key: 'avatar', width: 60 },
+    { title: t('settings.agents.preset'), dataIndex: 'is_preset', key: 'is_preset', width: 80, render: (v: number) => t(v === 1 ? 'settings.agents.system' : 'settings.agents.user') },
     { title: 'System Prompt', dataIndex: 'system_prompt', key: 'system_prompt', ellipsis: true, render: (v: string) => v?.slice(0, 80) + '...' },
-    { title: '操作', key: 'actions', width: 160, render: (_: any, record: AgentPreset) => (
+    { title: t('settings.actions'), key: 'actions', width: 160, render: (_: any, record: AgentPreset) => (
       <div style={{ display: 'flex', gap: 4 }}>
-        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>编辑</Button>
-        <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>{t('settings.agents.edit')}</Button>
+        <Popconfirm title={t('settings.agents.deleteConfirm')} onConfirm={() => handleDelete(record.id)}>
+          <Button size="small" danger icon={<DeleteOutlined />}>{t('settings.delete')}</Button>
         </Popconfirm>
       </div>
     )},
@@ -514,35 +525,35 @@ export default function Settings() {
   const tabItems = [
     {
       key: 'professional-preferences',
-      label: '专业偏好',
+      label: t('settings.tabs.preferences'),
       children: <ProfessionalPreferencesPanel />,
     },
     {
       key: 'system',
-      label: '系统配置',
+      label: t('settings.tabs.system'),
       children: <SystemSettingsPanel />,
     },
     {
       key: 'credentials',
-      label: 'API 密钥',
+      label: t('settings.tabs.credentials'),
       children: <CredentialPanel />,
     },
     {
       key: 'mcp',
-      label: 'MCP 服务器',
+      label: t('settings.tabs.mcp'),
       children: <MCPServerSettingsPanel />,
     },
     {
       key: 'fundamentals-sources',
-      label: '基本面数据源',
+      label: t('settings.tabs.fundamentals'),
       children: <FundamentalsSourcePanel />,
     },
     {
       key: 'agents',
-      label: '角色管理',
+      label: t('settings.tabs.agents'),
       children: (
         <Card
-          extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>新增角色</Button>}
+          extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>{t('settings.agents.add')}</Button>}
         >
           <Table
             dataSource={agents}
@@ -556,26 +567,26 @@ export default function Settings() {
     },
     {
       key: 'usage',
-      label: 'LLM 用量',
+      label: t('settings.tabs.usage'),
       children: <UsagePanel />,
     },
     {
       key: 'scheduled-research',
-      label: '定时研究',
+      label: t('settings.tabs.scheduled'),
       children: <ScheduledResearchLinkagePanel />,
     },
     {
       key: 'product-metrics',
-      label: '本地指标',
+      label: t('settings.tabs.metrics'),
       children: <ProductMetricsPanel />,
     },
     {
       key: 'appearance',
-      label: '外观',
+      label: t('settings.tabs.appearance'),
       children: (
-        <Card title="主题设置">
+        <Card title={t('settings.appearance.title')}>
           <Typography.Text type="secondary">
-            明暗主题切换已移至页面顶部栏，请使用太阳或月亮按钮切换。
+            {t('settings.appearance.description')}
           </Typography.Text>
         </Card>
       ),
@@ -586,35 +597,35 @@ export default function Settings() {
     <div style={{ padding: 24 }}>
       <Tabs defaultActiveKey="system" items={tabItems} />
 
-      {/* 编辑角色 Modal */}
+      {/* Role editor. */}
       <Modal
-        title={editingAgent ? '编辑角色' : '新增角色'}
+        title={t(editingAgent ? 'settings.agents.editTitle' : 'settings.agents.addTitle')}
         open={modalOpen}
         onOk={handleSave}
         onCancel={() => setModalOpen(false)}
-        okText="保存"
-        cancelText="取消"
+        okText={t('settings.agents.save')}
+        cancelText={t('settings.cancel')}
         width={600}
       >
         <Form ref={formRef} layout="vertical">
-          <Form.Item name="name" label="角色名称" rules={[{ required: true }]}>
-            <Input placeholder="价值投资官" />
+          <Form.Item name="name" label={t('settings.agents.roleName')} rules={[{ required: true }]}>
+            <Input placeholder={t('settings.agents.roleNamePlaceholder')} />
           </Form.Item>
-          <Form.Item name="role_key" label="角色标识" rules={[{ required: true }]}>
+          <Form.Item name="role_key" label={t('settings.agents.roleKey')} rules={[{ required: true }]}>
             <Input placeholder="value_investor" disabled={!!editingAgent} />
           </Form.Item>
-          <Form.Item name="avatar" label="头像">
-            <Input placeholder="🏛️" />
+          <Form.Item name="avatar" label={t('settings.agents.avatar')}>
+            <Input placeholder={t('settings.agents.avatarPlaceholder')} />
           </Form.Item>
-          <Form.Item name="model_id" label="绑定模型">
+          <Form.Item name="model_id" label={t('settings.agents.bindModel')}>
             <Select
               allowClear
-              placeholder="不绑定（使用全局默认）"
+              placeholder={t('settings.agents.noModel')}
               options={models.map((m) => ({ label: m.name, value: m.id }))}
             />
           </Form.Item>
           <Form.Item name="system_prompt" label="System Prompt" rules={[{ required: true }]}>
-            <Input.TextArea rows={8} placeholder="请填写 System Prompt..." />
+            <Input.TextArea rows={8} placeholder={t('settings.agents.promptPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

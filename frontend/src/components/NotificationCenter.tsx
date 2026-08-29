@@ -17,6 +17,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from '../services/notificationApi';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
 
@@ -36,13 +37,14 @@ function desktopPermission(): DesktopPermission {
     : 'unsupported';
 }
 
-function formatCreatedAt(value: string): string {
+function formatCreatedAt(value: string, lang: 'zh' | 'en'): string {
   const iso = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US');
 }
 
 export default function NotificationCenter() {
+  const { lang, t } = useLanguage();
   const navigate = useNavigate();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +104,7 @@ export default function NotificationCenter() {
           latestId = Math.max(latestId, item.id);
         }
       } catch (error) {
-        if (!disposed) message.error(error instanceof Error ? error.message : '通知历史加载失败');
+        if (!disposed) message.error(error instanceof Error ? error.message : t('notifications.error.load'));
       } finally {
         if (!disposed) {
           setLoading(false);
@@ -116,7 +118,7 @@ export default function NotificationCenter() {
       disposed = true;
       source?.close();
     };
-  }, [navigate]);
+  }, [navigate, t]);
 
   const requestDesktopPermission = useCallback(async () => {
     if (!('Notification' in window)) {
@@ -125,9 +127,9 @@ export default function NotificationCenter() {
     }
     const result = await window.Notification.requestPermission();
     setPermission(result);
-    if (result === 'granted') message.success('桌面通知已启用');
-    if (result === 'denied') message.warning('浏览器已阻止桌面通知，可在站点权限中重新开启');
-  }, []);
+    if (result === 'granted') message.success(t('notifications.desktop.enabled'));
+    if (result === 'denied') message.warning(t('notifications.desktop.deniedHelp'));
+  }, [t]);
 
   const openNotification = useCallback(async (notification: AppNotification) => {
     if (!notification.is_read) {
@@ -135,39 +137,39 @@ export default function NotificationCenter() {
         await markNotificationRead(notification.id);
         setItems((current) => markNotificationReadLocal(current, notification.id));
       } catch (error) {
-        message.error(error instanceof Error ? error.message : '更新通知状态失败');
+        message.error(error instanceof Error ? error.message : t('notifications.error.update'));
       }
     }
     const url = notification.payload.url;
     if (typeof url === 'string') navigate(url);
-  }, [navigate]);
+  }, [navigate, t]);
 
   const readAll = useCallback(async () => {
     try {
       await markAllNotificationsRead();
       setItems(markAllNotificationsReadLocal);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '更新通知状态失败');
+      message.error(error instanceof Error ? error.message : t('notifications.error.update'));
     }
-  }, []);
+  }, [t]);
 
   const unread = countUnreadNotifications(items);
   const permissionControl = permission === 'default'
     ? (
       <Button size="small" icon={<DesktopOutlined />} onClick={() => void requestDesktopPermission()}>
-        启用桌面通知
+        {t('notifications.desktop.enable')}
       </Button>
     )
     : permission === 'granted'
-      ? <Tag color="green" icon={<CheckOutlined />}>桌面通知已启用</Tag>
-      : <Text type="secondary">{permission === 'denied' ? '桌面通知已被浏览器阻止' : '当前浏览器不支持桌面通知'}</Text>;
+      ? <Tag color="green" icon={<CheckOutlined />}>{t('notifications.desktop.enabled')}</Tag>
+      : <Text type="secondary">{permission === 'denied' ? t('notifications.desktop.denied') : t('notifications.desktop.unsupported')}</Text>;
 
   const content = (
     <div style={{ width: 360, maxWidth: 'calc(100vw - 48px)' }} data-testid="notification-center-panel">
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 10 }}>
         {permissionControl}
         <Button type="link" size="small" disabled={unread === 0} onClick={() => void readAll()}>
-          全部已读
+          {t('notifications.markAllRead')}
         </Button>
       </Space>
       {loading ? (
@@ -189,27 +191,27 @@ export default function NotificationCenter() {
                   <Space wrap>
                     {!item.is_read ? <Badge status="processing" /> : null}
                     <Text strong={!item.is_read}>{item.title}</Text>
-                    <Tag color={SEVERITY_COLOR[item.severity]}>{item.severity}</Tag>
+                    <Tag color={SEVERITY_COLOR[item.severity]}>{t(`notifications.severity.${item.severity}`)}</Tag>
                   </Space>
                   <Text type="secondary">{item.body}</Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{formatCreatedAt(item.created_at)}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{formatCreatedAt(item.created_at, lang)}</Text>
                 </Space>
               </Button>
             </List.Item>
           )}
         />
-      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无通知" />}
+      ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('notifications.empty')} />}
     </div>
   );
 
   return (
-    <Popover title="通知中心" content={content} trigger="click" placement="bottomRight">
+    <Popover title={t('notifications.title')} content={content} trigger="click" placement="bottomRight">
       <Badge count={unread} size="small" overflowCount={99}>
         <Button
           type="default"
           shape="circle"
-          aria-label={`通知中心，${unread} 条未读`}
-          title={streamStatus === 'connected' ? '通知已连接' : '通知正在重连'}
+          aria-label={t('notifications.aria', { unread })}
+          title={streamStatus === 'connected' ? t('notifications.connected') : t('notifications.reconnecting')}
           icon={<BellOutlined />}
         />
       </Badge>

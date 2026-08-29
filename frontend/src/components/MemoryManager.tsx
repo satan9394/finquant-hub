@@ -8,6 +8,7 @@ import {
   fetchMemories,
   type InvestmentMemory,
 } from '../services/researchApi';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -19,15 +20,8 @@ const statusColor: Record<InvestmentMemory['status'], string> = {
   deleted: 'default',
 };
 
-const statusLabel: Record<InvestmentMemory['status'], string> = {
-  candidate: '待确认',
-  confirmed: '已确认',
-  superseded: '已被取代',
-  invalidated: '已作废',
-  deleted: '已删除',
-};
-
 export default function MemoryManager() {
+  const { t } = useLanguage();
   const [items, setItems] = useState<InvestmentMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -42,11 +36,11 @@ export default function MemoryManager() {
     try {
       setItems(await fetchMemories(includeDeleted));
     } catch {
-      setError('记忆读取失败，请稍后重试。');
+      setError(t('memory.error.load'));
     } finally {
       setLoading(false);
     }
-  }, [includeDeleted]);
+  }, [includeDeleted, t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -62,7 +56,7 @@ export default function MemoryManager() {
       setEditingId(null);
       await load();
     } catch {
-      setError('操作失败；记录状态或 evidence 约束可能已变化。');
+      setError(t('memory.error.action'));
     } finally {
       setBusyId(null);
     }
@@ -74,7 +68,7 @@ export default function MemoryManager() {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required');
       await runAction(item, 'edit', parsed as Record<string, unknown>);
     } catch {
-      setError('编辑内容必须是有效的 JSON 对象。');
+      setError(t('memory.error.invalidJson'));
     }
   };
 
@@ -85,7 +79,7 @@ export default function MemoryManager() {
       await deleteMemory(item.id);
       await load();
     } catch {
-      setError('删除失败；仅支持当前用户记录的单条 soft delete。');
+      setError(t('memory.error.delete'));
     } finally {
       setBusyId(null);
     }
@@ -101,7 +95,7 @@ export default function MemoryManager() {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {
-      setError('导出失败，请稍后重试。');
+      setError(t('memory.error.export'));
     }
   };
 
@@ -109,27 +103,27 @@ export default function MemoryManager() {
     <section aria-labelledby="memory-manager-title">
       <Flex justify="space-between" align="start" gap={16} wrap>
         <div>
-          <Text className="eyebrow">INVESTMENT MEMORY · USER CONTROLLED</Text>
-          <Title id="memory-manager-title" level={4} style={{ margin: '4px 0' }}>我的研究记忆</Title>
-          <Text type="secondary">AI 内容只会进入待确认状态；确认、作废与删除均由你显式操作。</Text>
+          <Text className="eyebrow">{t('memory.eyebrow')}</Text>
+          <Title id="memory-manager-title" level={4} style={{ margin: '4px 0' }}>{t('memory.title')}</Title>
+          <Text type="secondary">{t('memory.subtitle')}</Text>
         </div>
         <Space wrap>
           <Button onClick={() => setIncludeDeleted((value) => !value)}>
-            {includeDeleted ? '隐藏已删除' : '查看已删除'}
+            {includeDeleted ? t('memory.hideDeleted') : t('memory.showDeleted')}
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>刷新</Button>
-          <Button icon={<DownloadOutlined />} onClick={() => void download()}>导出 JSON</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>{t('memory.refresh')}</Button>
+          <Button icon={<DownloadOutlined />} onClick={() => void download()}>{t('memory.export')}</Button>
         </Space>
       </Flex>
 
       {error && <Paragraph type="danger" role="alert" style={{ marginTop: 16 }}>{error}</Paragraph>}
       <Spin spinning={loading}>
         <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 20 }}>
-          {!loading && items.length === 0 && <Empty description="暂无研究记忆" />}
+          {!loading && items.length === 0 && <Empty description={t('memory.empty')} />}
           {items.map((item) => (
             <Card key={item.id} size="small" title={`${item.subject_id} · ${item.memory_type}`}>
               <Space wrap>
-                <Tag color={statusColor[item.status]}>{statusLabel[item.status]}</Tag>
+                <Tag color={statusColor[item.status]}>{t(`memory.status.${item.status}`)}</Tag>
                 <Tag>{item.information_kind}</Tag>
                 <Tag>{item.source_kind}</Tag>
                 {item.quality_flags.map((flag) => <Tag key={flag} color="orange">{flag}</Tag>)}
@@ -138,11 +132,11 @@ export default function MemoryManager() {
                 {JSON.stringify(item.content, null, 2)}
               </Paragraph>
               <Text type="secondary">
-                来源：{item.evidence_id ?? item.source_id ?? 'UNKNOWN'} · 观察时间：{item.observed_at ?? 'UNKNOWN'}
+                {t('memory.provenance', { source: item.evidence_id ?? item.source_id ?? 'UNKNOWN', observedAt: item.observed_at ?? 'UNKNOWN' })}
               </Text>
               {editingId === item.id && (
                 <Input.TextArea
-                  aria-label={`编辑记忆 ${item.id}`}
+                  aria-label={t('memory.editAria', { id: item.id })}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   autoSize={{ minRows: 3, maxRows: 10 }}
@@ -152,30 +146,30 @@ export default function MemoryManager() {
               <Flex gap={8} wrap style={{ marginTop: 12 }}>
                 {item.status === 'candidate' && (
                   <Button type="primary" loading={busyId === item.id} onClick={() => void runAction(item, 'confirm')}>
-                    确认
+                    {t('memory.confirm')}
                   </Button>
                 )}
                 {item.information_kind !== 'FACT' && !['superseded', 'deleted'].includes(item.status) && (
                   editingId === item.id ? (
                     <>
-                      <Button loading={busyId === item.id} onClick={() => void saveEdit(item)}>保存为新版本</Button>
-                      <Button onClick={() => setEditingId(null)}>取消</Button>
+                      <Button loading={busyId === item.id} onClick={() => void saveEdit(item)}>{t('memory.saveVersion')}</Button>
+                      <Button onClick={() => setEditingId(null)}>{t('memory.cancel')}</Button>
                     </>
                   ) : (
                     <Button onClick={() => { setEditingId(item.id); setDraft(JSON.stringify(item.content, null, 2)); }}>
-                      编辑
+                      {t('memory.edit')}
                     </Button>
                   )
                 )}
                 {!['invalidated', 'superseded', 'deleted'].includes(item.status) && (
-                  <Button danger onClick={() => void runAction(item, 'invalidate')}>作废</Button>
+                  <Button danger onClick={() => void runAction(item, 'invalidate')}>{t('memory.invalidate')}</Button>
                 )}
                 {item.status !== 'deleted' && (
                   <Popconfirm
-                    title="仅 soft-delete 这一条记忆，历史引用不会级联删除。"
+                    title={t('memory.deleteConfirm')}
                     onConfirm={() => void remove(item)}
                   >
-                    <Button danger loading={busyId === item.id}>删除</Button>
+                    <Button danger loading={busyId === item.id}>{t('memory.delete')}</Button>
                   </Popconfirm>
                 )}
               </Flex>

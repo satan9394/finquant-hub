@@ -29,4 +29,14 @@ describe('modelCredentialLabel', () => {
     expect(modelCredentialLabel({ ...model, has_api_key: true, credential_source: 'stored' }))
       .toBe('已安全保存');
   });
+
+  it('supports the English credential vocabulary', () => {
+    const t = (key: string, values?: Record<string, string | number>) => {
+      const labels: Record<string, string> = {
+        'models.credentials.waiting': `Waiting for environment variable: ${values?.variable}`,
+      };
+      return labels[key] ?? key;
+    };
+    expect(modelCredentialLabel(model, t)).toBe('Waiting for environment variable: MODEL_API_KEY');
+  });
 });

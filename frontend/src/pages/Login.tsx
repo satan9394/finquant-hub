@@ -4,12 +4,14 @@ import { LockOutlined, MailOutlined } from '@ant-design/icons';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { requestLoginCode } from '../services/authApi';
 import { useAuthStore } from '../store/authStore';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface LoginLocationState {
   from?: string;
 }
 
 export default function Login() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -51,7 +53,7 @@ export default function Login() {
       setStep('code');
       setCooldown(result.cooldown_seconds);
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '验证码发送失败');
+      setError(reason instanceof Error ? reason.message : t('auth.error.sendCode'));
     } finally {
       setSubmitting(false);
     }
@@ -65,7 +67,7 @@ export default function Login() {
       const target = (location.state as LoginLocationState | null)?.from || '/';
       navigate(target, { replace: true });
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '验证码校验失败');
+      setError(reason instanceof Error ? reason.message : t('auth.error.verifyCode'));
     } finally {
       setSubmitting(false);
     }
@@ -75,15 +77,15 @@ export default function Login() {
     <main className="login-shell">
       <Card className="login-card" variant="outlined">
         <div className="login-brand" aria-hidden="true">FQ</div>
-        <Typography.Title level={2}>登录 FinQuant Hub</Typography.Title>
+        <Typography.Title level={2}>{t('auth.title')}</Typography.Title>
         <Typography.Paragraph type="secondary">
-          使用邮箱验证码登录，无需设置或保存密码。
+          {t('auth.subtitle')}
         </Typography.Paragraph>
         {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 18 }} /> : null}
 
         {step === 'email' ? (
           <Form layout="vertical" onFinish={sendCode} requiredMark={false}>
-            <Form.Item label="邮箱" htmlFor="login-email" required>
+            <Form.Item label={t('auth.email')} htmlFor="login-email" required>
               <Input
                 id="login-email"
                 size="large"
@@ -98,7 +100,7 @@ export default function Login() {
               />
             </Form.Item>
             <Button block size="large" type="primary" htmlType="submit" loading={submitting}>
-              获取验证码
+              {t('auth.sendCode')}
             </Button>
           </Form>
         ) : (
@@ -106,10 +108,10 @@ export default function Login() {
             <Alert
               type="info"
               showIcon
-              message={`验证码已发送至 ${email}`}
+              message={t('auth.codeSent', { email })}
               style={{ marginBottom: 18 }}
             />
-            <Form.Item label="6 位验证码" htmlFor="login-code" required>
+            <Form.Item label={t('auth.code')} htmlFor="login-code" required>
               <Input
                 id="login-code"
                 size="large"
@@ -132,14 +134,14 @@ export default function Login() {
               loading={submitting}
               disabled={code.length !== 6}
             >
-              登录
+              {t('auth.signIn')}
             </Button>
             <Space className="login-secondary-actions">
               <Button type="link" onClick={() => { setStep('email'); setCode(''); setError(''); }}>
-                更换邮箱
+                {t('auth.changeEmail')}
               </Button>
               <Button type="link" onClick={sendCode} disabled={cooldown > 0 || submitting}>
-                {cooldown > 0 ? `${cooldown}s 后重发` : '重新发送'}
+                {cooldown > 0 ? t('auth.resendCountdown', { seconds: cooldown }) : t('auth.resend')}
               </Button>
             </Space>
           </Form>

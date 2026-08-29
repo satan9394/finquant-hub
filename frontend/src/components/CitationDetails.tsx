@@ -1,4 +1,5 @@
 import { Descriptions, Space, Tag, Typography } from 'antd';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
 
@@ -20,10 +21,10 @@ type CitationDetailsProps = {
 };
 
 const statusCopy: Record<CitationStatus, { label: string; color: string }> = {
-  OK: { label: '数据正常', color: 'green' },
-  PARTIAL: { label: '部分证据', color: 'gold' },
+  OK: { label: 'OK', color: 'green' },
+  PARTIAL: { label: 'PARTIAL', color: 'gold' },
   UNKNOWN: { label: 'UNKNOWN', color: 'default' },
-  UPSTREAM_ERROR: { label: '上游错误', color: 'red' },
+  UPSTREAM_ERROR: { label: 'UPSTREAM_ERROR', color: 'red' },
 };
 
 const known = (value?: string | null) => value?.trim() || 'UNKNOWN';
@@ -42,28 +43,29 @@ export default function CitationDetails({
   methodVersion,
   inputEvidenceIds = [],
 }: CitationDetailsProps) {
+  const { t } = useLanguage();
   const state = statusCopy[status];
   return (
     <details className="citation-details">
       <summary>
         <Space size={6} wrap>
-          <Text>查看来源/计算方法</Text>
-          <Tag color={state.color}>{state.label}</Tag>
+          <Text>{t('citation.open')}</Text>
+          <Tag color={state.color}>{t(`citation.status.${state.label}`)}</Tag>
         </Space>
       </summary>
       <Descriptions size="small" column={1} bordered style={{ marginTop: 8 }}>
-        <Descriptions.Item label="来源">{known(source)}</Descriptions.Item>
-        <Descriptions.Item label="提供方">{known(vendor)}</Descriptions.Item>
-        <Descriptions.Item label="截止时间">{known(asOf)}</Descriptions.Item>
-        <Descriptions.Item label="期间">{known(periodType)}</Descriptions.Item>
-        <Descriptions.Item label="币种">{known(currency)}</Descriptions.Item>
-        <Descriptions.Item label="复权/频率">{known(adjustment)} / {known(frequency)}</Descriptions.Item>
-        <Descriptions.Item label="质量状态">
-          {qualityFlags.length ? qualityFlags.map((flag) => <Tag key={flag} color="gold">{flag}</Tag>) : '无附加标记'}
+        <Descriptions.Item label={t('citation.source')}>{known(source)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.vendor')}>{known(vendor)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.asOf')}>{known(asOf)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.period')}>{known(periodType)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.currency')}>{known(currency)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.adjustmentFrequency')}>{known(adjustment)} / {known(frequency)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.quality')}>
+          {qualityFlags.length ? qualityFlags.map((flag) => <Tag key={flag} color="gold">{flag}</Tag>) : t('citation.noFlags')}
         </Descriptions.Item>
-        <Descriptions.Item label="公式">{known(formula)}</Descriptions.Item>
-        <Descriptions.Item label="方法版本">{known(methodVersion)}</Descriptions.Item>
-        <Descriptions.Item label="输入证据">
+        <Descriptions.Item label={t('citation.formula')}>{known(formula)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.methodVersion')}>{known(methodVersion)}</Descriptions.Item>
+        <Descriptions.Item label={t('citation.inputs')}>
           {inputEvidenceIds.length ? inputEvidenceIds.join(', ') : 'UNKNOWN'}
         </Descriptions.Item>
       </Descriptions>

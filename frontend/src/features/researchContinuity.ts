@@ -46,14 +46,16 @@ export function reportCoreText(report: ResearchReportDetail): string | null {
   return null;
 }
 
-export function compareReportViewpoints(reports: ResearchReportDetail[]): string {
+type Translate = (key: string) => string;
+
+export function compareReportViewpoints(reports: ResearchReportDetail[], t?: Translate): string {
   const comparable = reports.map(reportCoreText).filter((text): text is string => Boolean(text)).slice(0, 2);
-  if (!reports.length) return '暂无历史报告，无法比较观点变化';
-  if (reports.length === 1) return '仅有一个报告版本，尚无可比较的观点变化';
-  if (comparable.length < 2) return '最近两版缺少可比较的核心结论文本';
+  if (!reports.length) return t ? t('research.continuity.compare.none') : '暂无历史报告，无法比较观点变化';
+  if (reports.length === 1) return t ? t('research.continuity.compare.one') : '仅有一个报告版本，尚无可比较的观点变化';
+  if (comparable.length < 2) return t ? t('research.continuity.compare.missing') : '最近两版缺少可比较的核心结论文本';
   return comparable[0] === comparable[1]
-    ? '最新两版核心结论文本未变化'
-    : '最新两版核心结论文本有变化，请逐版核对差异';
+    ? (t ? t('research.continuity.compare.same') : '最新两版核心结论文本未变化')
+    : (t ? t('research.continuity.compare.changed') : '最新两版核心结论文本有变化，请逐版核对差异');
 }
 
 export function reportUrls(report: ResearchReportDetail): string[] {

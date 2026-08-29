@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ComparisonWorkspace from '../src/pages/ComparisonWorkspace';
+import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 const mocks = vi.hoisted(() => ({
   listResearchWorkspaces: vi.fn(),
@@ -31,6 +32,11 @@ const run = (id: number, symbol: string, totalReturn: number) => ({
   metrics: { total_return: totalReturn, excess_return: totalReturn - 0.05, max_drawdown: -0.1, annualized_volatility: 0.2, trade_count: 8 },
 });
 
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-probe">{location.pathname}{location.search}</div>;
+}
+
 describe('ComparisonWorkspace', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -54,15 +60,27 @@ describe('ComparisonWorkspace', () => {
     fireEvent.click(second);
 
     expect(await screen.findByText('同口径策略指标可并排查看')).toBeTruthy();
-    expect(screen.getByText('总收益')).toBeTruthy();
-    expect(screen.getByText('+10.00%')).toBeTruthy();
-    expect(screen.getByText('+12.00%')).toBeTruthy();
+    expect(screen.getAllByText('总收益')).toHaveLength(2);
+    expect(screen.getAllByText('+10.00%')).toHaveLength(2);
+    expect(screen.getAllByText('+12.00%')).toHaveLength(2);
     expect(localStorage.getItem('finquant_comparison_selection_v1')).toContain('strategy:1');
 
     view.unmount();
     render(<MemoryRouter><ComparisonWorkspace /></MemoryRouter>);
     expect((await screen.findByRole('checkbox', { name: '选择已保存策略实验：600519 · MA20/50' }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole('checkbox', { name: '选择已保存策略实验：000858 · MA20/50' }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('opens a Fast research draft when asking Agent about a comparison row', async () => {
+    render(<MemoryRouter><ComparisonWorkspace /><LocationProbe /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择已保存策略实验：600519 · MA20/50' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择已保存策略实验：000858 · MA20/50' }));
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '询问 Agent' }))[0]);
+    const location = screen.getByTestId('location-probe').textContent || '';
+    expect(location).toContain('/research?mode=fast&prompt=');
+    expect(decodeURIComponent(location)).toContain('总收益');
+    expect(decodeURIComponent(location)).toContain('600519 · MA20/50');
   });
 
   it('keeps mixed research and portfolio records metadata-only without writes', async () => {
@@ -105,5 +123,15 @@ describe('ComparisonWorkspace', () => {
     expect(await screen.findByText('1 个旧选择已跳过')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('已保存研究：offline')).toBeTruthy());
     expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+  });
+
+  it('renders comparison workspace controls in English', async () => {
+    localStorage.setItem('finquant_lang', 'en');
+    render(<LanguageProvider><MemoryRouter><ComparisonWorkspace /></MemoryRouter></LanguageProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Cross-object comparison workspace' })).toBeTruthy();
+    expect(screen.getByRole('searchbox', { name: 'Natural-language comparison input' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Download reproducibility manifest (JSON)' })).toBeTruthy();
+    expect(screen.getByText('2. Comparability and evidence')).toBeTruthy();
   });
 });

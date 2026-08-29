@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 type StatusTone = 'neutral' | 'loading' | 'success' | 'warning' | 'error';
 
@@ -21,6 +22,7 @@ export default function TaskPageHeader({
   statusTone = 'neutral',
   actions,
 }: TaskPageHeaderProps) {
+  const { t } = useLanguage();
   const titleId = useId();
 
   return (
@@ -30,9 +32,9 @@ export default function TaskPageHeader({
         <h2 id={titleId}>{title}</h2>
         <p>{goal}</p>
         <div className="task-page-header__meta">
-          <span>当前对象：{object}</span>
+          <span>{t('common.currentObject')}{object}</span>
           <span className={`task-page-header__status task-page-header__status--${statusTone}`}>
-            数据状态：{status}
+            {t('common.dataStatus', { status })}
           </span>
         </div>
       </div>

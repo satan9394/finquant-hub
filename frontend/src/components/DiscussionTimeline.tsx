@@ -16,7 +16,7 @@ interface DiscussionTimelineProps {
 export default function DiscussionTimeline({ room, messages, currentAgent }: DiscussionTimelineProps) {
   if (!room) {
     return (
-      <div style={{ textAlign: 'center', color: '#aaa', padding: 40 }}>
+      <div style={{ textAlign: 'center', color: 'var(--fq-text-tertiary)', padding: 40 }}>
         请选择或创建一个讨论房间
       </div>
     );
@@ -48,11 +48,11 @@ export default function DiscussionTimeline({ room, messages, currentAgent }: Dis
       children: (
         <div style={{
           padding: '8px 12px',
-          background: isCurrent ? '#e6f7ff' : '#fafafa',
+          background: isCurrent ? 'var(--fq-ai-soft)' : 'var(--fq-bg-subtle)',
           borderRadius: 8,
-          border: isCurrent ? '1px solid #91d5ff' : '1px solid #f0f0f0',
+          border: isCurrent ? '1px solid var(--fq-ai-primary)' : '1px solid var(--fq-border)',
         }}>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--fq-text-tertiary)', marginBottom: 4 }}>
             {msg.agent_name} · Round {msg.round_number || 0}
           </div>
           <div style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
@@ -67,12 +67,12 @@ export default function DiscussionTimeline({ room, messages, currentAgent }: Dis
     <div>
       <Card size="small" style={{ marginBottom: 16 }}>
         <Text strong>{room.topic}</Text>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--fq-text-tertiary)' }}>
           参与角色: {room.participants.map((p) => p.name).join('、')}
           · 共 {room.total_rounds} 轮 · 状态: {room.current_phase === 'done' ? '已完成' : room.current_phase === 'failed' ? '失败，可重试' : '进行中'}
         </div>
         {room.summary && (
-          <div style={{ marginTop: 8, padding: 8, background: '#fffbe6', borderRadius: 4, fontSize: 13 }}>
+          <div style={{ marginTop: 8, padding: 8, background: 'color-mix(in srgb, var(--fq-warning) 10%, var(--fq-surface-1))', borderRadius: 4, fontSize: 13 }}>
             <Text strong>讨论总结：</Text>
             <Paragraph style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{room.summary}</Paragraph>
           </div>

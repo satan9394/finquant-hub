@@ -12,7 +12,7 @@ describe('ChatStarterDraft', () => {
 
     render(<ChatStarterDraft value="核验贵州茅台风险" onChange={onChange} onCreate={onCreate} />);
 
-    expect(screen.getByDisplayValue('核验贵州茅台风险')).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: '快速问答内容' }) as HTMLTextAreaElement).value).toBe('核验贵州茅台风险');
     expect(screen.getByText(/URL 预填不会自动发送/)).toBeTruthy();
     expect(onCreate).not.toHaveBeenCalled();
 

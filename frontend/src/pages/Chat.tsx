@@ -17,6 +17,7 @@ import BacktestResultCard, { type BacktestResult } from '../components/BacktestR
 import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
 import { useSearchParams } from 'react-router-dom';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
@@ -39,23 +40,25 @@ export function ChatStarterDraft({
   onChange: (value: string) => void;
   onCreate: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '48px 24px' }}>
-      <Title level={4}>已预填快速问答草稿</Title>
-      <TextArea value={value} onChange={(event) => onChange(event.target.value)} rows={4} />
+      <Title level={4}>{t('chat.starter.title')}</Title>
+      <TextArea aria-label={t('chat.starter.inputLabel')} value={value} onChange={(event) => onChange(event.target.value)} rows={4} />
       <Button type="primary" icon={<PlusOutlined />} onClick={onCreate} style={{ marginTop: 12 }}>
-        新建会话并继续
+        {t('chat.starter.create')}
       </Button>
       <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-        创建会话只保存草稿上下文；点击“发送”后才调用当前模型一次，URL 预填不会自动发送。
+        {t('chat.starter.note')}
       </Text>
     </div>
   );
 }
 
-export default function Chat() {
+export default function Chat({ initialPrompt }: { initialPrompt?: string } = {}) {
+  const { t } = useLanguage();
   const [searchParams] = useSearchParams();
-  const starterPrompt = searchParams.get('prompt')?.trim();
+  const starterPrompt = initialPrompt?.trim() || searchParams.get('prompt')?.trim();
   const {
     sessions, currentSessionId, messages, streamingContent, isStreaming,
     setSessions, addSession, removeSession, setCurrentSessionId,
@@ -131,7 +134,7 @@ export default function Chat() {
     if (!currentSessionId) return;
     try {
       await apiClient.put(`/chat/sessions/${currentSessionId}`, { role_preset: roleKey });
-      message.success('角色已切换');
+      message.success(t('chat.role.changed'));
     } catch (e: any) {
       message.error(e.message);
     }
@@ -141,13 +144,13 @@ export default function Chat() {
     if (!currentSessionId) return;
     const description = inputValue.trim();
     if (!description) {
-      message.warning('请先输入策略描述，例如：回测 600519 ma_cross');
+      message.warning(t('chat.backtest.descriptionRequired'));
       return;
     }
 
     const { ticker, strategy } = parseBacktestRequest(description);
     if (!ticker) {
-      message.warning('策略描述中需要包含股票代码，例如 600519 或 AAPL');
+      message.warning(t('chat.backtest.tickerRequired'));
       return;
     }
 
@@ -159,10 +162,10 @@ export default function Chat() {
         periods: 252,
       });
       setBacktestResults((items) => [...items, { id: res.data.id, sessionId: currentSessionId, ticker, result: res.data }]);
-      message.success('回测已完成');
+      message.success(t('chat.backtest.completed'));
     } catch (e: any) {
       const detail = e.response?.data?.detail;
-      message.error(typeof detail === 'string' ? detail : e.message || '回测失败');
+      message.error(typeof detail === 'string' ? detail : e.message || t('chat.backtest.failed'));
     } finally {
       setIsBacktesting(false);
     }
@@ -201,14 +204,14 @@ export default function Chat() {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ detail: '请求失败' }));
+        const errData = await response.json().catch(() => ({ detail: t('chat.requestFailed') }));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
       let accumulatedContent = '';
       await readSSE<ChatStreamData>(response.body, ({ event, data }) => {
         if (event === 'error') {
-          message.error(data.error ?? data.message ?? '发送失败');
+          message.error(data.error ?? data.message ?? t('chat.sendFailed'));
           return;
         }
         if (data.delta !== undefined) {
@@ -230,10 +233,10 @@ export default function Chat() {
           setStreamingContent('');
           setIsStreaming(false);
         }
-      }, '聊天服务未返回事件流');
+      }, t('chat.streamMissing'));
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        message.error(err.message || '发送失败');
+        message.error(err.message || t('chat.sendFailed'));
       }
     } finally {
       setIsStreaming(false);
@@ -250,12 +253,12 @@ export default function Chat() {
   const currentMessages = currentSessionId ? (messages[currentSessionId] || []) : [];
 
   return (
-    <Layout style={{ height: 'calc(100vh - 56px)', background: '#fff' }}>
+    <Layout style={{ minHeight: 'calc(100dvh - 56px)', background: 'var(--fq-surface-1)' }}>
       {/* 左栏：会话列表 */}
-      <Sider width={260} style={{ background: '#fafafa', borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
+      <Sider width={260} style={{ background: 'var(--fq-bg-subtle)', borderRight: '1px solid var(--fq-border)', overflow: 'auto' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--fq-border)' }}>
           <Button type="primary" block icon={<PlusOutlined />} onClick={handleNewSession}>
-            新建会话
+            {t('chat.newSession')}
           </Button>
         </div>
         <List
@@ -265,27 +268,27 @@ export default function Chat() {
             <List.Item
               style={{
                 cursor: 'pointer',
-                background: session.id === currentSessionId ? '#e6f7ff' : undefined,
+                background: session.id === currentSessionId ? 'var(--fq-ai-soft)' : undefined,
                 padding: '8px 16px',
               }}
               onClick={() => setCurrentSessionId(session.id)}
               actions={[
-                <Popconfirm title="确认删除？" onConfirm={() => handleDeleteSession(session.id)}>
-                  <DeleteOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
+                <Popconfirm title={t('chat.deleteConfirm')} onConfirm={() => handleDeleteSession(session.id)}>
+                  <DeleteOutlined style={{ color: 'var(--fq-system-error)', fontSize: 12 }} />
                 </Popconfirm>
               ]}
             >
               <div style={{ overflow: 'hidden' }}>
                 <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {session.title || `会话 #${session.id}`}
+                  {session.title || t('chat.sessionTitle', { id: session.id })}
                 </div>
-                <div style={{ fontSize: 11, color: '#aaa' }}>
-                  {session.last_message?.slice(0, 30) || `${session.message_count || 0} 条消息`}
+                <div style={{ fontSize: 11, color: 'var(--fq-text-tertiary)' }}>
+                  {session.last_message?.slice(0, 30) || t('chat.messageCount', { count: session.message_count || 0 })}
                 </div>
               </div>
             </List.Item>
           )}
-          locale={{ emptyText: <Empty description="暂无会话" /> }}
+          locale={{ emptyText: <Empty description={t('chat.empty')} /> }}
         />
       </Sider>
 
@@ -294,18 +297,19 @@ export default function Chat() {
         {/* 顶部工具栏 */}
         {currentSessionId && (
           <div style={{
-            padding: '8px 16px', borderBottom: '1px solid #f0f0f0',
+            padding: '8px 16px', borderBottom: '1px solid var(--fq-border)',
             display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
           }}>
             <Select
+              aria-label={t('chat.role.placeholder')}
               value={selectedRole}
               onChange={handleChangeRole}
               style={{ width: 160 }}
-              placeholder="选择角色"
+              placeholder={t('chat.role.placeholder')}
               options={agents.map((a) => ({ label: a.name, value: a.role_key }))}
             />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              <SwapOutlined /> 切换角色后下条回复生效
+              <SwapOutlined /> {t('chat.role.hint')}
             </Text>
           </div>
         )}
@@ -316,8 +320,8 @@ export default function Chat() {
             starterPrompt ? (
               <ChatStarterDraft value={inputValue} onChange={setInputValue} onCreate={handleNewSession} />
             ) : (
-              <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
-                <Title level={4} type="secondary">请选择或创建一个会话</Title>
+              <div style={{ textAlign: 'center', padding: 80, color: 'var(--fq-text-tertiary)' }}>
+                <Title level={4} type="secondary">{t('chat.selectSession')}</Title>
               </div>
             )
           ) : loadingMessages ? (
@@ -353,40 +357,41 @@ export default function Chat() {
 
         {/* 底部输入 */}
         {currentSessionId && (
-          <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0' }}>
+          <div style={{ padding: '12px 16px', borderTop: '1px solid var(--fq-border)' }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <TextArea
+                aria-label={t('chat.inputPlaceholder')}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onPressEnter={(e) => {
                   if (!e.shiftKey) { e.preventDefault(); handleSendMessage(); }
                 }}
-                placeholder="输入消息... (Shift+Enter 换行)"
+                placeholder={t('chat.inputPlaceholder')}
                 rows={2}
                 disabled={isStreaming}
               />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {isStreaming ? (
-                  <Button danger onClick={handleStop}>停止</Button>
+                  <Button danger onClick={handleStop}>{t('chat.stop')}</Button>
                 ) : (
                   <>
                     <Button
                       loading={isBacktesting}
                       disabled={!inputValue.trim()}
                       onClick={handleRunBacktest}
-                    >运行回测</Button>
+                    >{t('chat.runBacktest')}</Button>
                     <Button type="primary" icon={<SendOutlined />} onClick={handleSendMessage}>
-                      发送
+                      {t('chat.send')}
                     </Button>
                   </>
                 )}
               </div>
             </div>
             <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
-              模型额度：点击“发送”后调用当前模型一次；URL 预填内容不会自动发送。
+              {t('chat.quota')}
             </Text>
-            <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 8 }}>
-              此内容由 AI 生成，不构成投资建议
+            <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fq-text-tertiary)', marginTop: 8 }}>
+              {t('chat.disclaimer')}
             </div>
           </div>
         )}

@@ -33,8 +33,8 @@ describe('MarketMoversPanel', () => {
 
     expect(option.yAxis.data).toEqual(['宁德时代', '寒武纪']);
     expect(option.series[0].data).toEqual([
-      expect.objectContaining({ value: -6.28, itemStyle: expect.objectContaining({ color: '#46d6a3' }) }),
-      expect.objectContaining({ value: 12.36, itemStyle: expect.objectContaining({ color: '#ff6b7a' }) }),
+      expect.objectContaining({ value: -6.28, itemStyle: expect.objectContaining({ color: 'var(--fq-price-down)' }) }),
+      expect.objectContaining({ value: 12.36, itemStyle: expect.objectContaining({ color: 'var(--fq-price-up)' }) }),
     ]);
   });
 

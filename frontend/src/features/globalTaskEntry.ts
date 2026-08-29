@@ -1,5 +1,7 @@
 export type GlobalTaskAction = 'analysis' | 'research' | 'backtest' | 'portfolio' | 'thesis' | 'alert' | 'question';
 
+export type GlobalCommandIntent = 'compare' | 'monitor' | 'discover' | 'strategy';
+
 export interface GlobalTaskTarget {
   code: string;
   name: string;
@@ -13,7 +15,7 @@ export function isLikelyTicker(value: string): boolean {
 }
 
 export function globalTaskPath(action: GlobalTaskAction, target: GlobalTaskTarget | null, question = ''): string {
-  if (action === 'question') return `/chat?prompt=${encodeURIComponent(question.trim())}`;
+  if (action === 'question') return `/research?prompt=${encodeURIComponent(question.trim())}`;
   if (!target) return '/';
 
   const code = target.code.trim().toUpperCase();
@@ -27,9 +29,29 @@ export function globalTaskPath(action: GlobalTaskAction, target: GlobalTaskTarge
     params.set('name', target.name);
     return `/portfolio?${params.toString()}`;
   }
+  if (action === 'thesis') return `/research?mode=thesis&new=1&ticker=${encodeURIComponent(code)}`;
   params.set('new', '1');
   params.set('ticker', code);
-  return `/${action === 'thesis' ? 'thesis' : 'alerts'}?${params.toString()}`;
+  return `/alerts?${params.toString()}`;
+}
+
+export function globalCommandIntent(value: string): { intent: GlobalCommandIntent; path: string } | null {
+  const query = value.trim();
+  if (!query || isLikelyTicker(query)) return null;
+  const encoded = encodeURIComponent(query);
+  if (/(?:回测|backtest|ma\s*\d+.*ma\s*\d+)/i.test(query)) {
+    return { intent: 'strategy', path: `/strategy-lab/ma-crossover?prompt=${encoded}` };
+  }
+  if (/(?:监控|每\s*\d+\s*小时|monitor|alert)/i.test(query)) {
+    return { intent: 'monitor', path: `/alerts?draft=${encoded}` };
+  }
+  if (/(?:筛选|选股|roe|fcf|负债率|screen|discover)/i.test(query)) {
+    return { intent: 'discover', path: `/discover?query=${encoded}` };
+  }
+  if (/(?:比较|对比|\bvs\.?\b|compare)/i.test(query)) {
+    return { intent: 'compare', path: `/compare?query=${encoded}` };
+  }
+  return null;
 }
 
 export function readRecentTargets(): GlobalTaskTarget[] {

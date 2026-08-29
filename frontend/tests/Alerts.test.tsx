@@ -12,10 +12,11 @@ const mocks = vi.hoisted(() => ({
   updateRule: vi.fn(),
   deleteRule: vi.fn(),
   fetchTriggers: vi.fn(),
+  apiGet: vi.fn(),
   apiPost: vi.fn(),
 }));
 
-vi.mock('../src/services/api', () => ({ default: { post: mocks.apiPost } }));
+vi.mock('../src/services/api', () => ({ default: { get: mocks.apiGet, post: mocks.apiPost } }));
 
 vi.mock('../src/services/alertApi', () => ({
   fetchAlertSignalTypes: mocks.fetchSignalTypes,
@@ -59,6 +60,7 @@ beforeEach(() => {
   mocks.createRule.mockResolvedValue(rule);
   mocks.updateRule.mockResolvedValue(rule);
   mocks.deleteRule.mockResolvedValue(undefined);
+  mocks.apiGet.mockResolvedValue({ data: { alert_triggers: [] } });
   mocks.apiPost.mockResolvedValue({ data: {
     status: 'READY', ready_to_confirm: true, confirmation_key: 'abc',
     target: { title: '需求修复论文', ticker: 'sh600519' },
@@ -116,6 +118,16 @@ describe('Alert center', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: '苹果金叉启用状态' }));
     await waitFor(() => expect(mocks.updateRule).toHaveBeenCalledWith(1, { is_enabled: false }));
+  });
+
+  test('runs an enabled monitor immediately through the existing indicator scan', async () => {
+    renderPage();
+    await screen.findByText('Monitor · 苹果金叉');
+
+    fireEvent.click(screen.getByRole('button', { name: '立即运行' }));
+
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith('/analysis/usAAPL/indicators'));
+    await waitFor(() => expect(mocks.fetchTriggers).toHaveBeenLastCalledWith({ limit: 50 }));
   });
 
   test('prefills thesis context without creating a rule', async () => {

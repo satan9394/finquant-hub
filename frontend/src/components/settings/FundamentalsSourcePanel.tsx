@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Form, Select, Skeleton, Space, Typography, message } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import apiClient from '../../services/api';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 type Provider = 'akshare' | 'tushare' | 'yahoo';
 
@@ -15,13 +16,13 @@ interface SourceForm {
   third: Provider;
 }
 
-const OPTIONS = [
-  { value: 'akshare', label: 'AkShare（无需凭据）' },
-  { value: 'tushare', label: 'Tushare（需 TUSHARE_TOKEN）' },
-  { value: 'yahoo', label: 'Yahoo（全球兜底）' },
-];
-
 export default function FundamentalsSourcePanel() {
+  const { t } = useLanguage();
+  const options = [
+    { value: 'akshare', label: t('settings.fundamentals.akshare') },
+    { value: 'tushare', label: t('settings.fundamentals.tushare') },
+    { value: 'yahoo', label: t('settings.fundamentals.yahoo') },
+  ];
   const [form] = Form.useForm<SourceForm>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,7 +36,7 @@ export default function FundamentalsSourcePanel() {
       const [first, second, third] = response.data.priorities.fundamentals;
       form.setFieldsValue({ first, second, third });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '基本面数据源配置加载失败');
+      setError(cause instanceof Error ? cause.message : t('settings.fundamentals.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -52,45 +53,45 @@ export default function FundamentalsSourcePanel() {
     }
     const priority = [values.first, values.second, values.third];
     if (new Set(priority).size !== priority.length) {
-      setError('三个优先级必须各选择一个不同的数据源');
+      setError(t('settings.fundamentals.unique'));
       return;
     }
     setSaving(true);
     setError('');
     try {
       await apiClient.patch('/market/sources', { fundamentals: priority });
-      message.success('基本面数据源优先级已保存');
+      message.success(t('settings.fundamentals.saved'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '基本面数据源配置保存失败');
+      setError(cause instanceof Error ? cause.message : t('settings.fundamentals.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Card title="A 股基本面数据源" data-testid="fundamentals-source-panel">
+    <Card title={t('settings.fundamentals.title')} data-testid="fundamentals-source-panel">
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       <Alert
         type="info"
         showIcon
-        message="默认 AkShare → Tushare → Yahoo。Tushare 未配置 token 时会自动跳过；Yahoo 降级数据会保留存疑标记。"
+        message={t('settings.fundamentals.notice')}
         style={{ marginBottom: 18 }}
       />
       {loading ? <Skeleton active paragraph={{ rows: 3 }} /> : (
         <Form form={form} layout="vertical">
           {(['first', 'second', 'third'] as const).map((name, index) => (
-            <Form.Item key={name} name={name} label={`优先级 ${index + 1}`} rules={[{ required: true }]}>
-              <Select options={OPTIONS} />
+            <Form.Item key={name} name={name} label={t('settings.fundamentals.priority', { value: index + 1 })} rules={[{ required: true }]}>
+              <Select options={options} />
             </Form.Item>
           ))}
           <Space>
             <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void save()}>
-              保存优先级
+              {t('settings.fundamentals.save')}
             </Button>
-            <Button onClick={() => void load()}>恢复当前值</Button>
+            <Button onClick={() => void load()}>{t('settings.restore')}</Button>
           </Space>
           <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
-            数据源顺序只影响 A 股；港股和美股继续使用 Yahoo。凭据仅从服务端环境变量读取，不会返回浏览器。
+            {t('settings.fundamentals.description')}
           </Typography.Paragraph>
         </Form>
       )}

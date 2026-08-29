@@ -44,7 +44,7 @@ export default function AlphaTemplateCatalog({
             const selected = selectedId === template.id;
             return (
               <Col xs={24} xl={12} key={template.id}>
-                <Card size="small" style={{ height: '100%', borderColor: selected ? '#1677ff' : undefined }}>
+                <Card size="small" style={{ height: '100%', borderColor: selected ? 'var(--fq-ai-primary)' : undefined }}>
                   <Space wrap><Text strong>{template.name}</Text><Tag color="blue">{explanation.category}</Tag><Tag color="green">目录字段已验证</Tag></Space>
                   <Paragraph style={{ margin: '10px 0 6px' }}>{explanation.hypothesis}</Paragraph>
                   <Paragraph type="secondary" style={{ marginBottom: 10 }}>主要局限：{explanation.limitation}</Paragraph>

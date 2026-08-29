@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -52,5 +52,28 @@ describe('Discussion async room detail guard', () => {
 
     expect(screen.getByRole('status').textContent).toContain('正在加载讨论详情');
     expect(screen.queryByTestId('investment-committee')).toBeNull();
+  });
+
+  it('renders structured review output without the chat-style timeline', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url) => {
+      if (url === `/discussion/rooms/${room.id}`) return Promise.resolve({ data: { room, messages: [] } }) as never;
+      if (url === '/discussion/rooms') return Promise.resolve({ data: { items: [room] } }) as never;
+      if (url === '/agents') return Promise.resolve({ data: [] }) as never;
+      return Promise.resolve({ data: {} }) as never;
+    });
+    render(<MemoryRouter><Discussion /></MemoryRouter>);
+    expect(await screen.findByTestId('investment-committee')).toBeTruthy();
+    expect(screen.queryByTestId('discussion-timeline')).toBeNull();
+  });
+
+  it('gives every creation control an explicit accessible name', async () => {
+    useDiscussionStore.setState({ currentRoomId: null });
+    render(<MemoryRouter><Discussion /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole('button', { name: '创建讨论' }));
+
+    expect(await screen.findByRole('textbox', { name: '讨论主题' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: '参与角色（至少 3 个）' })).toBeTruthy();
+    expect(screen.getByRole('spinbutton', { name: '讨论轮次' })).toBeTruthy();
   });
 });

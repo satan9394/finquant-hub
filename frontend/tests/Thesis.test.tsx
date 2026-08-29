@@ -146,6 +146,7 @@ describe('Thesis tracking handoff', () => {
     expect(screen.getByText('支持证据：ev_support_01')).toBeTruthy();
     expect(screen.getByText('反对证据：ev_oppose_01')).toBeTruthy();
     expect(screen.getByText('用户已确认')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '打开' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /查看来源报告 #6/ }).getAttribute('href')).toBe('/research/reports?symbol=600519&report=6');
     expect(screen.getByRole('link', { name: /设置技术预警/ }).getAttribute('href')).toContain('/alerts?new=1');
     expect(mocks.post).not.toHaveBeenCalled();
@@ -286,5 +287,16 @@ describe('Thesis tracking handoff', () => {
 
     expect(await screen.findByText('review history unavailable')).toBeTruthy();
     expect(screen.getByText('加载复盘工作流失败')).toBeTruthy();
+  });
+
+  it('prefills a new Thesis draft with the evidence claim supplied by Evidence Rail', async () => {
+    mocks.get.mockImplementation((path: string) => Promise.resolve(getResponse(path)));
+    const claim = '当前行情快照: 贵州茅台 600519: 1418 · Market data';
+    render(<MemoryRouter initialEntries={[`/research?mode=thesis&new=1&ticker=600519&claim=${encodeURIComponent(claim)}`]}><Thesis /></MemoryRouter>);
+
+    const tickerInput = await screen.findByLabelText('股票代码') as HTMLInputElement;
+    const claimsInput = screen.getByLabelText('手动论点（每行一条）') as HTMLTextAreaElement;
+    expect(tickerInput.value).toBe('600519');
+    expect(claimsInput.value).toBe(claim);
   });
 });

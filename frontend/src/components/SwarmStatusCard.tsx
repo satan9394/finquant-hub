@@ -21,16 +21,17 @@ import {
   streamFourMasters,
 } from '../services/swarmApi';
 import { useModelStore } from '../store/modelStore';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Paragraph, Text } = Typography;
 
 const STATUS_PRESENTATION: Record<SwarmAgentStatus, { label: string; color: string }> = {
-  pending: { label: '等待', color: 'default' },
-  running: { label: '分析中', color: 'processing' },
-  completed: { label: '完成', color: 'success' },
-  failed: { label: '失败', color: 'error' },
-  skipped: { label: '已跳过', color: 'warning' },
-  cancelled: { label: '已停止', color: 'default' },
+  pending: { label: 'pending', color: 'default' },
+  running: { label: 'running', color: 'processing' },
+  completed: { label: 'completed', color: 'success' },
+  failed: { label: 'failed', color: 'error' },
+  skipped: { label: 'skipped', color: 'warning' },
+  cancelled: { label: 'cancelled', color: 'default' },
 };
 
 interface SwarmStatusCardProps {
@@ -38,6 +39,7 @@ interface SwarmStatusCardProps {
 }
 
 export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
+  const { t } = useLanguage();
   const currentModelId = useModelStore((state) => state.currentModelId);
   const [team, setTeam] = useState<SwarmTeamDefinition | null>(null);
   const [run, setRun] = useState<SwarmRunState | null>(null);
@@ -56,11 +58,11 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       setTeam(definition);
       setRun(createSwarmRunState(definition));
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : '团队定义加载失败');
+      setLoadError(error instanceof Error ? error.message : t('research.swarm.teamLoadFailed'));
     } finally {
       setLoadingTeam(false);
     }
-  }, [teamKind]);
+  }, [t, teamKind]);
 
   useEffect(() => {
     void loadTeam();
@@ -89,14 +91,14 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       if (!terminal && !controller.signal.aborted) {
         setRun((current) => current ? applySwarmEvent(current, {
           event: 'error',
-          data: { error: 'Swarm 事件流在完成前中断' },
+          data: { error: t('research.swarm.streamInterrupted') },
         }) : current);
       }
     } catch (error) {
       if (controller.signal.aborted) {
         setRun((current) => current ? cancelSwarmRun(current) : current);
       } else {
-        const message = error instanceof Error ? error.message : 'Swarm 运行失败';
+        const message = error instanceof Error ? error.message : t('research.swarm.runFailed');
         setRun((current) => current ? applySwarmEvent(current, {
           event: 'error', data: { error: message },
         }) : current);
@@ -104,7 +106,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
     }
-  }, [currentModelId, run?.status, team, teamKind, ticker]);
+  }, [currentModelId, run?.status, t, team, teamKind, ticker]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -127,9 +129,9 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       <Alert
         type="error"
         showIcon
-        message="Swarm 团队加载失败"
+        message={t('research.swarm.loadFailed')}
         description={loadError}
-        action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadTeam()}>重试</Button>}
+        action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadTeam()}>{t('research.swarm.retry')}</Button>}
         style={{ marginBottom: 18 }}
       />
     );
@@ -142,15 +144,15 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       style={{ marginBottom: 18 }}
       title={<Space><span>{team.name}</span><Tag>{ticker}</Tag><Tag color="purple">SWARM</Tag></Space>}
       extra={run.status === 'running'
-        ? <Button danger icon={<CloseCircleOutlined />} onClick={stop}>停止</Button>
-        : <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>启动团队</Button>}
+        ? <Button danger icon={<CloseCircleOutlined />} onClick={stop}>{t('research.swarm.stop')}</Button>
+        : <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>{t('research.swarm.start')}</Button>}
     >
       <Segmented
         value={teamKind}
         onChange={(value) => setTeamKind(value as 'four-masters' | 'earnings-review')}
         options={[
-          { label: '四大师综合研究', value: 'four-masters' },
-          { label: '财报精读', value: 'earnings-review' },
+          { label: t('research.swarm.fourMasters'), value: 'four-masters' },
+          { label: t('research.swarm.earningsReview'), value: 'earnings-review' },
         ]}
         disabled={run.status === 'running'}
         style={{ marginBottom: 12 }}
@@ -161,9 +163,9 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       </div>
 
       <Row gutter={[12, 12]} style={{ margin: '8px 0 16px' }}>
-        <Col xs={8}><Statistic title="已完成 Agent" value={completedAgents} suffix={`/ ${agents.length}`} /></Col>
-        <Col xs={8}><Statistic title="工具调用" value={toolCalls} /></Col>
-        <Col xs={8}><Statistic title="估算 Tokens" value={run.totalTokens} /></Col>
+        <Col xs={8}><Statistic title={t('research.swarm.completedAgents')} value={completedAgents} suffix={`/ ${agents.length}`} /></Col>
+        <Col xs={8}><Statistic title={t('research.swarm.toolCalls')} value={toolCalls} /></Col>
+        <Col xs={8}><Statistic title={t('research.swarm.tokens')} value={run.totalTokens} /></Col>
       </Row>
 
       {run.error ? <Alert type="error" showIcon message={run.error} style={{ marginBottom: 12 }} /> : null}
@@ -171,8 +173,8 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
         <Alert
           type={run.status === 'completed' ? 'success' : 'warning'}
           showIcon
-          message={`研究报告 #${run.reportId} 已自动保存`}
-          action={<Button size="small" href={`/research/reports?symbol=${encodeURIComponent(ticker)}`}>查看报告</Button>}
+          message={t('research.swarm.reportSaved', { id: run.reportId })}
+          action={<Button size="small" href={`/research/reports?symbol=${encodeURIComponent(ticker)}`}>{t('research.swarm.viewReport')}</Button>}
           style={{ marginBottom: 12 }}
         />
       ) : null}
@@ -187,13 +189,13 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
                   <RoleAvatar avatar={agent.avatar} name={agent.key} pulsing={agent.status === 'running'} />
                   <div>
                     <Text strong>{agent.name}</Text><br />
-                    <Tag color={presentation.color} style={{ marginTop: 6 }}>{presentation.label}</Tag>
+                    <Tag color={presentation.color} style={{ marginTop: 6 }}>{t(`research.swarm.status.${presentation.label}`)}</Tag>
                   </div>
                 </Space>
                 <div style={{ marginTop: 12 }}>
-                  <Text type="secondary">工具 {agent.toolCalls} 次 · {agent.tokenCount} tokens</Text><br />
+                  <Text type="secondary">{t('research.swarm.agentUsage', { calls: agent.toolCalls, tokens: agent.tokenCount })}</Text><br />
                   <Text type="secondary">
-                    {agent.dependencies.length > 0 ? `依赖 ${agent.dependencies.length} 位前序专家` : '独立并行研究'}
+                    {agent.dependencies.length > 0 ? t('research.swarm.dependencies', { count: agent.dependencies.length }) : t('research.swarm.independent')}
                   </Text>
                   {agent.error ? <Paragraph type="danger" style={{ margin: '8px 0 0' }}>{agent.error}</Paragraph> : null}
                 </div>
@@ -214,7 +216,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
         />
       ) : null}
       <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-        Agent 输出属于 MODEL_OUTPUT；请结合页面中的真实行情、来源与截止时间独立核验。
+        {t('research.swarm.outputBoundary')}
       </Text>
     </Card>
   );

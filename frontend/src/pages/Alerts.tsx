@@ -46,24 +46,27 @@ import type {
   AlertTrigger,
   TriggerFilters,
 } from '../services/alertApi';
+import MonitorCard from '../components/MonitorCard';
+import MonitorTypeChips, { MONITOR_TYPES, type MonitorType } from '../components/MonitorTypeChips';
+import { useLanguage } from '../i18n/LanguageContext';
 
-const SIGNAL_LABELS: Record<string, string> = {
-  '*': '任意技术信号',
-  golden_cross: '均线金叉',
-  death_cross: '均线死叉',
-  top_divergence: '顶背离',
-  bottom_divergence: '底背离',
-  breakout_up: '向上突破',
-  breakout_down: '向下突破',
-  volume_surge: '成交量放大',
-  rsi_oversold: 'RSI 超卖',
-  rsi_overbought: 'RSI 超买',
+const SIGNAL_KEYS: Record<string, string> = {
+  '*': 'alerts.signal.any',
+  golden_cross: 'alerts.signal.golden_cross',
+  death_cross: 'alerts.signal.death_cross',
+  top_divergence: 'alerts.signal.top_divergence',
+  bottom_divergence: 'alerts.signal.bottom_divergence',
+  breakout_up: 'alerts.signal.breakout_up',
+  breakout_down: 'alerts.signal.breakout_down',
+  volume_surge: 'alerts.signal.volume_surge',
+  rsi_oversold: 'alerts.signal.rsi_oversold',
+  rsi_overbought: 'alerts.signal.rsi_overbought',
 };
 
-const DIRECTION_LABELS: Record<AlertDirection, string> = {
-  bullish: '看涨',
-  bearish: '看跌',
-  neutral: '中性',
+const DIRECTION_KEYS: Record<AlertDirection, string> = {
+  bullish: 'alerts.direction.bullish',
+  bearish: 'alerts.direction.bearish',
+  neutral: 'alerts.direction.neutral',
 };
 
 const DIRECTION_COLORS: Record<AlertDirection, string> = {
@@ -72,15 +75,11 @@ const DIRECTION_COLORS: Record<AlertDirection, string> = {
   neutral: 'default',
 };
 
-const CONFIDENCE_LABELS = {
-  high: '高',
-  medium: '中',
-  low: '低',
+const CONFIDENCE_KEYS = {
+  high: 'alerts.confidence.high',
+  medium: 'alerts.confidence.medium',
+  low: 'alerts.confidence.low',
 } as const;
-
-function signalLabel(value: string) {
-  return SIGNAL_LABELS[value] ?? value;
-}
 
 function displayTicker(ticker: string) {
   if (ticker.startsWith('us')) return ticker.slice(2);
@@ -89,13 +88,34 @@ function displayTicker(ticker: string) {
   return ticker;
 }
 
-function DirectionTag({ direction }: { direction: AlertDirection | null }) {
+function monitorTypeForRule(rule: AlertRule): MonitorType {
+  const value = `${rule.name} ${rule.signal_type}`.toLowerCase();
+  if (/ipo|上市|招股/.test(value)) return 'ipo';
+  if (/供应链|supply/.test(value)) return 'supply-chain';
+  if (/thesis|论文|假设/.test(value)) return 'thesis';
+  if (/filing|申报|问询|注册/.test(value)) return 'filing';
+  if (/news|新闻|监管调查/.test(value)) return 'news';
+  if (/estimate|预期|eps/.test(value)) return 'estimate';
+  if (/fundamental|基本面|毛利率/.test(value)) return 'fundamental';
+  if (/price|价格|跌破|突破/.test(value)) return 'price';
+  if (/research|研究|定时/.test(value)) return 'agent-research';
+  return 'technical';
+}
+
+function DirectionTag({ direction, label }: { direction: AlertDirection | null; label: string }) {
   return direction
-    ? <Tag color={DIRECTION_COLORS[direction]}>{DIRECTION_LABELS[direction]}</Tag>
-    : <Tag>任意方向</Tag>;
+    ? <Tag color={DIRECTION_COLORS[direction]}>{label}</Tag>
+    : <Tag>{label}</Tag>;
 }
 
 export default function Alerts() {
+  const { t } = useLanguage();
+  const signalLabel = useCallback((value: string) => SIGNAL_KEYS[value] ? t(SIGNAL_KEYS[value]) : value, [t]);
+  const directionLabels: Record<AlertDirection, string> = {
+    bullish: t(DIRECTION_KEYS.bullish),
+    bearish: t(DIRECTION_KEYS.bearish),
+    neutral: t(DIRECTION_KEYS.neutral),
+  };
   const [searchParams] = useSearchParams();
   const prefillTicker = searchParams.get('ticker')?.trim().toUpperCase() || '';
   const prefillName = searchParams.get('name')?.trim() || '';
@@ -107,8 +127,8 @@ export default function Alerts() {
       ? { target_type: searchParams.get('source') as 'portfolio' | 'strategy', target_id: genericTargetId }
       : null);
   const portfolioSource = searchParams.get('source') === 'portfolio' ? {
-    name: searchParams.get('portfolio')?.trim() || '未命名组合',
-    metric: searchParams.get('metric')?.trim() || '风险指标',
+    name: searchParams.get('portfolio')?.trim() || t('alerts.unnamedPortfolio'),
+    metric: searchParams.get('metric')?.trim() || t('alerts.riskMetric'),
     value: searchParams.get('value')?.trim() || 'UNKNOWN',
     asOf: searchParams.get('as_of')?.trim() || 'UNKNOWN',
   } : null;
@@ -118,6 +138,7 @@ export default function Alerts() {
   const [signalTypes, setSignalTypes] = useState<string[]>([]);
   const [rulesLoading, setRulesLoading] = useState(false);
   const [triggersLoading, setTriggersLoading] = useState(false);
+  const [runningRuleId, setRunningRuleId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null);
@@ -125,6 +146,8 @@ export default function Alerts() {
   const [triggerFilters, setTriggerFilters] = useState<TriggerFilters>({ limit: 50 });
   const [ruleForm] = Form.useForm<AlertRuleInput>();
   const [filterForm] = Form.useForm<TriggerFilters>();
+  const requestedType = searchParams.get('type');
+  const [monitorType, setMonitorType] = useState<MonitorType | 'all'>(MONITOR_TYPES.includes(requestedType as MonitorType) ? requestedType as MonitorType : 'all');
 
   const loadRules = useCallback(async () => {
     setRulesLoading(true);
@@ -196,7 +219,7 @@ export default function Alerts() {
       const input = { ...values, direction: values.direction ?? null };
       if (editingRule) {
         await updateAlertRule(editingRule.id, input);
-        message.success('预警规则已更新');
+        message.success(t('alerts.message.updated'));
       } else if (monitorTarget) {
         const payload = {
           target_type: monitorTarget.target_type,
@@ -209,14 +232,14 @@ export default function Alerts() {
         if (!monitorDraft) {
           const response = await apiClient.post('/alerts/monitor-targets/draft', payload);
           setMonitorDraft(response.data);
-          message.info('草稿已生成，请核对后显式确认');
+          message.info(t('alerts.message.draftCreated'));
           return;
         }
         await apiClient.post('/alerts/monitor-targets/confirm', payload);
-        message.success('对象监控已确认并启用');
+        message.success(t('alerts.message.monitorEnabled'));
       } else {
         await createAlertRule(input);
-        message.success('预警规则已创建');
+        message.success(t('alerts.message.created'));
       }
       setModalOpen(false);
       await loadRules();
@@ -230,7 +253,7 @@ export default function Alerts() {
   const removeRule = async (ruleId: number) => {
     try {
       await deleteAlertRule(ruleId);
-      message.success('预警规则已删除，历史触发记录仍会保留');
+      message.success(t('alerts.message.deleted'));
       await Promise.all([loadRules(), loadTriggers(triggerFilters)]);
     } catch (error: any) {
       message.error(error.message);
@@ -243,10 +266,23 @@ export default function Alerts() {
       setRules((current) => current.map((item) => (
         item.id === rule.id ? { ...item, is_enabled: enabled } : item
       )));
-      message.success(enabled ? '规则已启用' : '规则已停用');
+      message.success(t(enabled ? 'alerts.message.enabled' : 'alerts.message.disabled'));
     } catch (error: any) {
       message.error(error.message);
       await loadRules();
+    }
+  };
+
+  const runRuleNow = async (rule: AlertRule) => {
+    setRunningRuleId(rule.id);
+    try {
+      await apiClient.get(`/analysis/${encodeURIComponent(rule.ticker)}/indicators`);
+      await loadTriggers(triggerFilters);
+      message.success(t('alerts.message.checked', { ticker: displayTicker(rule.ticker) }));
+    } catch (error: any) {
+      message.error(error.message);
+    } finally {
+      setRunningRuleId(null);
     }
   };
 
@@ -269,48 +305,67 @@ export default function Alerts() {
   };
 
   const enabledCount = useMemo(() => rules.filter((rule) => rule.is_enabled).length, [rules]);
+  const monitorCards = useMemo(() => rules.map((rule) => {
+    const related = triggers.filter((trigger) => trigger.rule_id === rule.id);
+    const latest = related[0];
+    return {
+      id: rule.id,
+            name: `Monitor · ${rule.name}`,
+      type: monitorTypeForRule(rule),
+      priority: null,
+      state: rule.is_enabled ? 'RUNNING' : 'PAUSED',
+      lastCheck: latest?.created_at ?? null,
+      nextCheck: null,
+      sources: null,
+      changes: related.length,
+      latestEvent: latest?.description ? `Event · ${latest.description}` : null,
+      provider: null,
+      rule,
+    };
+  }), [rules, triggers]);
+  const visibleMonitors = monitorType === 'all' ? monitorCards : monitorCards.filter((monitor) => monitor.type === monitorType);
 
   const ruleColumns = [
-    { title: '规则名称', dataIndex: 'name', key: 'name', width: 180 },
+    { title: t('alerts.column.name'), dataIndex: 'name', key: 'name', width: 180 },
     {
-      title: '标的', dataIndex: 'ticker', key: 'ticker', width: 120,
+      title: t('alerts.column.ticker'), dataIndex: 'ticker', key: 'ticker', width: 120,
       render: (ticker: string) => <Link to={`/analysis/${ticker}`}>{displayTicker(ticker)}</Link>,
     },
     {
-      title: '技术信号', dataIndex: 'signal_type', key: 'signal_type', width: 150,
+      title: t('alerts.column.technicalSignal'), dataIndex: 'signal_type', key: 'signal_type', width: 150,
       render: (value: string) => signalLabel(value),
     },
     {
-      title: '方向', dataIndex: 'direction', key: 'direction', width: 110,
-      render: (value: AlertDirection | null) => <DirectionTag direction={value} />,
+      title: t('alerts.column.direction'), dataIndex: 'direction', key: 'direction', width: 110,
+      render: (value: AlertDirection | null) => <DirectionTag direction={value} label={value ? directionLabels[value] : t('alerts.direction.any')} />,
     },
     {
-      title: '启用', dataIndex: 'is_enabled', key: 'is_enabled', width: 90,
+      title: t('alerts.column.enabled'), dataIndex: 'is_enabled', key: 'is_enabled', width: 90,
       render: (enabled: boolean, rule: AlertRule) => (
         <Switch
           checked={enabled}
-          aria-label={`${rule.name}启用状态`}
+          aria-label={t('alerts.enabledAria', { name: rule.name })}
           onChange={(checked) => toggleRule(rule, checked)}
         />
       ),
     },
     {
-      title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 170,
+      title: t('alerts.column.updatedAt'), dataIndex: 'updated_at', key: 'updated_at', width: 170,
       render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
     },
     {
-      title: '操作', key: 'actions', width: 150, fixed: 'right' as const,
+      title: t('alerts.column.actions'), key: 'actions', width: 150, fixed: 'right' as const,
       render: (_: unknown, rule: AlertRule) => (
         <Space size="small">
-          <Button size="small" icon={<EditOutlined />} onClick={() => openRuleModal(rule)}>编辑</Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openRuleModal(rule)}>{t('alerts.edit')}</Button>
           <Popconfirm
-            title="删除这条预警规则？"
-            description="已有触发历史将继续保留。"
-            okText="删除"
-            cancelText="取消"
+            title={t('alerts.deleteConfirm')}
+            description={t('alerts.deleteDescription')}
+            okText={t('alerts.delete')}
+            cancelText={t('alerts.cancel')}
             onConfirm={() => removeRule(rule.id)}
           >
-            <Button size="small" danger icon={<DeleteOutlined />} aria-label={`删除${rule.name}`} />
+            <Button size="small" danger icon={<DeleteOutlined />} aria-label={t('alerts.deleteAria', { name: rule.name })} />
           </Popconfirm>
         </Space>
       ),
@@ -319,36 +374,36 @@ export default function Alerts() {
 
   const triggerColumns = [
     {
-      title: '触发时间', dataIndex: 'created_at', key: 'created_at', width: 170,
+      title: t('alerts.column.triggeredAt'), dataIndex: 'created_at', key: 'created_at', width: 170,
       render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'),
     },
-    { title: '规则', dataIndex: 'rule_name', key: 'rule_name', width: 180 },
+    { title: t('alerts.column.rule'), dataIndex: 'rule_name', key: 'rule_name', width: 180 },
     {
-      title: '标的', dataIndex: 'ticker', key: 'ticker', width: 110,
+      title: t('alerts.column.ticker'), dataIndex: 'ticker', key: 'ticker', width: 110,
       render: (ticker: string) => <Link to={`/analysis/${ticker}`}>{displayTicker(ticker)}</Link>,
     },
     {
-      title: '信号', dataIndex: 'signal_type', key: 'signal_type', width: 140,
+      title: t('alerts.column.signal'), dataIndex: 'signal_type', key: 'signal_type', width: 140,
       render: (value: string) => signalLabel(value),
     },
     {
-      title: '方向', dataIndex: 'direction', key: 'direction', width: 90,
-      render: (value: AlertDirection) => <DirectionTag direction={value} />,
+      title: t('alerts.column.direction'), dataIndex: 'direction', key: 'direction', width: 90,
+      render: (value: AlertDirection) => <DirectionTag direction={value} label={directionLabels[value]} />,
     },
     {
-      title: '置信度', dataIndex: 'confidence', key: 'confidence', width: 100,
-      render: (value: AlertTrigger['confidence']) => value ? CONFIDENCE_LABELS[value] : '—',
+      title: t('alerts.column.confidence'), dataIndex: 'confidence', key: 'confidence', width: 100,
+      render: (value: AlertTrigger['confidence']) => value ? t(CONFIDENCE_KEYS[value]) : '—',
     },
-    { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
+    { title: t('alerts.column.description'), dataIndex: 'description', key: 'description', ellipsis: true },
   ];
 
   const ruleTab = (
     <Card
-      title="预警规则"
+      title={t('alerts.rulesTitle')}
       extra={(
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadRules}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openRuleModal()}>新增规则</Button>
+          <Button icon={<ReloadOutlined />} onClick={loadRules}>{t('alerts.refresh')}</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openRuleModal()}>{t('alerts.add')}</Button>
         </Space>
       )}
     >
@@ -359,13 +414,13 @@ export default function Alerts() {
         loading={rulesLoading}
         pagination={{ pageSize: 10, hideOnSinglePage: true }}
         scroll={{ x: 980 }}
-        locale={{ emptyText: <Empty description="暂无预警规则" /> }}
+        locale={{ emptyText: <Empty description={t('alerts.noRules')} /> }}
       />
     </Card>
   );
 
   const historyTab = (
-    <Card title="触发历史">
+    <Card title={t('alerts.historyTitle')}>
       <Form
         form={filterForm}
         layout="inline"
@@ -373,25 +428,25 @@ export default function Alerts() {
         onFinish={applyTriggerFilters}
         style={{ marginBottom: 20, rowGap: 12 }}
       >
-        <Form.Item name="rule_id" label="规则">
+        <Form.Item name="rule_id" label={t('alerts.column.rule')}>
           <Select
             allowClear
-            placeholder="全部规则"
+            placeholder={t('alerts.allRules')}
             style={{ width: 180 }}
             options={rules.map((rule) => ({ label: rule.name, value: rule.id }))}
           />
         </Form.Item>
-        <Form.Item name="ticker" label="标的">
+        <Form.Item name="ticker" label={t('alerts.column.ticker')}>
           <Input allowClear placeholder="AAPL / 600519" style={{ width: 170 }} />
         </Form.Item>
-        <Form.Item name="limit" label="条数">
+        <Form.Item name="limit" label={t('alerts.limit')}>
           <InputNumber min={1} max={100} style={{ width: 100 }} />
         </Form.Item>
         <Form.Item>
           <Space>
-            <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>查询</Button>
-            <Button onClick={resetTriggerFilters}>重置</Button>
-            <Button icon={<ReloadOutlined />} onClick={() => loadTriggers(triggerFilters)}>刷新</Button>
+            <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>{t('alerts.search')}</Button>
+            <Button onClick={resetTriggerFilters}>{t('alerts.reset')}</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => loadTriggers(triggerFilters)}>{t('alerts.refresh')}</Button>
           </Space>
         </Form.Item>
       </Form>
@@ -402,37 +457,51 @@ export default function Alerts() {
         loading={triggersLoading}
         pagination={{ pageSize: 10, hideOnSinglePage: true }}
         scroll={{ x: 1050 }}
-        locale={{ emptyText: <Empty description="暂无触发记录" /> }}
+        locale={{ emptyText: <Empty description={t('alerts.noTriggers')} /> }}
       />
     </Card>
   );
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="monitor-workspace">
       <Space direction="vertical" size={20} style={{ width: '100%' }}>
         <div>
-          <Typography.Title level={2} style={{ marginBottom: 4 }}>预警中心</Typography.Title>
-          <Typography.Text type="secondary">管理技术信号规则，查看调度扫描产生的历史触发记录。</Typography.Text>
+          <Typography.Text className="eyebrow">{t('monitor.eyebrow')}</Typography.Text>
+          <Typography.Title level={2} style={{ marginBottom: 4 }}>{t('alerts.title')}</Typography.Title>
+          <Typography.Text type="secondary">{t('alerts.description')}</Typography.Text>
+        </div>
+        <MonitorTypeChips selected={monitorType} onChange={setMonitorType} />
+        <div className="monitor-grid">
+          {visibleMonitors.length ? visibleMonitors.map((monitor) => (
+            <MonitorCard
+              key={monitor.id}
+              monitor={monitor}
+              onInspect={() => { const next = { rule_id: Number(monitor.id), limit: 50 }; setTriggerFilters(next); void loadTriggers(next); }}
+              onRunNow={monitor.rule.is_enabled ? () => void runRuleNow(monitor.rule) : undefined}
+              runNowLoading={runningRuleId === monitor.rule.id}
+              onEdit={() => openRuleModal(monitor.rule)}
+            />
+          )) : <Empty description={t('alerts.noTypeRules')} />}
         </div>
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={8}><Card><Statistic title="规则总数" value={rules.length} /></Card></Col>
-          <Col xs={24} sm={8}><Card><Statistic title="已启用" value={enabledCount} /></Card></Col>
-          <Col xs={24} sm={8}><Card><Statistic title="当前历史记录" value={triggers.length} /></Card></Col>
+          <Col xs={24} sm={8}><Card><Statistic title={t('alerts.totalRules')} value={rules.length} /></Card></Col>
+          <Col xs={24} sm={8}><Card><Statistic title={t('alerts.enabledRules')} value={enabledCount} /></Card></Col>
+          <Col xs={24} sm={8}><Card><Statistic title={t('alerts.currentHistory')} value={triggers.length} /></Card></Col>
         </Row>
         <Tabs
           items={[
-            { key: 'rules', label: '规则管理', children: ruleTab },
-            { key: 'history', label: '触发历史', children: historyTab },
+            { key: 'rules', label: t('alerts.manageRules'), children: ruleTab },
+            { key: 'history', label: t('alerts.historyTitle'), children: historyTab },
           ]}
         />
       </Space>
 
       <Modal
-        title={editingRule ? '编辑预警规则' : '新增预警规则'}
+        title={t(editingRule ? 'alerts.editTitle' : 'alerts.addTitle')}
         open={modalOpen}
         confirmLoading={saving}
-        okText={monitorDraft ? '确认并启用' : monitorTarget ? '生成草稿' : '保存'}
-        cancelText="取消"
+        okText={t(monitorDraft ? 'alerts.confirmEnable' : monitorTarget ? 'alerts.generateDraft' : 'alerts.save')}
+        cancelText={t('alerts.cancel')}
         onOk={saveRule}
         onCancel={() => { setModalOpen(false); setMonitorDraft(null); }}
         afterOpenChange={(open) => { if (open) hydrateRuleForm(); }}
@@ -442,8 +511,8 @@ export default function Alerts() {
           <Alert
             type="warning"
             showIcon
-            message="待显式确认的监控草稿"
-            description={`${monitorDraft.target.title} · ${signalLabel(monitorDraft.condition.signal_type)} · 来源 ${monitorDraft.condition.source} · 质量 ${monitorDraft.condition.quality_status}。${monitorDraft.execution_boundary}`}
+            message={t('alerts.draftTitle')}
+            description={t('alerts.draftDescription', { title: monitorDraft.target.title, signal: signalLabel(monitorDraft.condition.signal_type), source: monitorDraft.condition.source, quality: monitorDraft.condition.quality_status, boundary: monitorDraft.execution_boundary })}
             style={{ marginBottom: 12 }}
           />
         ) : null}
@@ -451,8 +520,8 @@ export default function Alerts() {
           <Alert
             type="info"
             showIcon
-            message={<>来源：<Link to={`/thesis?id=${sourceThesisId}`}>投资论文 #{sourceThesisId}</Link></>}
-            description="当前预警表不保存论文外键；此处仅携带标的和规则名称，保存后按所选技术信号扫描。"
+            message={<>{t('alerts.source')}<Link to={`/thesis?id=${sourceThesisId}`}>{t('alerts.thesis', { id: sourceThesisId })}</Link></>}
+            description={t('alerts.thesisDescription')}
             style={{ marginBottom: 12 }}
           />
         ) : null}
@@ -460,8 +529,8 @@ export default function Alerts() {
           <Alert
             type="warning"
             showIcon
-            message={`来源：${portfolioSource.name}风险体检`}
-            description={`${portfolioSource.metric === 'concentration' ? '集中度' : portfolioSource.metric} · 当前值 ${portfolioSource.value} · 数据截至 ${portfolioSource.asOf}。当前预警表没有组合风险指标合同；保存后创建的仍是技术信号规则，请先选择适合该标的的真实信号。`}
+            message={t('alerts.portfolioSource', { name: portfolioSource.name })}
+            description={t('alerts.portfolioDescription', { metric: portfolioSource.metric === 'concentration' ? t('alerts.concentration') : portfolioSource.metric, value: portfolioSource.value, asOf: portfolioSource.asOf })}
             style={{ marginBottom: 12 }}
           />
         ) : null}
@@ -484,23 +553,23 @@ export default function Alerts() {
             is_enabled: true,
           }}
         >
-          <Form.Item name="name" label="规则名称" rules={[{ required: true, whitespace: true, message: '请输入规则名称' }]}>
-            <Input maxLength={100} placeholder="例如：苹果均线金叉" />
+          <Form.Item name="name" label={t('alerts.column.name')} rules={[{ required: true, whitespace: true, message: t('alerts.nameRequired') }]}>
+            <Input maxLength={100} placeholder={t('alerts.namePlaceholder')} />
           </Form.Item>
-          <Form.Item name="ticker" label="股票代码" rules={[{ required: true, whitespace: true, message: '请输入股票代码' }]}>
+          <Form.Item name="ticker" label={t('alerts.ticker')} rules={[{ required: true, whitespace: true, message: t('alerts.tickerRequired') }]}>
             <Input maxLength={20} placeholder="AAPL / 600519 / 0700.HK" />
           </Form.Item>
-          <Form.Item name="signal_type" label="技术信号" rules={[{ required: true, message: '请选择技术信号' }]}>
+          <Form.Item name="signal_type" label={t('alerts.column.technicalSignal')} rules={[{ required: true, message: t('alerts.signalRequired') }]}>
             <Select options={signalTypes.map((value) => ({ label: signalLabel(value), value }))} />
           </Form.Item>
-          <Form.Item name="direction" label="方向">
+          <Form.Item name="direction" label={t('alerts.column.direction')}>
             <Select
               allowClear
-              placeholder="任意方向"
-              options={Object.entries(DIRECTION_LABELS).map(([value, label]) => ({ value, label }))}
+              placeholder={t('alerts.direction.any')}
+              options={Object.entries(directionLabels).map(([value, label]) => ({ value, label }))}
             />
           </Form.Item>
-          <Form.Item name="is_enabled" label="立即启用" valuePropName="checked">
+          <Form.Item name="is_enabled" label={t('alerts.enableNow')} valuePropName="checked">
             <Switch />
           </Form.Item>
         </Form>

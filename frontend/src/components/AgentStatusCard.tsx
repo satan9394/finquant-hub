@@ -1,15 +1,16 @@
 import { Card, Space, Tag, Typography } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import RoleAvatar from './RoleAvatar';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export type AgentStatus = 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled';
 
-const statusMap: Record<AgentStatus, { label: string; color?: string; icon: React.ReactNode }> = {
-  waiting: { label: '等待前置证据', icon: <PauseCircleOutlined /> },
-  running: { label: '正在核对', color: 'processing', icon: <LoadingOutlined spin /> },
-  completed: { label: '已完成', color: 'success', icon: <CheckCircleOutlined /> },
-  failed: { label: '失败，可继续', color: 'error', icon: <CloseCircleOutlined /> },
-  cancelled: { label: '已停止，保留结果', icon: <PauseCircleOutlined /> },
+const statusMap: Record<AgentStatus, { labelKey: string; color?: string; icon: React.ReactNode }> = {
+  waiting: { labelKey: 'agent.status.waiting', icon: <PauseCircleOutlined /> },
+  running: { labelKey: 'agent.status.running', color: 'processing', icon: <LoadingOutlined spin /> },
+  completed: { labelKey: 'agent.status.completed', color: 'success', icon: <CheckCircleOutlined /> },
+  failed: { labelKey: 'agent.status.failed', color: 'error', icon: <CloseCircleOutlined /> },
+  cancelled: { labelKey: 'agent.status.cancelled', icon: <PauseCircleOutlined /> },
 };
 
 export default function AgentStatusCard({
@@ -29,6 +30,7 @@ export default function AgentStatusCard({
   error?: string;
   avatar?: string;
 }) {
+  const { t } = useLanguage();
   const presentation = statusMap[status];
   return (
     <Card size="small" className={`agent-status-card agent-status-card--${status}`}>
@@ -41,8 +43,8 @@ export default function AgentStatusCard({
           {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
         </div>
         <Space direction="vertical" align="end" size={4}>
-          <Tag color={presentation.color} icon={presentation.icon}>{presentation.label}</Tag>
-          {evidenceCount != null ? <Typography.Text type="secondary">{evidenceCount} 条证据</Typography.Text> : null}
+          <Tag color={presentation.color} icon={presentation.icon}>{t(presentation.labelKey)}</Tag>
+          {evidenceCount != null ? <Typography.Text type="secondary">{t('agent.evidenceCount', { count: evidenceCount })}</Typography.Text> : null}
         </Space>
       </div>
     </Card>

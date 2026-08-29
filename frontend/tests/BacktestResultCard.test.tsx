@@ -3,6 +3,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import BacktestResultCard, { type BacktestResult } from '../src/components/BacktestResultCard';
+import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 const chart = vi.hoisted(() => ({ render: vi.fn() }));
 
@@ -67,5 +68,15 @@ describe('BacktestResultCard', () => {
 
     expect(screen.getByText('没有可展示的权益曲线')).toBeTruthy();
     expect(chart.render).not.toHaveBeenCalled();
+  });
+
+  test('renders metrics and chart labels in English', () => {
+    localStorage.setItem('finquant_lang', 'en');
+    render(<LanguageProvider><BacktestResultCard ticker="AAPL" result={result} /></LanguageProvider>);
+
+    expect(screen.getByText('Return').parentElement?.textContent).toContain('12.50%');
+    const option = (chart.render.mock.calls[0][0] as { option: { series: { name: string }[] } }).option;
+    expect(option.series.map((series) => series.name)).toEqual(['Strategy equity', 'Buy and hold']);
+    expect(screen.getByText(/Backtest period: 2026-01-02 to 2026-06-30/)).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Col, Collapse, Empty, List, Row, Space, Spin, Table, Tag, Typography } from 'antd';
-import { Link } from 'react-router-dom';
+import { Alert, Button, Card, Checkbox, Col, Collapse, Empty, Input, List, Row, Space, Spin, Table, Tag, Typography, message } from 'antd';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import TaskPageHeader from '../components/TaskPageHeader';
 import {
@@ -19,25 +19,31 @@ import {
   serializeReproducibilityManifest,
 } from '../features/reproducibilityManifest';
 import { listBacktests, listResearchWorkspaces } from '../services/researchApi';
+import CompareGrid from '../components/CompareGrid';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
-const kindLabels: Record<ComparisonKind, string> = {
-  research: '已保存研究',
-  strategy: '已保存策略实验',
-  portfolio: '本地组合复盘',
-};
 
 function percent(value: number | null | undefined) {
   return value == null ? 'UNKNOWN' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
 }
 
 export default function ComparisonWorkspace() {
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const storedIds = useMemo(() => readComparisonSelection(), []);
+  const [naturalQuery, setNaturalQuery] = useState(searchParams.get('query') ?? '');
   const [candidates, setCandidates] = useState<ComparisonCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [staleCount, setStaleCount] = useState(0);
+  const kindLabels: Record<ComparisonKind, string> = {
+    research: t('comparison.kind.research'),
+    strategy: t('comparison.kind.strategy'),
+    portfolio: t('comparison.kind.portfolio'),
+  };
 
   useEffect(() => {
     let active = true;
@@ -47,8 +53,8 @@ export default function ComparisonWorkspace() {
         const errors: string[] = [];
         const workspaces = research.status === 'fulfilled' ? research.value : [];
         const backtests = strategies.status === 'fulfilled' ? strategies.value : [];
-        if (research.status === 'rejected') errors.push(`已保存研究：${research.reason?.message ?? '加载失败'}`);
-        if (strategies.status === 'rejected') errors.push(`已保存策略：${strategies.reason?.message ?? '加载失败'}`);
+        if (research.status === 'rejected') errors.push(t('comparison.loadError.research', { error: research.reason?.message ?? t('comparison.loadFailed') }));
+        if (strategies.status === 'rejected') errors.push(t('comparison.loadError.strategy', { error: strategies.reason?.message ?? t('comparison.loadFailed') }));
         const next = buildComparisonCandidates(workspaces, backtests);
         const availableIds = new Set(next.map((item) => item.id));
         const restored = storedIds.filter((id) => availableIds.has(id));
@@ -59,7 +65,7 @@ export default function ComparisonWorkspace() {
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [storedIds]);
+  }, [storedIds, t]);
 
   const selected = selectedIds
     .map((id) => candidates.find((candidate) => candidate.id === id))
@@ -80,30 +86,54 @@ export default function ComparisonWorkspace() {
     setSelectedIds([]);
   };
 
+  const createNaturalComparison = () => {
+    const terms = naturalQuery.split(/\s*(?:vs\.?|比较|对比|和|与)\s*/i).map((item) => item.trim().toLowerCase()).filter(Boolean);
+    const matched = candidates.filter((candidate) => terms.some((term) => `${candidate.title} ${candidate.object}`.toLowerCase().includes(term))).slice(0, MAX_COMPARISON_ITEMS);
+    if (matched.length < 2) {
+      message.warning(t('comparison.natural.insufficient'));
+      return;
+    }
+    setSelectedIds(saveComparisonSelection(matched.map((item) => item.id)));
+  };
+
   const metricRows = [
-    { key: 'totalReturn', metric: '总收益', render: (item: ComparisonCandidate) => percent(item.metrics?.totalReturn) },
-    { key: 'excessReturn', metric: '超额收益', render: (item: ComparisonCandidate) => percent(item.metrics?.excessReturn) },
-    { key: 'maxDrawdown', metric: '最大回撤', render: (item: ComparisonCandidate) => percent(item.metrics?.maxDrawdown) },
-    { key: 'annualizedVolatility', metric: '年化波动率', render: (item: ComparisonCandidate) => percent(item.metrics?.annualizedVolatility) },
-    { key: 'tradeCount', metric: '交易数', render: (item: ComparisonCandidate) => item.metrics?.tradeCount ?? 'UNKNOWN' },
+    { key: 'totalReturn', metric: t('comparison.metric.totalReturn'), render: (item: ComparisonCandidate) => percent(item.metrics?.totalReturn) },
+    { key: 'excessReturn', metric: t('comparison.metric.excessReturn'), render: (item: ComparisonCandidate) => percent(item.metrics?.excessReturn) },
+    { key: 'maxDrawdown', metric: t('comparison.metric.maxDrawdown'), render: (item: ComparisonCandidate) => percent(item.metrics?.maxDrawdown) },
+    { key: 'annualizedVolatility', metric: t('comparison.metric.volatility'), render: (item: ComparisonCandidate) => percent(item.metrics?.annualizedVolatility) },
+    { key: 'tradeCount', metric: t('comparison.metric.tradeCount'), render: (item: ComparisonCandidate) => item.metrics?.tradeCount ?? 'UNKNOWN' },
   ];
+
+  const assessmentMessage = t(`comparison.assessment.${assessment.status}`, {
+    differences: assessment.differences.join(t('comparison.separator')) || 'UNKNOWN',
+  });
 
   return (
     <main className="product-page" data-testid="comparison-workspace">
       <TaskPageHeader
-        eyebrow="COMPARISON · EVIDENCE FIRST"
-        title="跨对象比较工作区"
-        goal="先核对对象、期间、参数、成本、基准和来源，再查看可比指标；跨类型不生成综合分数或推荐。"
-        object={`${selected.length}/${MAX_COMPARISON_ITEMS} 个来源记录`}
-        status={loadErrors.length ? '部分来源不可用' : loading ? '正在读取已保存记录' : `${candidates.length} 个真实候选`}
+        eyebrow={t('comparison.eyebrow')}
+        title={t('comparison.title')}
+        goal={t('comparison.goal')}
+        object={t('comparison.objectCount', { selected: selected.length, max: MAX_COMPARISON_ITEMS })}
+        status={loadErrors.length ? t('comparison.status.partial') : loading ? t('comparison.status.loading') : t('comparison.status.ready', { count: candidates.length })}
         statusTone={loadErrors.length ? 'warning' : loading ? 'loading' : 'success'}
+      />
+      <Input.Search
+        size="large"
+        value={naturalQuery}
+        aria-label={t('comparison.natural.aria')}
+        placeholder={t('comparison.natural.placeholder')}
+        enterButton={t('comparison.natural.create')}
+        onChange={(event) => setNaturalQuery(event.target.value)}
+        onSearch={createNaturalComparison}
+        style={{ marginBottom: 14 }}
       />
 
       <Alert
         type="info"
         showIcon
-        message="只读取已有记录，选择本身不运行研究或回测"
-        description="本机只保存最多四个来源记录 ID；不会复制原始行情、修改持仓、保存实验或写入后端业务数据。"
+        message={t('comparison.readOnly.title')}
+        description={t('comparison.readOnly.description')}
         style={{ marginBottom: 14 }}
       />
       {loadErrors.map((error) => <Alert key={error} type="error" showIcon message={error} style={{ marginBottom: 8 }} />)}
@@ -111,16 +141,33 @@ export default function ComparisonWorkspace() {
         <Alert
           type="warning"
           showIcon
-          message={`${staleCount} 个旧选择已跳过`}
-          description="对应来源记录已不存在或不再满足已保存/完成合同；未用其他记录替代。"
+          message={t('comparison.stale.title', { count: staleCount })}
+          description={t('comparison.stale.description')}
           style={{ marginBottom: 8 }}
         />
       )}
 
+      {selected.length === 2 ? (
+        <Card title={t('comparison.grid.title')} className="surface-card" style={{ marginBottom: 14 }}>
+          <CompareGrid
+            leftName={selected[0].title}
+            rightName={selected[1].title}
+            rows={metricRows.map((row) => ({ key: row.key, metric: row.metric, left: String(row.render(selected[0])), right: String(row.render(selected[1])), source: `${selected[0].source} / ${selected[1].source}` }))}
+            onAsk={(row) => navigate(`/research?mode=fast&prompt=${encodeURIComponent(t('comparison.askPrompt', {
+              left: selected[0].title,
+              right: selected[1].title,
+              metric: row.metric,
+              leftValue: row.left,
+              rightValue: row.right,
+            }))}`)}
+          />
+        </Card>
+      ) : null}
+
       <Card
-        title="1. 选择已有来源记录"
+        title={t('comparison.section.select')}
         className="surface-card"
-        extra={<Button disabled={!selectedIds.length} onClick={clear}>清空选择</Button>}
+        extra={<Button disabled={!selectedIds.length} onClick={clear}>{t('comparison.clear')}</Button>}
       >
         {loading ? <Spin /> : candidates.length ? (
           <List
@@ -135,7 +182,7 @@ export default function ComparisonWorkspace() {
                       checked={checked}
                       disabled={!checked && selectedIds.length >= MAX_COMPARISON_ITEMS}
                       onChange={(event) => toggle(item.id, event.target.checked)}
-                      aria-label={`选择${kindLabels[item.kind]}：${item.title}`}
+                      aria-label={t('comparison.selectAria', { kind: kindLabels[item.kind], title: item.title })}
                     >
                       <Text strong>{item.title}</Text>
                     </Checkbox>
@@ -150,15 +197,15 @@ export default function ComparisonWorkspace() {
               );
             }}
           />
-        ) : <Empty description="没有满足合同的已保存研究、完成策略实验或本地组合复盘" />}
+        ) : <Empty description={t('comparison.emptyCandidates')} />}
       </Card>
 
-      <Card title="2. 可比性与证据" className="surface-card" style={{ marginTop: 16 }}>
+      <Card title={t('comparison.section.evidence')} className="surface-card" style={{ marginTop: 16 }}>
         <Alert
           type={assessment.status === 'comparable' ? 'success' : assessment.status === 'insufficient' ? 'info' : 'warning'}
           showIcon
-          message={assessment.status === 'comparable' ? '同口径策略指标可并排查看' : '数值比较受限'}
-          description={assessment.message}
+          message={assessment.status === 'comparable' ? t('comparison.comparable') : t('comparison.restricted')}
+          description={assessmentMessage}
           style={{ marginBottom: 12 }}
         />
         {selected.length ? (
@@ -168,20 +215,20 @@ export default function ComparisonWorkspace() {
             scroll={{ x: 900 }}
             dataSource={selected}
             columns={[
-              { title: '类型', dataIndex: 'kind', render: (kind: ComparisonKind) => kindLabels[kind] },
-              { title: '对象', dataIndex: 'object' },
-              { title: '截止/创建时间', dataIndex: 'asOf' },
-              { title: '来源', dataIndex: 'source' },
-              { title: '质量状态', dataIndex: 'quality' },
-              { title: '原始证据', dataIndex: 'evidence' },
-              { title: '回到来源', dataIndex: 'href', render: (href: string) => <Link to={href}>打开</Link> },
+              { title: t('comparison.column.type'), dataIndex: 'kind', render: (kind: ComparisonKind) => kindLabels[kind] },
+              { title: t('comparison.column.object'), dataIndex: 'object' },
+              { title: t('comparison.column.asOf'), dataIndex: 'asOf' },
+              { title: t('comparison.column.source'), dataIndex: 'source' },
+              { title: t('comparison.column.quality'), dataIndex: 'quality' },
+              { title: t('comparison.column.evidence'), dataIndex: 'evidence' },
+              { title: t('comparison.column.back'), dataIndex: 'href', render: (href: string) => <Link to={href}>{t('comparison.open')}</Link> },
             ]}
           />
-        ) : <Empty description="尚未选择来源记录" />}
+        ) : <Empty description={t('comparison.emptySelection')} />}
       </Card>
 
       <Card
-        title="3. 可复现清单预览"
+        title={t('comparison.section.manifest')}
         className="surface-card"
         style={{ marginTop: 16 }}
         extra={(
@@ -190,15 +237,15 @@ export default function ComparisonWorkspace() {
             disabled={!selected.length}
             onClick={() => downloadReproducibilityManifest(manifest)}
           >
-            下载可复现清单（JSON）
+            {t('comparison.manifest.download')}
           </Button>
         )}
       >
         <Alert
           type={selected.length ? 'info' : 'warning'}
           showIcon
-          message={`schema v${manifest.schema_version} · ${manifest.entry_count} 个显式选择记录`}
-          description={`生成时间 ${manifest.generated_at}；下载内容与下方 JSON 预览使用同一对象，不上传或发送。`}
+          message={t('comparison.manifest.summary', { version: manifest.schema_version, count: manifest.entry_count })}
+          description={t('comparison.manifest.description', { time: manifest.generated_at })}
           style={{ marginBottom: 12 }}
         />
         {selected.length ? (
@@ -209,16 +256,16 @@ export default function ComparisonWorkspace() {
               scroll={{ x: 900 }}
               dataSource={manifest.entries}
               columns={[
-                { title: '记录 ID / 版本', dataIndex: 'record_id' },
-                { title: '类型', dataIndex: 'record_type', render: (kind: ComparisonKind) => kindLabels[kind] },
-                { title: '对象', dataIndex: 'object' },
-                { title: '截止时间', dataIndex: 'record_as_of' },
-                { title: '方法', dataIndex: 'methodology' },
-                { title: '来源', dataIndex: ['provenance', 'provider'] },
+                { title: t('comparison.column.recordId'), dataIndex: 'record_id' },
+                { title: t('comparison.column.type'), dataIndex: 'record_type', render: (kind: ComparisonKind) => kindLabels[kind] },
+                { title: t('comparison.column.object'), dataIndex: 'object' },
+                { title: t('comparison.column.recordAsOf'), dataIndex: 'record_as_of' },
+                { title: t('comparison.column.method'), dataIndex: 'methodology' },
+                { title: t('comparison.column.source'), dataIndex: ['provenance', 'provider'] },
                 {
-                  title: '缺失字段',
+                  title: t('comparison.column.missing'),
                   dataIndex: 'missing_fields',
-                  render: (fields: string[]) => fields.length ? fields.join(', ') : '无',
+                  render: (fields: string[]) => fields.length ? fields.join(', ') : t('comparison.none'),
                 },
               ]}
             />
@@ -227,7 +274,7 @@ export default function ComparisonWorkspace() {
               style={{ marginTop: 12 }}
               items={[{
                 key: 'json',
-                label: '查看与下载一致的 JSON',
+                label: t('comparison.manifest.preview'),
                 children: (
                   <pre data-testid="reproducibility-json" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 12 }}>
                     {serializeReproducibilityManifest(manifest)}
@@ -236,20 +283,20 @@ export default function ComparisonWorkspace() {
               }]}
             />
           </>
-        ) : <Empty description="先选择至少一个已有来源记录；不会导出未选择内容" />}
+        ) : <Empty description={t('comparison.manifest.empty')} />}
       </Card>
 
       {selected.some((item) => item.contract) && (
-        <Card title="4. 策略口径核对" className="surface-card" style={{ marginTop: 16 }}>
+        <Card title={t('comparison.section.contract')} className="surface-card" style={{ marginTop: 16 }}>
           <Row gutter={[12, 12]}>
             {selected.filter((item) => item.contract).map((item) => (
               <Col xs={24} xl={12} key={item.id}>
                 <Card size="small" title={item.title}>
-                  <div><Text strong>期间：</Text><Text>{item.contract?.period}</Text></div>
-                  <div><Text strong>参数：</Text><Text>{item.contract?.parameters}</Text></div>
-                  <div><Text strong>成本：</Text><Text>{item.contract?.costs}</Text></div>
-                  <div><Text strong>基准：</Text><Text>{item.contract?.benchmark}</Text></div>
-                  <div><Text strong>来源口径：</Text><Text>{item.contract?.source}</Text></div>
+                  <div><Text strong>{t('comparison.contract.period')}：</Text><Text>{item.contract?.period}</Text></div>
+                  <div><Text strong>{t('comparison.contract.parameters')}：</Text><Text>{item.contract?.parameters}</Text></div>
+                  <div><Text strong>{t('comparison.contract.costs')}：</Text><Text>{item.contract?.costs}</Text></div>
+                  <div><Text strong>{t('comparison.contract.benchmark')}：</Text><Text>{item.contract?.benchmark}</Text></div>
+                  <div><Text strong>{t('comparison.contract.source')}：</Text><Text>{item.contract?.source}</Text></div>
                 </Card>
               </Col>
             ))}
@@ -258,14 +305,14 @@ export default function ComparisonWorkspace() {
       )}
 
       {assessment.status === 'comparable' && (
-        <Card title="5. 同口径策略原始指标" className="surface-card" style={{ marginTop: 16 }}>
+        <Card title={t('comparison.section.metrics')} className="surface-card" style={{ marginTop: 16 }}>
           <Table
             rowKey="key"
             pagination={false}
             scroll={{ x: 720 }}
             dataSource={metricRows}
             columns={[
-              { title: '指标', dataIndex: 'metric', fixed: 'left', width: 140 },
+              { title: t('comparison.column.metric'), dataIndex: 'metric', fixed: 'left', width: 140 },
               ...selected.map((item) => ({
                 title: item.title,
                 key: item.id,
@@ -273,7 +320,7 @@ export default function ComparisonWorkspace() {
               })),
             ]}
           />
-          <Text type="secondary">仅并排展示后端已保存指标，不计算统一分数、跨对象排名或投资建议。</Text>
+          <Text type="secondary">{t('comparison.metrics.note')}</Text>
         </Card>
       )}
     </main>

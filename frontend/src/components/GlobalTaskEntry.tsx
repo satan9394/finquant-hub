@@ -8,9 +8,10 @@ import {
 import { searchStocks } from '../services/stockApi';
 import { listResearchWorkspaces } from '../services/researchApi';
 import {
-  globalTaskPath, isLikelyTicker, readRecentTargets, rememberRecentTarget,
+  globalCommandIntent, globalTaskPath, isLikelyTicker, readRecentTargets, rememberRecentTarget,
   type GlobalTaskAction, type GlobalTaskTarget,
 } from '../features/globalTaskEntry';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
 
@@ -18,16 +19,17 @@ interface GlobalTaskEntryProps {
   onNavigate: (path: string) => void;
 }
 
-const targetActions: Array<{ action: GlobalTaskAction; label: string; icon: React.ReactNode }> = [
-  { action: 'analysis', label: '分析股票', icon: <FundOutlined /> },
-  { action: 'research', label: '打开研究', icon: <SearchOutlined /> },
-  { action: 'backtest', label: '验证策略', icon: <ExperimentOutlined /> },
-  { action: 'portfolio', label: '加入组合', icon: <WalletOutlined /> },
-  { action: 'thesis', label: '创建论文', icon: <FileTextOutlined /> },
-  { action: 'alert', label: '设置预警', icon: <BellOutlined /> },
+const targetActions: Array<{ action: GlobalTaskAction; labelKey: string; icon: React.ReactNode }> = [
+  { action: 'analysis', labelKey: 'command.analysis', icon: <FundOutlined /> },
+  { action: 'research', labelKey: 'command.research', icon: <SearchOutlined /> },
+  { action: 'backtest', labelKey: 'command.backtest', icon: <ExperimentOutlined /> },
+  { action: 'portfolio', labelKey: 'command.portfolio', icon: <WalletOutlined /> },
+  { action: 'thesis', labelKey: 'command.thesis', icon: <FileTextOutlined /> },
+  { action: 'alert', labelKey: 'command.alert', icon: <BellOutlined /> },
 ];
 
 export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
+  const { t } = useLanguage();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -59,6 +61,12 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
   const runSearch = async () => {
     const value = query.trim();
     if (!value) return;
+    const command = globalCommandIntent(value);
+    if (command) {
+      setOpen(false);
+      onNavigate(command.path);
+      return;
+    }
     setSearching(true);
     try {
       const items = await searchStocks(value);
@@ -68,7 +76,7 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
     } catch {
       setResults([]);
       if (isLikelyTicker(value)) setSelected({ code: value.toUpperCase(), name: value.toUpperCase() });
-      else message.warning('暂时无法搜索标的，可继续输入代码或使用快速问答');
+      else message.warning(t('command.searchUnavailable'));
     } finally {
       setSearching(false);
     }
@@ -111,14 +119,14 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
         ref={triggerRef}
         className="global-task-entry-trigger"
         icon={<SearchOutlined />}
-        aria-label="打开全局标的与任务入口"
+        aria-label={t('command.open')}
         onClick={show}
       >
-        <span className="global-task-entry-trigger__label">搜索标的、问题或任务</span>
+        <span className="global-task-entry-trigger__label">{t('command.placeholder')}</span>
         <span className="global-task-entry-trigger__shortcut" aria-hidden="true">⌘K</span>
       </Button>
       <Modal
-        title="全局标的与任务入口"
+        title={t('command.title')}
         open={open}
         footer={null}
         width={680}
@@ -128,9 +136,9 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
         <Input.Search
           size="large"
           value={query}
-          aria-label="标的代码、公司名称或问题"
-          placeholder="输入 600519、贵州茅台，或一个自然语言问题"
-          enterButton="搜索标的"
+          aria-label={t('command.inputLabel')}
+          placeholder={t('command.inputPlaceholder')}
+          enterButton={t('command.search')}
           loading={searching}
           onChange={(event) => { setQuery(event.target.value); setSelected(null); }}
           onSearch={() => void runSearch()}
@@ -143,7 +151,7 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
             dataSource={results}
             renderItem={(item) => (
               <List.Item>
-                <Button type="text" block aria-label={`选择 ${item.name} ${item.code}`} onClick={() => choose(item)}>
+                <Button type="text" block aria-label={t('command.selectTarget', { name: item.name, code: item.code })} onClick={() => choose(item)}>
                   <span>{item.name}</span><Tag>{item.code}</Tag><Text type="secondary">{item.market}</Text>
                 </Button>
               </List.Item>
@@ -153,29 +161,29 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
 
         {selected ? (
           <div className="global-task-entry__tasks">
-            <Text strong>已选择：{selected.name} · {selected.code}</Text>
+            <Text strong>{t('command.selected', { name: selected.name, code: selected.code })}</Text>
             <div>
               {targetActions.map((item) => (
-                <Button key={item.action} icon={item.icon} aria-label={item.label} onClick={() => go(item.action)}>{item.label}</Button>
+                <Button key={item.action} icon={item.icon} aria-label={t(item.labelKey)} onClick={() => go(item.action)}>{t(item.labelKey)}</Button>
               ))}
             </div>
           </div>
-        ) : !results.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="先搜索并选择标的，或直接继续提问" />}
+        ) : !results.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('command.empty')} />}
 
         <Button
           className="global-task-entry__question"
           icon={<MessageOutlined />}
-          aria-label="将当前内容预填到快速问答"
+          aria-label={t('command.question')}
           disabled={!query.trim()}
           onClick={() => go('question')}
           block
         >
-          将当前内容预填到快速问答
+          {t('command.question')}
         </Button>
 
-        {targetList('最近标的', recent)}
-        {targetList('已保存研究', saved)}
-        <Text className="global-task-entry__note" type="secondary">这里只导航和预填；不会自动调用模型、运行回测或保存数据。模型、MCP 与凭据维护请从“系统工具”进入，它们不是普通研究任务的前置步骤。</Text>
+        {targetList(t('command.recent'), recent)}
+        {targetList(t('command.saved'), saved)}
+        <Text className="global-task-entry__note" type="secondary">{t('command.note')}</Text>
       </Modal>
     </>
   );

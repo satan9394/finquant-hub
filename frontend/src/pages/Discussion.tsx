@@ -10,10 +10,10 @@ import apiClient from '../services/api';
 import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
-import DiscussionTimeline from '../components/DiscussionTimeline';
 import InvestmentCommittee from '../components/InvestmentCommittee';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
@@ -32,9 +32,10 @@ type DiscussionStreamData = {
   room_id?: number;
 };
 
-export default function Discussion() {
+export default function Discussion({ initialTopic }: { initialTopic?: string } = {}) {
+  const { t } = useLanguage();
   const [searchParams] = useSearchParams();
-  const starterTopic = searchParams.get('topic')?.trim();
+  const starterTopic = initialTopic?.trim() || searchParams.get('topic')?.trim();
   const requestedRoomId = Number(searchParams.get('room'));
   const {
     rooms, currentRoomId, messages, streamingContent, isStreaming,
@@ -55,8 +56,8 @@ export default function Discussion() {
 
   // 加载房间列表 + 角色
   useEffect(() => {
-    apiClient.get('/discussion/rooms').then((res) => setRooms(res.data.items)).catch(() => {});
-    apiClient.get('/agents').then((res) => setAgents(res.data.items)).catch(() => {});
+    apiClient.get('/discussion/rooms').then((res) => setRooms(res.data.items ?? [])).catch(() => {});
+    apiClient.get('/agents').then((res) => setAgents(res.data.items ?? [])).catch(() => {});
   }, [setRooms]);
 
   useEffect(() => {
@@ -81,14 +82,14 @@ export default function Discussion() {
         setRoomDetail(res.data.room);
         setMessages(currentRoomId, res.data.messages || []);
       })
-      .catch(() => message.error('加载讨论详情失败'))
+      .catch(() => message.error(t('discussion.loadFailed')))
       .finally(() => setLoadingDetail(false));
   }, [currentRoomId, setMessages]);
 
   // 创建房间
   const handleCreate = async () => {
-    if (!topic.trim()) { message.warning('请输入讨论主题'); return; }
-    if (selectedRoles.length < 3) { message.warning('至少选择 3 个角色'); return; }
+    if (!topic.trim()) { message.warning(t('discussion.topicRequired')); return; }
+    if (selectedRoles.length < 3) { message.warning(t('discussion.rolesRequired')); return; }
     setCreating(true);
     try {
       const res = await apiClient.post('/discussion/rooms', {
@@ -102,7 +103,7 @@ export default function Discussion() {
       setCreateOpen(false);
       setTopic('');
       setSelectedRoles([]);
-      message.success('讨论房间已创建');
+      message.success(t('discussion.created'));
     } catch (e: any) {
       message.error(e.message);
     } finally {
@@ -114,7 +115,7 @@ export default function Discussion() {
   const handleStart = async () => {
     if (!currentRoomId) return;
     if (roomDetail?.current_phase === 'done') {
-      message.warning('讨论已完成');
+      message.warning(t('discussion.alreadyDone'));
       return;
     }
 
@@ -129,7 +130,7 @@ export default function Discussion() {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ detail: '请求失败' }));
+        const errData = await response.json().catch(() => ({ detail: t('discussion.requestFailed') }));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
@@ -137,7 +138,7 @@ export default function Discussion() {
       await readSSE<DiscussionStreamData>(response.body, ({ event, data }) => {
         if (event === 'agent_start') accumulatedContent = '';
         if (event === 'error') {
-          const errorText = data.error ?? data.message ?? '讨论请求失败';
+          const errorText = data.error ?? data.message ?? t('discussion.requestFailed');
           setRoomDetail((prev) => prev ? { ...prev, current_phase: 'failed' } : prev);
           message.error(errorText);
           return;
@@ -176,10 +177,10 @@ export default function Discussion() {
           setRoomDetail((prev) => prev ? { ...prev, current_phase: 'done' } : prev);
           setIsStreaming(false);
         }
-      }, '讨论服务未返回事件流');
+      }, t('discussion.streamMissing'));
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        message.error(err.message || '启动讨论失败');
+        message.error(err.message || t('discussion.startFailed'));
       }
     } finally {
       setIsStreaming(false);
@@ -196,12 +197,12 @@ export default function Discussion() {
   const currentMessages = currentRoomId ? (messages[currentRoomId] || []) : [];
 
   return (
-    <Layout style={{ height: 'calc(100vh - 56px)', background: '#fff' }}>
+    <Layout style={{ minHeight: 'calc(100dvh - 56px)', background: 'var(--fq-surface-1)' }}>
       {/* 左栏：房间列表 */}
-      <Sider width={260} style={{ background: '#fafafa', borderRight: '1px solid #f0f0f0', overflow: 'auto' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>
-          <Button type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            创建讨论
+      <Sider width={260} style={{ background: 'var(--fq-bg-subtle)', borderRight: '1px solid var(--fq-border)', overflow: 'auto' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--fq-border)' }}>
+          <Button aria-label={t('discussion.create')} type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+            {t('discussion.create')}
           </Button>
         </div>
         <List
@@ -211,7 +212,7 @@ export default function Discussion() {
             <List.Item
               style={{
                 cursor: 'pointer',
-                background: room.id === currentRoomId ? '#e6f7ff' : undefined,
+                background: room.id === currentRoomId ? 'var(--fq-ai-soft)' : undefined,
                 padding: '8px 16px',
               }}
               onClick={() => setCurrentRoomId(room.id)}
@@ -220,29 +221,29 @@ export default function Discussion() {
                 <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {room.topic}
                 </div>
-                <div style={{ fontSize: 11, color: '#888' }}>
-                  {room.participants.map((p) => p.name).join('、')} · Round {room.total_rounds}
+                <div style={{ fontSize: 11, color: 'var(--fq-text-tertiary)' }}>
+                  {t('discussion.participantsLine', { names: room.participants.map((p) => p.name).join(t('discussion.separator')), rounds: room.total_rounds })}
                 </div>
                 <Tag color={room.current_phase === 'done' ? 'green' : room.current_phase === 'failed' ? 'red' : 'blue'} style={{ marginTop: 4 }}>
-                  {room.current_phase === 'done' ? '已完成' : room.current_phase === 'failed' ? '失败，可重试' : '进行中'}
+                  {room.current_phase === 'done' ? t('discussion.status.done') : room.current_phase === 'failed' ? t('discussion.status.failed') : t('discussion.status.running')}
                 </Tag>
               </div>
             </List.Item>
           )}
-          locale={{ emptyText: <Empty description="暂无讨论" /> }}
+          locale={{ emptyText: <Empty description={t('discussion.empty')} /> }}
         />
       </Sider>
 
       {/* 内容区 */}
       <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'auto', padding: 16 }}>
         {!currentRoomId ? (
-          <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
-            <Title level={4} type="secondary">请选择或创建一个讨论房间</Title>
+          <div style={{ textAlign: 'center', padding: 80, color: 'var(--fq-text-tertiary)' }}>
+            <Title level={4} type="secondary">{t('discussion.selectRoom')}</Title>
           </div>
         ) : loadingDetail || !roomDetail ? (
           <div role="status" aria-live="polite" style={{ textAlign: 'center', padding: 40 }}>
             <Spin />
-            <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>正在加载讨论详情…</Text>
+            <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>{t('discussion.loading')}</Text>
           </div>
         ) : (
           <>
@@ -250,24 +251,18 @@ export default function Discussion() {
             {roomDetail?.current_phase !== 'done' && (
               <div style={{ marginBottom: 16, textAlign: 'center' }}>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                  模型额度：开始后按所选角色和轮次多次调用模型；仅打开房间不会运行。
+                  {t('discussion.quota')}
                 </Text>
                 {isStreaming ? (
-                  <Button danger onClick={handleStop}>停止讨论</Button>
+                  <Button danger onClick={handleStop}>{t('discussion.stop')}</Button>
                 ) : (
                   <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStart} size="large">
-                    开始讨论
+                    {t('discussion.start')}
                   </Button>
                 )}
               </div>
             )}
 
-            {/* 时间线 */}
-            <DiscussionTimeline
-              room={roomDetail}
-              messages={currentMessages}
-              currentAgent={isStreaming ? 'current' : undefined}
-            />
             <InvestmentCommittee
               topic={roomDetail.topic}
               phase={roomDetail.current_phase === 'done' ? 'completed' : roomDetail.current_phase === 'failed' ? 'partial' : isStreaming ? 'in-session' : 'awaiting-confirmation'}
@@ -283,46 +278,49 @@ export default function Discussion() {
           </>
         )}
 
-        <div style={{ textAlign: 'center', fontSize: 11, color: '#bbb', marginTop: 16 }}>
-          此内容由 AI 生成，不构成投资建议
+        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fq-text-tertiary)', marginTop: 16 }}>
+          {t('discussion.disclaimer')}
         </div>
       </Content>
 
       {/* 创建对话框 */}
       <Modal
-        title="创建讨论房间"
+        title={t('discussion.modal.title')}
         open={createOpen}
         onOk={handleCreate}
         onCancel={() => setCreateOpen(false)}
         confirmLoading={creating}
-        okText="创建"
-        cancelText="取消"
+        okText={t('discussion.modal.create')}
+        cancelText={t('discussion.modal.cancel')}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Text type="secondary">创建只保存房间；点击房间内“开始讨论”后才会调用多个模型角色。</Text>
+          <Text type="secondary">{t('discussion.modal.note')}</Text>
           <div>
-            <Text strong>讨论主题</Text>
+            <Text strong>{t('discussion.modal.topic')}</Text>
             <TextArea
+              aria-label={t('discussion.modal.topic')}
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="输入讨论主题，如：贵州茅台当前是否值得买入"
+              placeholder={t('discussion.modal.topicPlaceholder')}
               rows={2}
             />
           </div>
           <div>
-            <Text strong>参与角色（至少 3 个）</Text>
+            <Text strong>{t('discussion.modal.roles')}</Text>
             <Select
+              aria-label={t('discussion.modal.roles')}
               mode="multiple"
               value={selectedRoles}
               onChange={setSelectedRoles}
               style={{ width: '100%', marginTop: 4 }}
-              placeholder="选择角色"
+              placeholder={t('discussion.modal.rolesPlaceholder')}
               options={agents.map((a) => ({ label: a.name, value: a.role_key }))}
             />
           </div>
           <div>
-            <Text strong>讨论轮次</Text>
+            <Text strong>{t('discussion.modal.rounds')}</Text>
             <InputNumber
+              aria-label={t('discussion.modal.rounds')}
               value={totalRounds}
               onChange={(v) => setTotalRounds(v || 3)}
               min={1}

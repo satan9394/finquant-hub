@@ -8,10 +8,12 @@ import {
   saveProfessionalPreferences,
   type LayoutDensity,
 } from '../../features/professionalPreferences';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 const { Paragraph, Text } = Typography;
 
 export default function ProfessionalPreferencesPanel() {
+  const { t } = useLanguage();
   const initial = readProfessionalPreferences();
   const [indicatorKeys, setIndicatorKeys] = useState<IndicatorKey[]>(initial.indicatorKeys);
   const [layoutDensity, setLayoutDensity] = useState<LayoutDensity>(initial.layoutDensity);
@@ -19,14 +21,14 @@ export default function ProfessionalPreferencesPanel() {
 
   const save = () => {
     if (!indicatorKeys.length) {
-      message.warning('至少保留一个常用指标');
+      message.warning(t('settings.preferences.oneRequired'));
       return;
     }
     const saved = saveProfessionalPreferences({ indicatorKeys, layoutDensity, alphaTemplateId });
     setIndicatorKeys(saved.indicatorKeys);
     setLayoutDensity(saved.layoutDensity);
     setAlphaTemplateId(saved.alphaTemplateId);
-    message.success('专业偏好已保存在本机');
+    message.success(t('settings.preferences.saved'));
   };
 
   const reset = () => {
@@ -34,46 +36,46 @@ export default function ProfessionalPreferencesPanel() {
     setIndicatorKeys(restored.indicatorKeys);
     setLayoutDensity(restored.layoutDensity);
     setAlphaTemplateId(restored.alphaTemplateId);
-    message.success('已恢复新手默认值');
+    message.success(t('settings.preferences.resetDone'));
   };
 
   return (
-    <Card title="专业工作台偏好">
+    <Card title={t('settings.preferences.title')}>
       <Alert
         type="info"
         showIcon
-        message="只改变本机展示与启动模板"
-        description="不会改变指标算法、行情来源、复权、期间、成本或基准；新用户仍使用舒适密度和全部四类指标。"
+        message={t('settings.preferences.notice')}
+        description={t('settings.preferences.noticeDescription')}
         style={{ marginBottom: 16 }}
       />
 
-      <Paragraph strong>常用指标</Paragraph>
+      <Paragraph strong>{t('settings.preferences.indicators')}</Paragraph>
       <Checkbox.Group
-        aria-label="常用指标"
+        aria-label={t('settings.preferences.indicators')}
         value={indicatorKeys}
         options={INDICATOR_KEYS.map((key) => ({ label: INDICATOR_KNOWLEDGE[key].shortName, value: key }))}
         onChange={(values) => setIndicatorKeys(values as IndicatorKey[])}
       />
 
-      <Paragraph strong style={{ marginTop: 18 }}>布局密度</Paragraph>
+      <Paragraph strong style={{ marginTop: 18 }}>{t('settings.preferences.density')}</Paragraph>
       <Radio.Group
-        aria-label="布局密度"
+        aria-label={t('settings.preferences.density')}
         value={layoutDensity}
         onChange={(event) => setLayoutDensity(event.target.value as LayoutDensity)}
         options={[
-          { label: '舒适（默认）', value: 'comfortable' },
-          { label: '紧凑', value: 'compact' },
+          { label: t('settings.preferences.comfortable'), value: 'comfortable' },
+          { label: t('settings.preferences.compact'), value: 'compact' },
         ]}
       />
 
-      <Paragraph style={{ marginTop: 18, marginBottom: 6 }}><Text strong>常用研究模板</Text></Paragraph>
+      <Paragraph style={{ marginTop: 18, marginBottom: 6 }}><Text strong>{t('settings.preferences.template')}</Text></Paragraph>
       <Text type="secondary">
-        {alphaTemplateId ? `Alpha 真实目录模板：${alphaTemplateId}` : '未设置；请在 Alpha 因子研究页选择真实模板后显式保存。'}
+        {alphaTemplateId ? t('settings.preferences.templateValue', { id: alphaTemplateId }) : t('settings.preferences.noTemplate')}
       </Text>
 
       <Space wrap style={{ marginTop: 18, width: '100%' }}>
-        <Button type="primary" onClick={save}>保存专业偏好</Button>
-        <Button onClick={reset}>恢复默认</Button>
+        <Button type="primary" onClick={save}>{t('settings.preferences.save')}</Button>
+        <Button onClick={reset}>{t('settings.preferences.reset')}</Button>
       </Space>
     </Card>
   );

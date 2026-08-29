@@ -11,6 +11,7 @@ import type {
   MarketSector,
   WeeklyMarketMover,
 } from '../types';
+import { readChartTokens, withAlpha } from '../styles/themeTokens';
 
 interface MarketMoversPanelProps {
   watchCodes: string[];
@@ -21,6 +22,7 @@ interface MarketMoversPanelProps {
 type PulseSections = MarketPulseResponse['sections'];
 
 export function buildMoverChartOption(gainers: MarketMover[], decliners: MarketMover[]) {
+  const colors = readChartTokens();
   const rows = [
     ...[...decliners].sort((a, b) => (a.change_percent ?? 0) - (b.change_percent ?? 0)).slice(0, 6).reverse(),
     ...[...gainers].sort((a, b) => (b.change_percent ?? 0) - (a.change_percent ?? 0)).slice(0, 6).reverse(),
@@ -31,14 +33,14 @@ export function buildMoverChartOption(gainers: MarketMover[], decliners: MarketM
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(2)}%` },
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#7296ad', formatter: (value: number) => `${value}%` },
-      axisLine: { lineStyle: { color: 'rgba(107, 187, 224, .28)' } },
-      splitLine: { lineStyle: { color: 'rgba(107, 187, 224, .1)' } },
+      axisLabel: { color: colors.text, formatter: (value: number) => `${value}%` },
+      axisLine: { lineStyle: { color: withAlpha(colors.gridStrong, 0.28) } },
+      splitLine: { lineStyle: { color: withAlpha(colors.grid, 0.1) } },
     },
     yAxis: {
       type: 'category',
       data: rows.map((item) => item.name),
-      axisLabel: { color: '#bdd9e8', width: 68, overflow: 'truncate' },
+      axisLabel: { color: colors.textPrimary, width: 68, overflow: 'truncate' },
       axisLine: { show: false },
       axisTick: { show: false },
     },
@@ -48,14 +50,14 @@ export function buildMoverChartOption(gainers: MarketMover[], decliners: MarketM
       data: rows.map((item) => ({
         value: item.change_percent,
         itemStyle: {
-          color: (item.change_percent ?? 0) >= 0 ? '#ff6b7a' : '#46d6a3',
+          color: (item.change_percent ?? 0) >= 0 ? colors.up : colors.down,
           borderRadius: (item.change_percent ?? 0) >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4],
         },
       })),
       label: {
         show: true,
         position: 'right',
-        color: '#dcecf5',
+        color: colors.textPrimary,
         fontSize: 10,
         formatter: (params: { value: number }) => `${params.value > 0 ? '+' : ''}${params.value.toFixed(2)}%`,
       },
@@ -64,41 +66,43 @@ export function buildMoverChartOption(gainers: MarketMover[], decliners: MarketM
 }
 
 export function buildSectorChartOption(items: MarketSector[]) {
+  const colors = readChartTokens();
   const rows = [...items].sort((a, b) => (b.change_percent ?? -Infinity) - (a.change_percent ?? -Infinity)).slice(0, 12).reverse();
   return {
     animationDuration: 450,
     grid: { top: 10, right: 60, bottom: 20, left: 92 },
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    xAxis: { type: 'value', axisLabel: { color: '#7296ad', formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(107, 187, 224, .1)' } } },
-    yAxis: { type: 'category', data: rows.map((item) => item.name), axisLabel: { color: '#bdd9e8', width: 82, overflow: 'truncate' } },
+    xAxis: { type: 'value', axisLabel: { color: colors.text, formatter: '{value}%' }, splitLine: { lineStyle: { color: withAlpha(colors.grid, 0.1) } } },
+    yAxis: { type: 'category', data: rows.map((item) => item.name), axisLabel: { color: colors.textPrimary, width: 82, overflow: 'truncate' } },
     series: [{
       type: 'bar',
       barWidth: 11,
       data: rows.map((item) => ({
         value: item.change_percent,
-        itemStyle: { color: (item.change_percent ?? 0) >= 0 ? '#ff7d8b' : '#46d6a3' },
+        itemStyle: { color: (item.change_percent ?? 0) >= 0 ? colors.up : colors.down },
       })),
-      label: { show: true, position: 'right', color: '#dcecf5', fontSize: 10, formatter: ({ value }: { value: number }) => `${value > 0 ? '+' : ''}${value?.toFixed(2) ?? '—'}%` },
+      label: { show: true, position: 'right', color: colors.textPrimary, fontSize: 10, formatter: ({ value }: { value: number }) => `${value > 0 ? '+' : ''}${value?.toFixed(2) ?? '—'}%` },
     }],
   };
 }
 
 export function buildFlowChartOption(items: CapitalFlowItem[]) {
+  const colors = readChartTokens();
   const rows = [...items].sort((a, b) => (b.main_net_inflow ?? -Infinity) - (a.main_net_inflow ?? -Infinity)).slice(0, 12).reverse();
   return {
     animationDuration: 450,
     grid: { top: 10, right: 68, bottom: 20, left: 92 },
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    xAxis: { type: 'value', axisLabel: { color: '#7296ad', formatter: (value: number) => `${(value / 100_000_000).toFixed(0)}亿` }, splitLine: { lineStyle: { color: 'rgba(107, 187, 224, .1)' } } },
-    yAxis: { type: 'category', data: rows.map((item) => item.name), axisLabel: { color: '#bdd9e8', width: 82, overflow: 'truncate' } },
+    xAxis: { type: 'value', axisLabel: { color: colors.text, formatter: (value: number) => `${(value / 100_000_000).toFixed(0)}亿` }, splitLine: { lineStyle: { color: withAlpha(colors.grid, 0.1) } } },
+    yAxis: { type: 'category', data: rows.map((item) => item.name), axisLabel: { color: colors.textPrimary, width: 82, overflow: 'truncate' } },
     series: [{
       type: 'bar',
       barWidth: 11,
       data: rows.map((item) => ({
         value: item.main_net_inflow,
-        itemStyle: { color: (item.main_net_inflow ?? 0) >= 0 ? '#ff7d8b' : '#46d6a3' },
+        itemStyle: { color: (item.main_net_inflow ?? 0) >= 0 ? colors.up : colors.down },
       })),
-      label: { show: true, position: 'right', color: '#dcecf5', fontSize: 10, formatter: ({ value }: { value: number }) => formatAmount(value) },
+      label: { show: true, position: 'right', color: colors.textPrimary, fontSize: 10, formatter: ({ value }: { value: number }) => formatAmount(value) },
     }],
   };
 }

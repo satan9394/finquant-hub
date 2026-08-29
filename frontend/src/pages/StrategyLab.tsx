@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import {
   Alert, Button, Card, Col, Collapse, Descriptions, Empty, Form, Input, InputNumber, List, Row, Space,
-  Select, Steps, Table, Tag, Typography, message,
+  Select, Steps, Table, Tabs, Tag, Typography, message,
 } from 'antd';
 import { ExperimentOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import BacktestCharts from '../components/research/BacktestCharts';
@@ -23,30 +23,14 @@ import StrategySetup from '../components/strategy/StrategySetup';
 import BacktestSummary from '../components/strategy/BacktestSummary';
 import BacktestFailurePanel from '../components/strategy/BacktestFailurePanel';
 import ExperimentWorkbench from '../components/strategy/ExperimentWorkbench';
+import MetricStrip from '../components/MetricStrip';
 import { STRATEGY_PRESETS, type StrategyGoal, type StrategyPresetKey } from '../features/backtest/presets';
 import apiClient from '../services/api';
 import { fetchStrategySharePreview } from '../services/sharePreviewApi';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const { Title, Text, Paragraph } = Typography;
 const runningStates = ['queued', 'loading_data', 'running', 'calculating_metrics'];
-const statusLabels: Record<string, string> = {
-  queued: '已排队',
-  loading_data: '加载真实行情',
-  running: '执行交易模拟',
-  calculating_metrics: '计算指标',
-  completed: '回测完成',
-  failed: '回测失败',
-  cancelled: '已取消',
-};
-const warningLabels: Record<string, string> = {
-  partial_history: '提供方返回的历史长度少于请求长度',
-  position_forced_closed_at_end: '期末持仓按最后收盘价并计入费用后强制平仓',
-  no_trades_in_period: '当前参数在区间内没有触发完整交易',
-  profit_factor_undefined_without_losses: '区间内没有亏损交易，盈亏比不可定义',
-  unadjusted_prices: '行情序列未复权，公司行动可能影响结果',
-  position_open_at_end_due_to_t_plus_one: '期末买入仓位受 T+1 约束，按市值保留未实现收益',
-  position_open_at_end_due_to_limit_down: '期末跌停无法成交，按市值保留未实现收益',
-};
 
 const initialValues = (symbol: string): BacktestFormValues => ({
   symbol: symbol || 'AAPL',
@@ -65,14 +49,14 @@ const initialValues = (symbol: string): BacktestFormValues => ({
 
 const feePresets = {
   eastmoney_cn: {
-    label: '东方财富证券 A 股参考', commission_bps: 2.5, slippage_bps: 2,
+    labelKey: 'strategy.fee.eastmoney', commission_bps: 2.5, slippage_bps: 2,
     sell_stamp_duty_bps: 10, minimum_commission_cny: 5,
-    note: '佣金万 2.5、卖出印花税千 1、单笔最低佣金 ¥5；实际佣金以账户交割单为准。',
+    noteKey: 'strategy.fee.eastmoneyNote',
   },
   custom: {
-    label: '自定义成本', commission_bps: 3, slippage_bps: 2,
+    labelKey: 'strategy.fee.custom', commission_bps: 3, slippage_bps: 2,
     sell_stamp_duty_bps: 0, minimum_commission_cny: 0,
-    note: '自定义值会写入本次回测参数。',
+    noteKey: 'strategy.fee.customNote',
   },
 } as const;
 
@@ -144,6 +128,8 @@ interface ThesisValidationIntent {
 }
 
 export default function StrategyLab() {
+  const { lang, t } = useLanguage();
+  const listSeparator = lang === 'zh' ? '、' : ', ';
   const [searchParams] = useSearchParams();
   const [values, setValues] = useState<BacktestFormValues>(() => initialValues(searchParams.get('symbol') ?? ''));
   const [errors, setErrors] = useState<BacktestFormErrors>({});
@@ -173,13 +159,14 @@ export default function StrategyLab() {
   const [sharePreviewError, setSharePreviewError] = useState('');
   const [sharePreview, setSharePreview] = useState<SharePreview | null>(null);
   const [sharePreviewRunId, setSharePreviewRunId] = useState<number | null>(null);
+  const [resultTab, setResultTab] = useState('overview');
   const pollToken = useRef(0);
 
   const loadHistory = async () => {
     try {
       setHistory(await listBacktests(true));
     } catch (error: any) {
-      setRequestError(error.message || '加载已保存回测失败');
+      setRequestError(error.message || t('strategy.message.loadSavedFailed'));
     }
   };
 
@@ -206,7 +193,7 @@ export default function StrategyLab() {
     if (rawId == null) return;
     const thesisId = Number(rawId);
     if (!Number.isInteger(thesisId) || thesisId <= 0) {
-      setValidationIntentError('验证实验来源无效，请返回 Thesis 重新创建。');
+      setValidationIntentError(t('strategy.message.intentInvalid'));
       return;
     }
     const loadIntent = async () => {
@@ -220,7 +207,7 @@ export default function StrategyLab() {
         setValues((current) => ({ ...current, symbol: response.data.parameters.symbol }));
       } catch (error: unknown) {
         setValidationIntent(null);
-        setValidationIntentError(error instanceof Error ? error.message : '加载验证实验来源失败');
+        setValidationIntentError(error instanceof Error ? error.message : t('strategy.message.intentLoadFailed'));
       } finally {
         setValidationIntentLoading(false);
       }
@@ -236,11 +223,11 @@ export default function StrategyLab() {
   const chooseReference = async (item: WeeklyMarketMover) => {
     try {
       const history = await fetchInstrumentBars(item.code, 60);
-      if (history.items.length < 60) throw new Error('历史数据不足');
+      if (history.items.length < 60) throw new Error(t('strategy.message.historyInsufficient'));
       update('symbol', item.code.toUpperCase());
-      message.success(`已带入 ${item.name}，历史 K 线可用于回测`);
+      message.success(t('strategy.message.referenceSelected', { name: item.name }));
     } catch {
-      message.warning(`${item.name} 当前公开历史 K 线不足，保留为观察候选，不带入回测。`);
+      message.warning(t('strategy.message.referenceInsufficient', { name: item.name }));
     }
   };
 
@@ -272,9 +259,16 @@ export default function StrategyLab() {
       const response = await apiClient.post<StrategyIRResponse>('/backtests/strategy-ir/parse', {
         description: strategyDescription,
       });
-      setStrategyIRResponse(response.data);
+      const result = response.data;
+      if (result.status === 'valid' && (!result.ir?.instrument || !Array.isArray(result.ir.conditions))) {
+        throw new Error(t('strategy.message.missingIr'));
+      }
+      if (result.status === 'invalid' && !Array.isArray(result.issues)) {
+        throw new Error(t('strategy.message.missingIssues'));
+      }
+      setStrategyIRResponse(result);
     } catch (error: unknown) {
-      setStrategyIRError(error instanceof Error ? error.message : '策略描述解析失败');
+      setStrategyIRError(error instanceof Error ? error.message : t('strategy.message.parseFailed'));
     } finally {
       setStrategyIRLoading(false);
     }
@@ -303,7 +297,7 @@ export default function StrategyLab() {
       setErrors({});
       setStrategyDraft(draft);
     } catch (error: unknown) {
-      setStrategyDraftError(error instanceof Error ? error.message : '策略 IR 编译失败');
+      setStrategyDraftError(error instanceof Error ? error.message : t('strategy.message.compileFailed'));
     } finally {
       setStrategyDraftLoading(false);
     }
@@ -332,7 +326,7 @@ export default function StrategyLab() {
       }
       await new Promise((resolve) => window.setTimeout(resolve, 500));
     }
-    throw new Error('等待回测完成超时');
+    throw new Error(t('strategy.message.timeout'));
   };
 
   const execute = async () => {
@@ -347,10 +341,10 @@ export default function StrategyLab() {
       const queued = await createBacktest(values);
       setRun(queued);
       const completed = await poll(queued.id, token);
-      if (completed.status === 'failed') throw new Error(completed.error_message || '回测失败');
-      if (completed.status === 'completed') message.success('双均线回测已完成');
+      if (completed.status === 'failed') throw new Error(completed.error_message || t('strategy.message.backtestFailed'));
+      if (completed.status === 'completed') message.success(t('strategy.message.completed'));
     } catch (error: any) {
-      setRequestError(error.message || '回测请求失败');
+      setRequestError(error.message || t('strategy.message.requestFailed'));
     } finally {
       if (pollToken.current === token) setRunning(false);
     }
@@ -364,9 +358,9 @@ export default function StrategyLab() {
       setRun({ ...run, is_saved: true });
       await loadHistory();
       if (baselineId == null) setBaselineId(run.id);
-      message.success('回测实验已保存');
+      message.success(t('strategy.message.saved'));
     } catch (error: any) {
-      message.error(error.message || '保存失败');
+      message.error(error.message || t('strategy.message.saveFailed'));
     }
   };
 
@@ -381,7 +375,7 @@ export default function StrategyLab() {
         item.params.start_date <= bar.day.slice(0, 10) && bar.day.slice(0, 10) <= item.params.end_date
       )));
     } catch (error: any) {
-      setRequestError(error.message || '加载已保存回测行情失败');
+      setRequestError(error.message || t('strategy.message.loadBarsFailed'));
     }
   };
 
@@ -394,7 +388,7 @@ export default function StrategyLab() {
       setSharePreview(await fetchStrategySharePreview(runId));
     } catch (error: unknown) {
       setSharePreview(null);
-      setSharePreviewError(error instanceof Error ? error.message : '私有预览生成失败');
+      setSharePreviewError(error instanceof Error ? error.message : t('strategy.message.previewFailed'));
     } finally {
       setSharePreviewLoading(false);
     }
@@ -406,23 +400,24 @@ export default function StrategyLab() {
   }, [run]);
 
   const tradeColumns = [
-    { title: '买入日', dataIndex: 'entry_time', key: 'entry_time' },
-    { title: '卖出日', dataIndex: 'exit_time', key: 'exit_time' },
-    { title: '买入价', dataIndex: 'entry_price', key: 'entry_price', render: (value: number) => value.toFixed(4) },
-    { title: '卖出价', dataIndex: 'exit_price', key: 'exit_price', render: (value: number) => value.toFixed(4) },
-    { title: '数量', dataIndex: 'quantity', key: 'quantity', render: (value: number) => value.toFixed(4) },
-    { title: '总费用', key: 'fees', render: (_: unknown, item: BacktestTrade) => (item.entry_fee + item.exit_fee).toFixed(2) },
-    { title: '净收益', dataIndex: 'pnl', key: 'pnl', render: (value: number) => <Text className={value >= 0 ? 'price-up' : 'price-down'}>{value.toFixed(2)}</Text> },
-    { title: '收益率', dataIndex: 'return', key: 'return', render: (value: number) => pct(value) },
+    { title: t('strategy.trade.entryDay'), dataIndex: 'entry_time', key: 'entry_time' },
+    { title: t('strategy.trade.exitDay'), dataIndex: 'exit_time', key: 'exit_time' },
+    { title: t('strategy.trade.entryPrice'), dataIndex: 'entry_price', key: 'entry_price', render: (value: number) => value.toFixed(4) },
+    { title: t('strategy.trade.exitPrice'), dataIndex: 'exit_price', key: 'exit_price', render: (value: number) => value.toFixed(4) },
+    { title: t('strategy.trade.quantity'), dataIndex: 'quantity', key: 'quantity', render: (value: number) => value.toFixed(4) },
+    { title: t('strategy.trade.fees'), key: 'fees', render: (_: unknown, item: BacktestTrade) => (item.entry_fee + item.exit_fee).toFixed(2) },
+    { title: t('strategy.trade.pnl'), dataIndex: 'pnl', key: 'pnl', render: (value: number) => <Text className={value >= 0 ? 'price-up' : 'price-down'}>{value.toFixed(2)}</Text> },
+    { title: t('strategy.trade.return'), dataIndex: 'return', key: 'return', render: (value: number) => pct(value) },
   ];
+  const runStatusText = (status: string) => t(`strategy.runStatus.${status}`);
 
   const strategyStatus = running
-    ? '正在执行真实行情回测'
+    ? t('strategy.status.running')
     : run?.status === 'completed'
-      ? requestError ? '回测完成，部分证据不可用' : '回测结果已更新'
+      ? requestError ? t('strategy.status.partial') : t('strategy.status.updated')
       : requestError || run?.status === 'failed'
-        ? '回测失败'
-        : '参数等待确认';
+        ? t('strategy.status.failed')
+        : t('strategy.status.waiting');
   const strategyStatusTone = running
     ? 'loading' as const
     : run?.status === 'completed'
@@ -434,52 +429,52 @@ export default function StrategyLab() {
   return (
     <main className="product-page" data-testid="ma-crossover-lab">
       <TaskPageHeader
-        eyebrow="STRATEGY LAB · EXECUTABLE"
-        title="双均线策略实验室"
-        goal="信号在当日收盘确认，下一交易日开盘执行；结果扣除佣金与滑点，不触发真实交易。"
-        object={`${values.symbol || '尚未选择'} · MA${values.short_window}/MA${values.long_window}`}
+        eyebrow={t('strategy.eyebrow')}
+        title={t('strategy.title')}
+        goal={t('strategy.goal')}
+        object={`${values.symbol || t('strategy.noSymbol')} · MA${values.short_window}/MA${values.long_window}`}
         status={strategyStatus}
         statusTone={strategyStatusTone}
         actions={(
           <Button type="primary" icon={run?.status === 'completed' ? <ReloadOutlined /> : <ExperimentOutlined />} loading={running} onClick={() => void execute()}>
-            {run?.status === 'completed' ? '重新运行' : '运行回测'}
+            {t(run?.status === 'completed' ? 'strategy.rerun' : 'strategy.run')}
           </Button>
         )}
       />
 
       {validationIntentLoading && (
-        <Alert style={{ marginBottom: 18 }} type="info" showIcon message="正在核对 Thesis 验证实验来源" />
+        <Alert style={{ marginBottom: 18 }} type="info" showIcon message={t('strategy.intent.checking')} />
       )}
       {validationIntentError && (
-        <Alert style={{ marginBottom: 18 }} type="error" showIcon message="验证实验来源不可用" description={validationIntentError} />
+        <Alert style={{ marginBottom: 18 }} type="error" showIcon message={t('strategy.intent.unavailable')} description={validationIntentError} />
       )}
       {validationIntent && (
         <Alert
           style={{ marginBottom: 18 }}
           type="warning"
           showIcon
-          message={`来自 Thesis：${validationIntent.source.title}`}
+          message={t('strategy.intent.source', { title: validationIntent.source.title })}
           description={(
             <Space direction="vertical" size={4}>
-              <Text>只带入标的 {validationIntent.parameters.symbol}；未从论文正文猜测均线或金融参数。</Text>
-              <Text>仍需确认：{validationIntent.requires_confirmation.join('、')}</Text>
-              <Text type="secondary">回测仅用于验证假设，不构成 Thesis 的因果证明。</Text>
-              <Link to={`/thesis?id=${validationIntent.source.id}`}>返回来源 Thesis</Link>
+              <Text>{t('strategy.intent.symbolOnly', { symbol: validationIntent.parameters.symbol })}</Text>
+              <Text>{t('strategy.confirm', { items: validationIntent.requires_confirmation.join(listSeparator) })}</Text>
+              <Text type="secondary">{t('strategy.intent.notice')}</Text>
+              <Link to={`/thesis?id=${validationIntent.source.id}`}>{t('strategy.intent.back')}</Link>
             </Space>
           )}
         />
       )}
 
-      <Card title="用自然语言生成有限策略 IR（不执行）" className="surface-card" style={{ marginBottom: 18 }}>
+      <Card title={t('strategy.ir.title')} className="surface-card" style={{ marginBottom: 18 }}>
         <Paragraph type="secondary" style={{ marginTop: 0 }}>
-          当前只接受一个明确 ticker、两条日线简单均线、上穿买入、下穿卖出，以及“收盘确认、下一交易日开盘执行”。解析只生成数据，不运行或保存回测。
+          {t('strategy.ir.description')}
         </Paragraph>
         <Input.TextArea
-          aria-label="策略描述"
+          aria-label={t('strategy.ir.label')}
           rows={4}
           maxLength={2000}
           value={strategyDescription}
-          placeholder="例如：标的 600519，日线 MA20 上穿 MA50 时买入，MA20 下穿 MA50 时卖出；收盘确认信号，下一交易日开盘执行。"
+          placeholder={t('strategy.ir.placeholder', { example: t('strategy.ir.example') })}
           onChange={(event) => {
             setStrategyDescription(event.target.value);
             setStrategyIRResponse(null);
@@ -495,32 +490,32 @@ export default function StrategyLab() {
             disabled={!strategyDescription.trim()}
             onClick={() => void parseStrategyDescription()}
           >
-            解析为有限 IR
+            {t('strategy.ir.parse')}
           </Button>
           <Button onClick={() => {
-            setStrategyDescription('标的 600519，日线 MA20 上穿 MA50 时买入，MA20 下穿 MA50 时卖出；收盘确认信号，下一交易日开盘执行。');
+            setStrategyDescription(t('strategy.ir.example'));
             setStrategyIRResponse(null);
             setStrategyIRError('');
             setStrategyDraft(null);
             setStrategyDraftError('');
           }}>
-            填入明确示例
+            {t('strategy.ir.fillExample')}
           </Button>
         </Space>
 
         {!strategyDescription && !strategyIRResponse && !strategyIRError && (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未输入或解析策略描述" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('strategy.ir.empty')} />
         )}
-        {strategyIRLoading && <Alert style={{ marginTop: 12 }} type="info" showIcon message="正在验证有限语法" />}
+        {strategyIRLoading && <Alert style={{ marginTop: 12 }} type="info" showIcon message={t('strategy.ir.validating')} />}
         {strategyIRError && (
-          <Alert style={{ marginTop: 12 }} type="error" showIcon message="策略描述解析失败" description={strategyIRError} />
+          <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.failed')} description={strategyIRError} />
         )}
         {strategyIRResponse?.status === 'invalid' && (
           <Alert
             style={{ marginTop: 12 }}
             type="warning"
             showIcon
-            message="描述不够明确或超出当前能力"
+            message={t('strategy.ir.invalid')}
             description={(
               <List
                 size="small"
@@ -535,39 +530,39 @@ export default function StrategyLab() {
             style={{ marginTop: 12 }}
             type="success"
             showIcon
-            message="已生成不可执行 IR，尚未运行回测"
+            message={t('strategy.ir.generated')}
             description={(
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                 <Descriptions size="small" column={{ xs: 1, md: 3 }}>
-                  <Descriptions.Item label="标的">{strategyIRResponse.ir.instrument.symbol}</Descriptions.Item>
-                  <Descriptions.Item label="数据">日线收盘价</Descriptions.Item>
-                  <Descriptions.Item label="执行">收盘确认 · 下一交易日开盘</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.ir.instrument')}>{strategyIRResponse.ir.instrument.symbol}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.ir.data')}>{t('strategy.ir.dailyClose')}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.ir.execution')}>{t('strategy.ir.nextOpen')}</Descriptions.Item>
                 </Descriptions>
                 {strategyIRResponse.ir.conditions.map((condition) => (
-                  <Text key={condition.id}>{condition.id === 'entry' ? '入场' : '退出'}：{condition.explanation}</Text>
+                  <Text key={condition.id}>{t(condition.id === 'entry' ? 'strategy.ir.entry' : 'strategy.ir.exit')}: {condition.explanation}</Text>
                 ))}
-                <Text type="secondary">仍需显式确认：{strategyIRResponse.ir.requires_confirmation.join('、')}</Text>
+                <Text type="secondary">{t('strategy.confirmExplicit', { items: strategyIRResponse.ir.requires_confirmation.join(listSeparator) })}</Text>
                 <Button loading={strategyDraftLoading} onClick={() => void applyStrategyIR()}>
-                  应用到回测参数
+                  {t('strategy.ir.apply')}
                 </Button>
               </Space>
             )}
           />
         )}
         {strategyDraftError && (
-          <Alert style={{ marginTop: 12 }} type="error" showIcon message="策略 IR 编译失败" description={strategyDraftError} />
+          <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.compileFailed')} description={strategyDraftError} />
         )}
         {strategyDraft && (
           <Alert
             style={{ marginTop: 12 }}
             type="warning"
             showIcon
-            message="已应用标的与均线参数，尚未运行回测"
+            message={t('strategy.ir.applied')}
             description={(
               <Space direction="vertical" size={4}>
-                <Text>映射：{strategyDraft.parameters.symbol} · MA{strategyDraft.parameters.short_window}/MA{strategyDraft.parameters.long_window}</Text>
-                <Text>无前视：收盘确认 · 下一交易日开盘执行 · 只做多</Text>
-                <Text type="secondary">仍需确认：{strategyDraft.requires_confirmation.join('、')}；请检查当前表单后再主动运行。</Text>
+                <Text>{t('strategy.ir.mapping', { symbol: strategyDraft.parameters.symbol, short: strategyDraft.parameters.short_window, long: strategyDraft.parameters.long_window })}</Text>
+                <Text>{t('strategy.ir.noLookahead')}</Text>
+                <Text type="secondary">{t('strategy.ir.review', { items: strategyDraft.requires_confirmation.join(listSeparator) })}</Text>
               </Space>
             )}
           />
@@ -575,33 +570,33 @@ export default function StrategyLab() {
       </Card>
 
       <Card
-        title="我的自选股"
+        title={t('strategy.watchlist.title')}
         className="surface-card"
         style={{ marginBottom: 18 }}
       >
-        <Paragraph type="secondary" style={{ marginTop: 0 }}>优先从已跟踪的标的开始；点击后会带入本次回测。</Paragraph>
+        <Paragraph type="secondary" style={{ marginTop: 0 }}>{t('strategy.watchlist.description')}</Paragraph>
         <Space wrap>
           {watchedSymbols.map((item) => <Button key={item.code} onClick={() => update('symbol', item.code.toUpperCase())}>{item.name} · {item.code.toUpperCase()}</Button>)}
-          {!watchedSymbols.length && <Text type="secondary">尚无自选股，可先从仪表盘搜索并添加。</Text>}
+          {!watchedSymbols.length && <Text type="secondary">{t('strategy.watchlist.empty')}</Text>}
         </Space>
       </Card>
 
       <Card
-        title="从市场雷达选择参考标的"
+        title={t('strategy.references.title')}
         className="surface-card"
         style={{ marginBottom: 18 }}
-        extra={<Button size="small" icon={<ReloadOutlined spin={referenceLoading} />} onClick={() => void loadReferences()}>刷新候选</Button>}
+        extra={<Button size="small" icon={<ReloadOutlined spin={referenceLoading} />} onClick={() => void loadReferences()}>{t('strategy.references.refresh')}</Button>}
       >
         <Paragraph type="secondary" style={{ marginTop: 0 }}>
-          候选来自东方财富周异动公开数据，默认按一周绝对涨跌幅降序。它们只是研究起点；带入后仍需查看回测、回撤和稳健性。
+          {t('strategy.references.description')}
         </Paragraph>
         <Space wrap>
           {referenceCandidates.map((item) => (
             <Button key={item.code} onClick={() => void chooseReference(item)}>
-              {item.name} · 周{pct(item.weekly_change_percent / 100)}
+              {item.name} · {t('strategy.references.week', { value: pct(item.weekly_change_percent / 100) })}
             </Button>
           ))}
-          {!referenceLoading && !referenceCandidates.length && <Text type="secondary">暂无可验证的周异动候选，可直接输入代码。</Text>}
+          {!referenceLoading && !referenceCandidates.length && <Text type="secondary">{t('strategy.references.empty')}</Text>}
         </Space>
       </Card>
 
@@ -612,27 +607,27 @@ export default function StrategyLab() {
         onPresetChange={applyStrategyPreset}
       />
 
-      <Card title="2. 确认标的与回测区间" className="surface-card" data-testid="backtest-form">
+      <Card title={t('strategy.form.title')} className="surface-card" data-testid="backtest-form">
         <Form layout="vertical">
           <Row gutter={[14, 0]}>
             <Col xs={24} md={12} xl={6}>
-              <Form.Item label="股票代码" validateStatus={errors.symbol ? 'error' : ''} help={errors.symbol}>
-                <Input aria-label="股票代码" value={values.symbol} onChange={(event) => update('symbol', event.target.value.toUpperCase())} />
+              <Form.Item label={t('strategy.form.symbol')} validateStatus={errors.symbol ? 'error' : ''} help={errors.symbol}>
+                <Input aria-label={t('strategy.form.symbol')} value={values.symbol} onChange={(event) => update('symbol', event.target.value.toUpperCase())} />
               </Form.Item>
             </Col>
             <Col xs={12} md={6} xl={6}>
-              <Form.Item label="开始日期">
-                <Input aria-label="开始日期" type="date" value={values.start_date} onChange={(event) => update('start_date', event.target.value)} />
+              <Form.Item label={t('strategy.form.start')}>
+                <Input aria-label={t('strategy.form.start')} type="date" value={values.start_date} onChange={(event) => update('start_date', event.target.value)} />
               </Form.Item>
             </Col>
             <Col xs={12} md={6} xl={6}>
-              <Form.Item label="结束日期" validateStatus={errors.end_date ? 'error' : ''} help={errors.end_date}>
-                <Input aria-label="结束日期" type="date" value={values.end_date} onChange={(event) => update('end_date', event.target.value)} />
+              <Form.Item label={t('strategy.form.end')} validateStatus={errors.end_date ? 'error' : ''} help={errors.end_date}>
+                <Input aria-label={t('strategy.form.end')} type="date" value={values.end_date} onChange={(event) => update('end_date', event.target.value)} />
               </Form.Item>
             </Col>
             <Col xs={24} md={8} xl={6}>
-              <Form.Item label="初始资金" validateStatus={errors.initial_capital ? 'error' : ''} help={errors.initial_capital}>
-                <InputNumber aria-label="初始资金" min={1} value={values.initial_capital} onChange={(value) => update('initial_capital', Number(value ?? 0))} style={{ width: '100%' }} />
+              <Form.Item label={t('strategy.form.capital')} validateStatus={errors.initial_capital ? 'error' : ''} help={errors.initial_capital}>
+                <InputNumber aria-label={t('strategy.form.capital')} min={1} value={values.initial_capital} onChange={(value) => update('initial_capital', Number(value ?? 0))} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>
@@ -640,21 +635,21 @@ export default function StrategyLab() {
         <Collapse
           items={[{
             key: 'advanced',
-            label: '高级：均线、费用与风控参数',
+            label: t('strategy.form.advanced'),
             children: (
               <Form layout="vertical">
                 <Row gutter={[14, 0]}>
-                  <Col xs={12} md={6}><Form.Item label="短均线" validateStatus={errors.short_window ? 'error' : ''} help={errors.short_window}><InputNumber aria-label="短均线" min={2} value={values.short_window} onChange={(value) => update('short_window', Number(value ?? 0))} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="长均线" validateStatus={errors.long_window ? 'error' : ''} help={errors.long_window}><InputNumber aria-label="长均线" min={3} value={values.long_window} onChange={(value) => update('long_window', Number(value ?? 0))} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={24} md={6}><Form.Item label="成本预设"><Select aria-label="成本预设" value={feePreset} onChange={applyFeePreset} options={Object.entries(feePresets).map(([value, preset]) => ({ value, label: preset.label }))} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="手续费（bps）" validateStatus={errors.commission_bps ? 'error' : ''} help={errors.commission_bps}><InputNumber aria-label="手续费" min={0} step={0.1} value={values.commission_bps} onChange={(value) => { setFeePreset('custom'); update('commission_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="滑点（bps）" validateStatus={errors.slippage_bps ? 'error' : ''} help={errors.slippage_bps}><InputNumber aria-label="滑点" min={0} value={values.slippage_bps} onChange={(value) => { setFeePreset('custom'); update('slippage_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="卖出印花税（bps）" validateStatus={errors.sell_stamp_duty_bps ? 'error' : ''} help={errors.sell_stamp_duty_bps}><InputNumber aria-label="卖出印花税" min={0} value={values.sell_stamp_duty_bps} onChange={(value) => { setFeePreset('custom'); update('sell_stamp_duty_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="最低佣金（¥）" validateStatus={errors.minimum_commission_cny ? 'error' : ''} help={errors.minimum_commission_cny}><InputNumber aria-label="最低佣金" min={0} value={values.minimum_commission_cny} onChange={(value) => { setFeePreset('custom'); update('minimum_commission_cny', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="回撤止损（%）" validateStatus={errors.max_drawdown_stop_pct ? 'error' : ''} help={errors.max_drawdown_stop_pct}><InputNumber aria-label="回撤止损" min={0} max={99} value={values.max_drawdown_stop_pct * 100} onChange={(value) => update('max_drawdown_stop_pct', Number(value ?? 0) / 100)} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} md={6}><Form.Item label="基准"><Input aria-label="基准" value="买入并持有" disabled /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.shortMa')} validateStatus={errors.short_window ? 'error' : ''} help={errors.short_window}><InputNumber aria-label={t('strategy.form.shortMa')} min={2} value={values.short_window} onChange={(value) => update('short_window', Number(value ?? 0))} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.longMa')} validateStatus={errors.long_window ? 'error' : ''} help={errors.long_window}><InputNumber aria-label={t('strategy.form.longMa')} min={3} value={values.long_window} onChange={(value) => update('long_window', Number(value ?? 0))} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={24} md={6}><Form.Item label={t('strategy.form.costPreset')}><Select aria-label={t('strategy.form.costPreset')} value={feePreset} onChange={applyFeePreset} options={Object.entries(feePresets).map(([value, preset]) => ({ value, label: t(preset.labelKey) }))} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.commission')} validateStatus={errors.commission_bps ? 'error' : ''} help={errors.commission_bps}><InputNumber aria-label={t('strategy.form.commissionAria')} min={0} step={0.1} value={values.commission_bps} onChange={(value) => { setFeePreset('custom'); update('commission_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.slippage')} validateStatus={errors.slippage_bps ? 'error' : ''} help={errors.slippage_bps}><InputNumber aria-label={t('strategy.form.slippageAria')} min={0} value={values.slippage_bps} onChange={(value) => { setFeePreset('custom'); update('slippage_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.stampDuty')} validateStatus={errors.sell_stamp_duty_bps ? 'error' : ''} help={errors.sell_stamp_duty_bps}><InputNumber aria-label={t('strategy.form.stampDutyAria')} min={0} value={values.sell_stamp_duty_bps} onChange={(value) => { setFeePreset('custom'); update('sell_stamp_duty_bps', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.minimumCommission')} validateStatus={errors.minimum_commission_cny ? 'error' : ''} help={errors.minimum_commission_cny}><InputNumber aria-label={t('strategy.form.minimumCommissionAria')} min={0} value={values.minimum_commission_cny} onChange={(value) => { setFeePreset('custom'); update('minimum_commission_cny', Number(value ?? 0)); }} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.drawdownStop')} validateStatus={errors.max_drawdown_stop_pct ? 'error' : ''} help={errors.max_drawdown_stop_pct}><InputNumber aria-label={t('strategy.form.drawdownStopAria')} min={0} max={99} value={values.max_drawdown_stop_pct * 100} onChange={(value) => update('max_drawdown_stop_pct', Number(value ?? 0) / 100)} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} md={6}><Form.Item label={t('strategy.form.benchmark')}><Input aria-label={t('strategy.form.benchmark')} value={t('strategy.form.buyHold')} disabled /></Form.Item></Col>
                 </Row>
-                <Text type="secondary">{feePresets[feePreset].note} 印花税与最低佣金仅对 A 股规则生效；回撤止损为 0 时关闭，开启后收盘触发、下一交易日开盘尝试退出。</Text>
+                <Text type="secondary">{t(feePresets[feePreset].noteKey)} {t('strategy.form.costNotice')}</Text>
               </Form>
             ),
           }]}
@@ -669,98 +664,124 @@ export default function StrategyLab() {
         onBaselineChange={setBaselineId}
       />
 
-      <Card title="已保存实验" className="surface-card" style={{ marginTop: 18 }} data-testid="saved-backtests">
+      <Card title={t('strategy.saved.title')} className="surface-card" style={{ marginTop: 18 }} data-testid="saved-backtests">
         {history.length ? (
           <List
             dataSource={history}
             renderItem={(item) => (
               <List.Item
                 actions={[
-                  <Button key="preview" onClick={() => void openSharePreview(item.id)}>私有分享预览</Button>,
-                  <Button key="view" onClick={() => void openSavedRun(item)}>打开实验</Button>,
+                  <Button key="preview" onClick={() => void openSharePreview(item.id)}>{t('strategy.saved.preview')}</Button>,
+                  <Button key="view" onClick={() => void openSavedRun(item)}>{t('strategy.saved.open')}</Button>,
                 ]}
               >
                 <List.Item.Meta
-                  title={<Space><Text strong>{item.symbol}</Text><Tag>MA{item.params.short_window}/MA{item.params.long_window}</Tag><Tag color="green">{statusLabels[item.status]}</Tag></Space>}
-                  description={`${item.params.start_date} 至 ${item.params.end_date} · ${item.metrics ? `总收益 ${pct(item.metrics.total_return)}` : '等待结果'}`}
+                  title={<Space><Text strong>{item.symbol}</Text><Tag>MA{item.params.short_window}/MA{item.params.long_window}</Tag><Tag color="green">{runStatusText(item.status)}</Tag></Space>}
+                  description={t('strategy.saved.description', { start: item.params.start_date, end: item.params.end_date, result: item.metrics ? t('strategy.saved.return', { value: pct(item.metrics.total_return) }) : t('strategy.saved.waiting') })}
                 />
               </List.Item>
             )}
           />
-        ) : <Empty description="暂无已保存实验" />}
+        ) : <Empty description={t('strategy.saved.empty')} />}
       </Card>
 
       {(requestError || run?.status === 'failed') && (
         <BacktestFailurePanel
-          error={run?.error_message || requestError || '回测执行失败'}
-          title={run?.status === 'completed' ? '部分证据不可用' : '回测未完成'}
+          error={run?.error_message || requestError || t('strategy.failure.execution')}
+          title={run?.status === 'completed' ? t('strategy.failure.partial') : t('strategy.failure.incomplete')}
         />
       )}
 
       {run && (
-        <Card className="surface-card" style={{ marginTop: 18 }} title={`运行 #${run.id} · ${statusLabels[run.status] ?? run.status}`}>
+        <Card className="surface-card" style={{ marginTop: 18 }} title={t('strategy.runTitle', { id: run.id, status: runStatusText(run.status) })}>
           <Steps
             current={stepIndex}
             status={run.status === 'failed' ? 'error' : run.status === 'completed' ? 'finish' : 'process'}
             size="small"
-            items={['queued', 'loading_data', 'running', 'calculating_metrics', 'completed'].map((state) => ({ title: statusLabels[state] }))}
+            items={['queued', 'loading_data', 'running', 'calculating_metrics', 'completed'].map((state) => ({ title: runStatusText(state) }))}
           />
         </Card>
       )}
 
       {run?.status === 'completed' && run.metrics && (
         <section data-testid="backtest-completed">
+          <MetricStrip items={[
+            { key: 'cagr', label: 'CAGR', value: pct(run.metrics.annualized_return), tone: (run.metrics.annualized_return ?? 0) >= 0 ? 'up' : 'down' },
+            { key: 'sharpe', label: 'Sharpe', value: run.metrics.sharpe_ratio == null ? 'UNKNOWN' : run.metrics.sharpe_ratio.toFixed(2) },
+            { key: 'mdd', label: 'MDD', value: pct(run.metrics.max_drawdown), tone: 'down' },
+            { key: 'win-rate', label: t('strategy.result.winRate'), value: pct(run.metrics.win_rate) },
+          ]} />
+          <Tabs
+            className="strategy-result-tabs"
+            activeKey={resultTab}
+            onChange={setResultTab}
+            items={[
+              { key: 'overview', label: t('strategy.result.tab.overview') },
+              { key: 'equity', label: t('strategy.result.tab.equity') },
+              { key: 'trades', label: t('strategy.result.tab.trades') },
+              { key: 'risk', label: t('strategy.result.tab.risk') },
+              { key: 'diagnostics', label: t('strategy.result.tab.diagnostics') },
+              { key: 'parameters', label: t('strategy.result.tab.parameters') },
+            ]}
+          />
+          <div hidden={resultTab !== 'overview'}>
           <ResultLayer
             layer="summary"
-            title="回测结论摘要"
-            description="先比较策略、基准、回撤和样本，再决定是否保存。"
+            title={t('strategy.result.summary')}
+            description={t('strategy.result.summaryDescription')}
             actions={(
               <Space wrap>
-                {run.is_saved ? <Button onClick={() => void openSharePreview(run.id)}>私有分享预览</Button> : null}
+                {run.is_saved ? <Button onClick={() => void openSharePreview(run.id)}>{t('strategy.saved.preview')}</Button> : null}
                 <Button type="primary" icon={<SaveOutlined />} disabled={run.is_saved} onClick={() => void save()}>
-                  {run.is_saved ? '实验已保存' : '保存实验'}
+                  {t(run.is_saved ? 'strategy.result.saved' : 'strategy.result.save')}
                 </Button>
               </Space>
             )}
           >
             <BacktestSummary run={run} />
           </ResultLayer>
+          </div>
 
-          <ResultLayer layer="evidence" title="收益、稳健性与成交证据">
-            <Card title="曲线与成交点" className="surface-card">
+          <div hidden={!['equity', 'trades', 'risk'].includes(resultTab)}>
+          <ResultLayer layer="evidence" title={t('strategy.result.evidence')}>
+            {resultTab === 'equity' && <Card title={t('strategy.result.charts')} className="surface-card">
               <BacktestCharts run={run} bars={bars} />
-            </Card>
+            </Card>}
 
-            {run.validation && (
-              <Card title="统计显著性与稳健性" className="surface-card" style={{ marginTop: 18 }}>
+            {resultTab === 'risk' && run.validation && (
+              <Card title={t('strategy.result.robustness')} className="surface-card" style={{ marginTop: 18 }}>
                 <Descriptions column={{ xs: 1, md: 3 }} size="small">
-                  <Descriptions.Item label="Bootstrap 置信区间">{pct(run.validation.bootstrap.confidence_interval[0])} ～ {pct(run.validation.bootstrap.confidence_interval[1])}</Descriptions.Item>
-                  <Descriptions.Item label="Bootstrap 正收益概率">{pct(run.validation.bootstrap.probability_positive)}</Descriptions.Item>
-                  <Descriptions.Item label="Monte Carlo 中位收益">{pct(run.validation.monte_carlo.terminal_return.median)}</Descriptions.Item>
-                  <Descriptions.Item label="Monte Carlo 亏损概率">{pct(run.validation.monte_carlo.probability_loss)}</Descriptions.Item>
-                  <Descriptions.Item label="Walk-forward 正收益折数">{run.validation.walk_forward.status === 'ok' ? pct(run.validation.walk_forward.positive_fold_ratio) : '样本不足'}</Descriptions.Item>
-                  <Descriptions.Item label="Walk-forward 折数">{run.validation.walk_forward.fold_count ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.bootstrapInterval')}>{pct(run.validation.bootstrap.confidence_interval[0])} ～ {pct(run.validation.bootstrap.confidence_interval[1])}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.bootstrapPositive')}>{pct(run.validation.bootstrap.probability_positive)}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.monteCarloMedian')}>{pct(run.validation.monte_carlo.terminal_return.median)}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.monteCarloLoss')}>{pct(run.validation.monte_carlo.probability_loss)}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.walkForwardPositive')}>{run.validation.walk_forward.status === 'ok' ? pct(run.validation.walk_forward.positive_fold_ratio) : t('strategy.result.insufficient')}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.result.walkForwardFolds')}>{run.validation.walk_forward.fold_count ?? '—'}</Descriptions.Item>
                 </Descriptions>
               </Card>
             )}
+            {resultTab === 'risk' && !run.validation ? <Empty description={t('strategy.result.noValidation')} /> : null}
 
-            <Card title={`交易明细 · ${run.trades?.length ?? 0}`} className="surface-card" style={{ marginTop: 18 }} data-testid="trades-table">
+            {resultTab === 'trades' && <Card title={t('strategy.result.trades', { count: run.trades?.length ?? 0 })} className="surface-card" style={{ marginTop: 18 }} data-testid="trades-table">
               <Table<BacktestTrade>
                 rowKey={(item) => `${item.entry_time}-${item.exit_time}`}
                 dataSource={run.trades ?? []}
                 columns={tradeColumns}
                 pagination={false}
                 scroll={{ x: 900 }}
-                locale={{ emptyText: '当前参数没有产生交易' }}
+                locale={{ emptyText: t('strategy.result.noTrades') }}
                 size="small"
               />
-            </Card>
+            </Card>}
           </ResultLayer>
+          </div>
 
+          <div hidden={!['diagnostics', 'parameters'].includes(resultTab)}>
           <ResultLayer layer="method">
             <Row gutter={[18, 18]}>
+              {resultTab === 'parameters' && (
               <Col xs={24} xl={16}>
-              <Card title="参数与数据来源" className="surface-card">
+              <Card title={t('strategy.method.title')} className="surface-card">
                 <CitationDetails
                   status={provenanceStatus(run)}
                   source={run.provenance?.provider}
@@ -772,38 +793,42 @@ export default function StrategyLab() {
                   qualityFlags={run.provenance?.quality_flags}
                 />
                 <Descriptions column={1} size="small">
-                  <Descriptions.Item label="标的">{run.symbol}</Descriptions.Item>
-                  <Descriptions.Item label="区间">{run.params.start_date} 至 {run.params.end_date}</Descriptions.Item>
-                  <Descriptions.Item label="均线">MA{run.params.short_window} / MA{run.params.long_window}</Descriptions.Item>
-                <Descriptions.Item label="费用">佣金 {run.params.commission_bps} bps + 滑点 {run.params.slippage_bps} bps</Descriptions.Item>
-                  <Descriptions.Item label="A股税费">卖出印花税 {run.params.sell_stamp_duty_bps ?? 0} bps · 最低佣金 ¥{run.params.minimum_commission_cny ?? 0}</Descriptions.Item>
-                  <Descriptions.Item label="回撤控制">
+                  <Descriptions.Item label={t('strategy.method.instrument')}>{run.symbol}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.period')}>{t('strategy.method.periodValue', { start: run.params.start_date, end: run.params.end_date })}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.ma')}>MA{run.params.short_window} / MA{run.params.long_window}</Descriptions.Item>
+                <Descriptions.Item label={t('strategy.method.costs')}>{t('strategy.method.costsValue', { commission: run.params.commission_bps, slippage: run.params.slippage_bps })}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.cnFees')}>{t('strategy.method.cnFeesValue', { stamp: run.params.sell_stamp_duty_bps ?? 0, minimum: run.params.minimum_commission_cny ?? 0 })}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.drawdown')}>
                     {run.risk_controls?.max_drawdown_stop_pct
-                      ? `${pct(run.risk_controls.max_drawdown_stop_pct)} · 触发 ${run.risk_controls.trigger_count} 次`
-                      : '关闭（仅报告回撤）'}
+                      ? t('strategy.method.drawdownTriggered', { value: pct(run.risk_controls.max_drawdown_stop_pct), count: run.risk_controls.trigger_count })
+                      : t('strategy.method.drawdownOff')}
                   </Descriptions.Item>
-                  <Descriptions.Item label="交易规则">
+                  <Descriptions.Item label={t('strategy.method.rules')}>
                     {run.execution_rules?.market === 'CN'
-                      ? `A股 T+1 · 禁做空 · 涨跌停 ${pct(run.execution_rules.price_limit_ratio)}`
-                      : '通用长仓规则'}
+                      ? t('strategy.method.cnRules', { limit: pct(run.execution_rules.price_limit_ratio) })
+                      : t('strategy.method.genericRules')}
                   </Descriptions.Item>
-                  <Descriptions.Item label="拒单数">{run.rejected_orders?.length ?? 0}</Descriptions.Item>
-                  <Descriptions.Item label="提供方">{run.provenance?.provider ?? '—'}</Descriptions.Item>
-                  <Descriptions.Item label="截止时间">{run.provenance?.as_of ?? '—'}</Descriptions.Item>
-                  <Descriptions.Item label="时区">{run.provenance?.timezone ?? '—'}</Descriptions.Item>
-                  <Descriptions.Item label="复权/频率">{run.provenance?.adjustment ?? '—'} / {run.provenance?.frequency ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.rejected')}>{run.rejected_orders?.length ?? 0}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.provider')}>{run.provenance?.provider ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.asOf')}>{run.provenance?.as_of ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.timezone')}>{run.provenance?.timezone ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('strategy.method.adjustmentFrequency')}>{run.provenance?.adjustment ?? '—'} / {run.provenance?.frequency ?? '—'}</Descriptions.Item>
                 </Descriptions>
               </Card>
               </Col>
+              )}
+              {resultTab === 'diagnostics' && (
               <Col xs={24} xl={8}>
-              <Card title="回测警告" className="surface-card" style={{ marginTop: 18 }}>
+              <Card title={t('strategy.warning.title')} className="surface-card" style={{ marginTop: 18 }}>
                 <Space wrap>{(run.warnings?.length ? run.warnings : ['none']).map((warning) => (
-                  <Tag key={warning} color={warning === 'none' ? 'green' : 'gold'}>{warning === 'none' ? '无警告' : warning === 'max_drawdown_stop_triggered' ? '回撤止损已触发' : warningLabels[warning] ?? warning}</Tag>
+                  <Tag key={warning} color={warning === 'none' ? 'green' : 'gold'}>{warning === 'none' ? t('strategy.warning.none') : warning === 'max_drawdown_stop_triggered' ? t('strategy.warning.drawdown') : t(`strategy.warning.${warning}`)}</Tag>
                 ))}</Space>
               </Card>
               </Col>
+              )}
             </Row>
           </ResultLayer>
+          </div>
         </section>
       )}
       <SharePreviewModal

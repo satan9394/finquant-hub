@@ -3,6 +3,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import McpMarket from '../src/pages/McpMarket';
+import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
@@ -51,5 +52,14 @@ describe('MCP tool market', () => {
 
     await waitFor(() => expect(api.toggle).toHaveBeenCalledWith('mcp__math__add', false));
     await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
+  });
+
+  test('renders the active system route in English', async () => {
+    localStorage.setItem('finquant_lang', 'en');
+    render(<LanguageProvider><McpMarket /></LanguageProvider>);
+
+    expect(await screen.findByText('MCP Tool Market')).toBeTruthy();
+    expect(screen.getByText('Parameters: a, b')).toBeTruthy();
+    expect(screen.getByRole('switch', { name: 'Enable or disable add' })).toBeTruthy();
   });
 });

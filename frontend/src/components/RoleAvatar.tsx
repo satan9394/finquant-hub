@@ -3,6 +3,10 @@
  * ============================================================ */
 import { Avatar } from 'antd';
 import type { AvatarProps } from 'antd';
+import {
+  BankOutlined, BarChartOutlined, CalculatorOutlined, FileSearchOutlined,
+  GlobalOutlined, LineChartOutlined, RobotOutlined, SafetyCertificateOutlined,
+} from '@ant-design/icons';
 
 interface RoleAvatarProps extends AvatarProps {
   avatar?: string;
@@ -11,46 +15,51 @@ interface RoleAvatarProps extends AvatarProps {
 }
 
 const colorMap: Record<string, string> = {
-  value_investor: '#722ed1',
+  value_investor: 'var(--fq-evidence-model)',
   tech_analyst: 'var(--fq-ai-primary)',
-  quant_researcher: '#13c2c2',
-  risk_manager: '#fa8c16',
-  macro_strategist: '#eb2f96',
-  sentiment_analyst: '#52c41a',
+  quant_researcher: 'var(--fq-secondary)',
+  risk_manager: 'var(--fq-system-warning)',
+  macro_strategist: 'var(--fq-evidence-inference)',
+  sentiment_analyst: 'var(--fq-opportunity)',
 };
 
-const defaultIcons: Record<string, string> = {
-  value_investor: '🏛️',
-  tech_analyst: '📊',
-  quant_researcher: '📐',
-  risk_manager: '🛡️',
-  macro_strategist: '🌍',
-  sentiment_analyst: '📈',
+const defaultIcons: Record<string, React.ReactNode> = {
+  value_investor: <BankOutlined />,
+  tech_analyst: <LineChartOutlined />,
+  financial_analyst: <BarChartOutlined />,
+  quant_researcher: <CalculatorOutlined />,
+  risk_manager: <SafetyCertificateOutlined />,
+  risk: <SafetyCertificateOutlined />,
+  macro_strategist: <GlobalOutlined />,
+  sentiment_analyst: <LineChartOutlined />,
+  industry: <BankOutlined />,
+  company_researcher: <FileSearchOutlined />,
 };
 
 export default function RoleAvatar({ avatar, name, pulsing, ...rest }: RoleAvatarProps) {
   const roleKey = name?.toLowerCase().replace(/\s+/g, '_') || '';
-  const bgColor = colorMap[roleKey] || '#666';
-  const icon = avatar || defaultIcons[roleKey] || '🤖';
+  const bgColor = colorMap[roleKey] || 'var(--fq-evidence-unknown)';
+  const imageSrc = avatar && /^(?:https?:|data:image\/)/i.test(avatar) ? avatar : undefined;
+  const icon = defaultIcons[roleKey] || <RobotOutlined />;
 
   return (
     <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
       <Avatar
         {...rest}
+        src={imageSrc}
+        icon={imageSrc ? undefined : icon}
         style={{
           backgroundColor: bgColor,
           verticalAlign: 'middle',
           animation: pulsing ? 'pulse 1.5s ease-in-out infinite' : undefined,
           ...rest.style,
         }}
-      >
-        {icon}
-      </Avatar>
-      {name && <span style={{ fontSize: 11, color: '#888' }}>{name}</span>}
+      />
+      {name && <span style={{ fontSize: 11, color: 'var(--fq-text-tertiary)' }}>{name}</span>}
       <style>{`
         @keyframes pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(24, 144, 255, 0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(24, 144, 255, 0); }
+          0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fq-ai-primary) 40%, transparent); }
+          50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--fq-ai-primary) 0%, transparent); }
         }
       `}</style>
     </div>

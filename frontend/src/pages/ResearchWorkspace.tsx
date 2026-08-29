@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Button, Card, Col, Collapse, Descriptions, Empty, Input, List, Row, Skeleton,
   Space, Statistic, Tag, Typography, message,
@@ -17,6 +17,11 @@ import ResearchContinuity from '../components/research/ResearchContinuity';
 import ResearchTimeline from '../components/research/ResearchTimeline';
 import ResearchIntentPicker from '../components/research/ResearchIntentPicker';
 import FundamentalMetricsPanel from '../components/research/FundamentalMetricsPanel';
+import AgentModeSelector, { type AgentMode } from '../components/AgentModeSelector';
+import Chat from './Chat';
+import Discussion from './Discussion';
+import Research from './Research';
+import Thesis from './Thesis';
 import { matchesResearchSubject, sameTicker } from '../features/researchContinuity';
 import { buildResearchTimeline } from '../features/researchTimeline';
 import {
@@ -38,30 +43,84 @@ import type {
   ResearchDiscussionSummary, ResearchHistoryGroup, ResearchReportDetail, ResearchThesisSummary,
   ResearchWorkspace as WorkspaceType, SnapshotResponse,
 } from '../types/research';
+import { useLanguage } from '../i18n/LanguageContext';
+import type { Language } from '../i18n';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-const metricLabels: Record<string, string> = {
-  trailingMarketCap: '总市值',
-  trailingPeRatio: '市盈率（TTM）',
-  trailingPbRatio: '市净率',
-  trailingEps: '每股收益（TTM）',
-  trailingTotalRevenue: '营业收入（TTM）',
-  trailingNetIncome: '净利润（TTM）',
-  trailingOperatingCashFlow: '经营现金流（TTM）',
-  trailingFreeCashFlow: '自由现金流（TTM）',
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+const routedAgentModes = new Set<AgentMode>(['fast', 'analyst', 'deep', 'review']);
+
+function ResearchModeSurface({ mode, symbol }: { mode: Exclude<AgentMode, 'analyst'>; symbol?: string }) {
+  const { t } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subject = symbol ? decodeURIComponent(symbol).toUpperCase() : '';
+  const selectMode = (nextMode: AgentMode) => {
+    const next = new URLSearchParams(searchParams);
+    if (nextMode === 'analyst') next.delete('mode');
+    else next.set('mode', nextMode);
+    setSearchParams(next, { replace: true });
+  };
+  return (
+    <main className="product-page research-mode-page" data-testid={`research-mode-${mode}`}>
+      <section className="research-mode-switcher">
+        <AgentModeSelector value={mode} onChange={selectMode} />
+      </section>
+      {mode === 'fast' ? <Chat initialPrompt={subject ? t('research.mode.fastPrompt', { ticker: subject }) : undefined} /> : null}
+      {mode === 'deep' ? <Research initialTicker={subject || undefined} /> : null}
+      {mode === 'review' ? <Discussion initialTopic={subject ? t('research.mode.reviewTopic', { ticker: subject }) : undefined} /> : null}
+    </main>
+  );
+}
+
+function ThesisModeSurface() {
+  const { t } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const backToResearch = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('mode');
+    next.delete('new');
+    next.delete('ticker');
+    next.delete('claim');
+    setSearchParams(next, { replace: true });
+  };
+  return (
+    <main className="product-page research-mode-page" data-testid="research-mode-thesis">
+      <Button onClick={backToResearch}>{t('research.mode.backToWorkspace')}</Button>
+      <Thesis />
+    </main>
+  );
+}
+
+const metricKeys: Record<string, string> = {
+  trailingMarketCap: 'research.metric.marketCap',
+  trailingPeRatio: 'research.metric.pe',
+  trailingPbRatio: 'research.metric.pb',
+  trailingEps: 'research.metric.eps',
+  trailingTotalRevenue: 'research.metric.revenue',
+  trailingNetIncome: 'research.metric.netIncome',
+  trailingOperatingCashFlow: 'research.metric.operatingCashFlow',
+  trailingFreeCashFlow: 'research.metric.freeCashFlow',
 };
 
-function formatNumber(value: number | null | undefined, currency?: string | null) {
+function formatNumber(value: number | null | undefined, currency: string | null | undefined, lang: Language, t: Translate) {
   if (value == null) return '—';
-  if (Math.abs(value) >= 1e12) return `${(value / 1e12).toFixed(2)}万亿${currency ? ` ${currency}` : ''}`;
-  if (Math.abs(value) >= 1e8) return `${(value / 1e8).toFixed(2)}亿${currency ? ` ${currency}` : ''}`;
-  if (Math.abs(value) >= 1e4) return `${(value / 1e4).toFixed(2)}万${currency ? ` ${currency}` : ''}`;
-  return `${value.toLocaleString('zh-CN', { maximumFractionDigits: 4 })}${currency ? ` ${currency}` : ''}`;
+  const absolute = Math.abs(value);
+  let formatted: string;
+  if (absolute >= 1e12) formatted = t('research.number.trillion', { value: (value / 1e12).toFixed(2) });
+  else if (lang === 'zh' && absolute >= 1e8) formatted = t('research.number.hundredMillion', { value: (value / 1e8).toFixed(2) });
+  else if (lang === 'zh' && absolute >= 1e4) formatted = t('research.number.tenThousand', { value: (value / 1e4).toFixed(2) });
+  else if (absolute >= 1e9) formatted = t('research.number.billion', { value: (value / 1e9).toFixed(2) });
+  else if (absolute >= 1e6) formatted = t('research.number.million', { value: (value / 1e6).toFixed(2) });
+  else if (absolute >= 1e3) formatted = t('research.number.thousand', { value: (value / 1e3).toFixed(2) });
+  else formatted = value.toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 4 });
+  return `${formatted}${currency ? ` ${currency}` : ''}`;
 }
 
 function provenanceEvidence(
+  t: Translate,
   snapshot?: SnapshotResponse | null,
   bars?: BarsResponse | null,
   fundamentals?: FundamentalsResponse | null,
@@ -70,38 +129,41 @@ function provenanceEvidence(
   return [
     snapshot && {
       label: 'FACT' as const,
-      title: '当前行情快照',
+      title: t('research.evidence.snapshot'),
       detail: `${snapshot.instrument.name} ${snapshot.data.price} ${snapshot.currency ?? ''}`,
       provider: snapshot.provider,
       as_of: snapshot.as_of,
     },
     bars && {
       label: 'FACT' as const,
-      title: '日线与技术指标',
-      detail: `${bars.items.length} 条 ${bars.frequency} K线，复权口径 ${bars.adjustment}`,
+      title: t('research.evidence.bars'),
+      detail: t('research.evidence.barsDetail', { count: bars.items.length, frequency: bars.frequency ?? 'UNKNOWN', adjustment: bars.adjustment ?? 'UNKNOWN' }),
       provider: bars.provider,
       as_of: bars.as_of,
     },
     fundamentals && {
       label: 'FACT' as const,
-      title: '基本面时点指标',
-      detail: `${fundamentals.items.length} 个带报告期的指标`,
+      title: t('research.evidence.fundamentals'),
+      detail: t('research.evidence.fundamentalsDetail', { count: fundamentals.items.length }),
       provider: fundamentals.provider,
       as_of: fundamentals.as_of,
     },
     chips && {
       label: 'INFERENCE' as const,
-      title: 'A 股筹码分布估算',
-      detail: `${chips.items.length} 个交易日；AkShare 基于东财 K 线与换手率按 120 日衰减模型计算`,
+      title: t('research.evidence.chips'),
+      detail: t('research.evidence.chipsDetail', { count: chips.items.length }),
       provider: chips.provider,
       as_of: chips.as_of,
     },
   ].filter(Boolean) as EvidenceItem[];
 }
 
-export default function ResearchWorkspace() {
+function ResearchWorkspaceCore() {
+  const { lang, t } = useLanguage();
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const agentMode: AgentMode = 'analyst';
   const currentSymbol = symbol ? decodeURIComponent(symbol).toUpperCase() : '';
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -129,7 +191,7 @@ export default function ResearchWorkspace() {
 
   const runSearch = useCallback(async () => {
     if (!query.trim()) {
-      message.warning('请输入股票代码或公司名称');
+      message.warning(t('research.search.required'));
       return;
     }
     setSearching(true);
@@ -137,14 +199,14 @@ export default function ResearchWorkspace() {
     try {
       const response = await searchInstruments(query.trim());
       setSearchResults(response.items);
-      if (response.items.length === 0) setErrors(['未找到匹配标的，请尝试交易所代码，例如 AAPL、600519、00700.HK。']);
+      if (response.items.length === 0) setErrors([t('research.search.none')]);
     } catch (error: any) {
       setSearchResults([]);
-      setErrors([error.message || '标的搜索失败']);
+      setErrors([error.message || t('research.search.failed')]);
     } finally {
       setSearching(false);
     }
-  }, [query]);
+  }, [query, t]);
 
   useEffect(() => {
     if (currentSymbol) return;
@@ -154,15 +216,15 @@ export default function ResearchWorkspace() {
       .then((outcomes) => {
         const nextErrors: string[] = [];
         if (outcomes[0].status === 'fulfilled') setSavedWorkspaces(outcomes[0].value);
-        else nextErrors.push(`研究工作区：${outcomes[0].reason?.message ?? '加载失败'}`);
+        else nextErrors.push(t('research.error.workspace', { error: outcomes[0].reason?.message ?? t('research.error.loadFailed') }));
         if (outcomes[1].status === 'fulfilled') setHomeHistory(outcomes[1].value);
-        else nextErrors.push(`报告历史：${outcomes[1].reason?.message ?? '加载失败'}`);
+        else nextErrors.push(t('research.error.reportHistory', { error: outcomes[1].reason?.message ?? t('research.error.loadFailed') }));
         if (outcomes[2].status === 'fulfilled') setHomeTheses(outcomes[2].value);
-        else nextErrors.push(`投资论文：${outcomes[2].reason?.message ?? '加载失败'}`);
+        else nextErrors.push(t('research.error.thesis', { error: outcomes[2].reason?.message ?? t('research.error.loadFailed') }));
         setHomeTimelineErrors(nextErrors);
       })
       .finally(() => setHomeTimelineLoading(false));
-  }, [currentSymbol]);
+  }, [currentSymbol, t]);
 
   const loadWorkspace = useCallback(async () => {
     if (!currentSymbol) return;
@@ -184,23 +246,23 @@ export default function ResearchWorkspace() {
     ]);
     const nextErrors: string[] = [];
     if (outcomes[0].status === 'fulfilled') setSnapshot(outcomes[0].value);
-    else nextErrors.push(`行情：${outcomes[0].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.snapshot', { error: outcomes[0].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[1].status === 'fulfilled') setBars(outcomes[1].value);
-    else nextErrors.push(`K线：${outcomes[1].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.bars', { error: outcomes[1].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[2].status === 'fulfilled') setFundamentals(outcomes[2].value);
-    else nextErrors.push(`基本面：${outcomes[2].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.fundamentals', { error: outcomes[2].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[3].status === 'fulfilled') {
       setWorkspaceRecord(outcomes[3].value);
       setNotes(outcomes[3].value.notes ?? '');
       setSaved(Boolean(outcomes[3].value.saved));
     } else {
-      nextErrors.push(`研究笔记：${outcomes[3].reason?.message ?? '加载失败'}`);
+      nextErrors.push(t('research.error.notes', { error: outcomes[3].reason?.message ?? t('research.error.loadFailed') }));
     }
     if (outcomes[4].status === 'fulfilled') setChips(outcomes[4].value);
-    else nextErrors.push(`筹码分布：${outcomes[4].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.chips', { error: outcomes[4].reason?.message ?? t('research.error.loadFailed') }));
     setErrors(nextErrors);
     setLoading(false);
-  }, [currentSymbol]);
+  }, [currentSymbol, t]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
@@ -223,24 +285,24 @@ export default function ResearchWorkspace() {
       if (group) {
         const details = await Promise.allSettled(group.runs.slice(0, 10).map((run) => fetchResearchReport(run.id)));
         setReports(details.filter((item): item is PromiseFulfilledResult<ResearchReportDetail> => item.status === 'fulfilled').map((item) => item.value));
-        if (details.some((item) => item.status === 'rejected')) nextErrors.push('部分报告版本详情加载失败');
+        if (details.some((item) => item.status === 'rejected')) nextErrors.push(t('research.error.reportDetail'));
       }
-    } else nextErrors.push(`报告历史：${outcomes[0].reason?.message ?? '加载失败'}`);
+    } else nextErrors.push(t('research.error.reportHistory', { error: outcomes[0].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[1].status === 'fulfilled') setDiscussions(outcomes[1].value as ResearchDiscussionSummary[]);
-    else nextErrors.push(`多视角讨论：${outcomes[1].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.discussion', { error: outcomes[1].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[2].status === 'fulfilled') setTheses(outcomes[2].value as ResearchThesisSummary[]);
-    else nextErrors.push(`投资论文：${outcomes[2].reason?.message ?? '加载失败'}`);
+    else nextErrors.push(t('research.error.thesis', { error: outcomes[2].reason?.message ?? t('research.error.loadFailed') }));
     setContinuityErrors(nextErrors);
     setContinuityLoading(false);
-  }, [currentSymbol]);
+  }, [currentSymbol, t]);
 
   useEffect(() => { void loadContinuity(); }, [loadContinuity]);
 
   const evidence = useMemo(
-    () => provenanceEvidence(snapshot, bars, fundamentals, chips),
-    [snapshot, bars, fundamentals, chips],
+    () => provenanceEvidence(t, snapshot, bars, fundamentals, chips),
+    [t, snapshot, bars, fundamentals, chips],
   );
-  const fundamentalsError = errors.find((error) => error.startsWith('基本面：'));
+  const fundamentalsError = errors.find((error) => error.startsWith(t('research.error.fundamentalsPrefix')));
   const timelineEntries = useMemo(
     () => buildResearchTimeline(savedWorkspaces, homeHistory, homeTheses),
     [savedWorkspaces, homeHistory, homeTheses],
@@ -248,7 +310,7 @@ export default function ResearchWorkspace() {
 
   const saveWorkspace = async () => {
     if (!snapshot) {
-      message.error('行情快照未加载，无法保存可追溯研究');
+      message.error(t('research.save.noSnapshot'));
       return;
     }
     setSaving(true);
@@ -269,45 +331,57 @@ export default function ResearchWorkspace() {
         saved: true,
       }));
       setSaved(true);
-      message.success('研究已按标的合并保存');
+      message.success(t('research.save.success'));
     } catch (error: any) {
-      message.error(error.message || '保存研究失败');
+      message.error(error.message || t('research.save.failed'));
     } finally {
       setSaving(false);
     }
   };
 
+  const modePanel = (
+    <section className="research-mode-switcher">
+      <AgentModeSelector value={agentMode} onChange={(nextMode) => {
+        const next = new URLSearchParams(searchParams);
+        if (nextMode === 'analyst') next.delete('mode');
+        else next.set('mode', nextMode);
+        setSearchParams(next, { replace: true });
+      }} />
+    </section>
+  );
+
   if (!currentSymbol) {
     return (
       <main className="product-page research-home" data-testid="research-home">
         <section className="page-hero compact-hero">
-          <Text className="eyebrow">INSTRUMENT RESEARCH</Text>
-          <Title level={2}>从一个标的，建立可追溯的研究记录</Title>
-          <Paragraph>统一查询 A 股、港股和美股；每个数字都显示来源、截止时间和质量标记。</Paragraph>
+          <Text className="eyebrow">{t('research.eyebrow')}</Text>
+          <Title level={2}>{t('research.landing.title')}</Title>
+          <Paragraph>{t('research.landing.description')}</Paragraph>
           <Space.Compact block className="instrument-search">
             <Input
-              aria-label="股票代码或公司名称"
-              placeholder="搜索股票代码或公司名称，例如 AAPL、600519、00700.HK"
+              aria-label={t('research.search.label')}
+              placeholder={t('research.search.placeholder')}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onPressEnter={() => void runSearch()}
               size="large"
             />
             <Button type="primary" size="large" icon={<SearchOutlined />} loading={searching} onClick={() => void runSearch()}>
-              搜索标的
+              {t('research.search.action')}
             </Button>
           </Space.Compact>
         </section>
+        {modePanel}
 
         {errors.map((error) => <Alert key={error} type="error" showIcon message={error} style={{ marginBottom: 12 }} />)}
 
         {searchResults.length > 0 && (
-          <Card title={`搜索结果 · ${searchResults.length}`} className="surface-card" data-testid="instrument-search-results">
+          <Card title={t('research.search.results', { count: searchResults.length })} className="surface-card" data-testid="instrument-search-results">
             <List
               dataSource={searchResults}
               renderItem={(item) => (
                 <List.Item
-                  actions={[<Button key="open" data-testid={`instrument-result-${item.symbol}`} type="link" onClick={() => navigate(`/research/${encodeURIComponent(item.symbol)}`)}>打开研究页 <ArrowRightOutlined /></Button>]}
+                  actions={[<Button key="open" data-testid={`instrument-result-${item.symbol}`} type="link" onClick={() => navigate(`/research/${encodeURIComponent(item.symbol)}`)}>{t('research.search.open')} <ArrowRightOutlined /></Button>]}
                 >
                   <List.Item.Meta
                     title={<Space><Text strong>{item.name}</Text><Tag>{item.symbol}</Tag></Space>}
@@ -320,31 +394,31 @@ export default function ResearchWorkspace() {
         )}
 
         <div className="research-landing-grid">
-        <Card title="最近研究" className="surface-card" style={{ marginTop: 18 }} data-testid="saved-research-list">
+        <Card title={t('research.recent')} className="surface-card" style={{ marginTop: 18 }} data-testid="saved-research-list">
           {savedWorkspaces.length ? (
             <List
               dataSource={savedWorkspaces}
               renderItem={(item) => (
-                <List.Item actions={[<Button key="open" onClick={() => navigate(`/research/${encodeURIComponent(item.symbol)}`)}>继续研究</Button>]}>
+                <List.Item actions={[<Button key="open" onClick={() => navigate(`/research/${encodeURIComponent(item.symbol)}`)}>{t('research.recent.continue')}</Button>]}>
                   <List.Item.Meta
                     title={<Space><Text strong>{item.name ?? item.symbol}</Text><Tag>{item.symbol}</Tag></Space>}
-                    description={`一条标的记录 · 最后更新 ${item.updated_at ?? '未知'}`}
+                    description={t('research.recent.description', { time: item.updated_at ?? t('research.unknown') })}
                   />
                 </List.Item>
               )}
             />
-          ) : <Empty description="暂无保存记录；同一标的会合并为一条持续更新的研究工作区" />}
+          ) : <Empty description={t('research.recent.empty')} />}
         </Card>
-        <Card title="最新报告" className="surface-card" style={{ marginTop: 18 }} data-testid="latest-research-reports">
-          {homeHistory.length ? <List size="small" dataSource={homeHistory.slice(0, 5)} renderItem={(item) => <List.Item actions={[<Button key="open" type="link" onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(item.ticker)}`)}>查看</Button>]}><List.Item.Meta title={<Space><Text strong>{item.company_name ?? item.ticker}</Text><Tag>{item.ticker}</Tag></Space>} description={`报告 ${item.completed_count}/${item.run_count} 完成 · 最近更新 ${item.latest_at}`} /></List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无最新报告" />}
+        <Card title={t('research.reports.latest')} className="surface-card" style={{ marginTop: 18 }} data-testid="latest-research-reports">
+          {homeHistory.length ? <List size="small" dataSource={homeHistory.slice(0, 5)} renderItem={(item) => <List.Item actions={[<Button key="open" type="link" onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(item.ticker)}`)}>{t('research.reports.view')}</Button>]}><List.Item.Meta title={<Space><Text strong>{item.company_name ?? item.ticker}</Text><Tag>{item.ticker}</Tag></Space>} description={t('research.reports.description', { completed: item.completed_count, total: item.run_count, time: item.latest_at })} /></List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('research.reports.empty')} />}
         </Card>
         </div>
         <Collapse
           className="research-timeline-disclosure"
-          items={[{ key: 'activity', label: '完整研究活动与待办（按需展开）', children: <ResearchTimeline entries={timelineEntries} errors={homeTimelineErrors} loading={homeTimelineLoading} /> }]}
+          items={[{ key: 'activity', label: t('research.activity'), children: <ResearchTimeline entries={timelineEntries} errors={homeTimelineErrors} loading={homeTimelineLoading} /> }]}
         />
-        <Button type="link" icon={<FileSearchOutlined />} onClick={() => navigate('/research/reports')} style={{ marginTop: 12 }}>
-          运行多视角深度研究或查看历史版本
+        <Button className="research-deep-link" type="link" icon={<FileSearchOutlined />} onClick={() => navigate('/research/reports')} style={{ marginTop: 12 }}>
+          {t('research.deep.prompt')}
         </Button>
       </main>
     );
@@ -352,12 +426,12 @@ export default function ResearchWorkspace() {
 
   const priceUp = (snapshot?.data.change_percent ?? 0) >= 0;
   const workspaceStatus = errors.length
-    ? '部分数据不可用'
+    ? t('research.status.partial')
     : loading && !snapshot
-      ? '正在加载多源数据'
+      ? t('research.status.loading')
       : snapshot
-        ? `数据截止 ${snapshot.as_of ?? '未知'}`
-        : '等待数据';
+        ? t('research.status.asOf', { asOf: snapshot.as_of ?? t('research.unknown') })
+        : t('research.status.waiting');
   const workspaceStatusTone = errors.length
     ? 'warning' as const
     : loading && !snapshot
@@ -371,27 +445,28 @@ export default function ResearchWorkspace() {
   return (
     <main className="product-page" data-testid="instrument-research-page">
       <TaskPageHeader
-        eyebrow="INSTRUMENT RESEARCH"
-        title="标的研究工作区"
-        goal="汇总可追溯的行情、基本面、筹码与研究记录。"
+        eyebrow={t('research.eyebrow')}
+        title={t('research.workspace.title')}
+        goal={t('research.workspace.goal')}
         object={snapshot ? `${snapshot.instrument.name} · ${currentSymbol}` : currentSymbol}
         status={workspaceStatus}
         statusTone={workspaceStatusTone}
         actions={(
           <>
-            <Button onClick={() => navigate('/research')}>返回标的搜索</Button>
-          <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(currentSymbol)}`)}>AI 深度报告</Button>
+            <Button onClick={() => navigate('/research')}>{t('research.back')}</Button>
+          <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/research/reports?symbol=${encodeURIComponent(currentSymbol)}`)}>{t('research.deepReport')}</Button>
           <Button icon={<ExperimentOutlined />} onClick={() => navigate(`/strategy-lab/ma-crossover?symbol=${encodeURIComponent(currentSymbol)}`)}>
-            在策略实验室打开
+            {t('research.openStrategy')}
           </Button>
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={() => void saveWorkspace()}>
-            {saved ? '更新研究' : '保存研究'}
+            {saved ? t('research.update') : t('research.save')}
           </Button>
           </>
         )}
       />
+      {modePanel}
 
-      {errors.map((error) => <Alert key={error} type="warning" showIcon message={error} action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspace()}>重试</Button>} style={{ marginBottom: 12 }} />)}
+      {errors.map((error) => <Alert key={error} type="warning" showIcon message={error} action={<Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspace()}>{t('research.retry')}</Button>} style={{ marginBottom: 12 }} />)}
 
       <ResearchIntentPicker symbol={currentSymbol} onNavigate={navigate} />
       <Collapse
@@ -399,27 +474,27 @@ export default function ResearchWorkspace() {
         ghost
         items={[{
           key: 'team',
-          label: '高级：运行投研团队并查看角色、工具和 Token 详情',
+          label: t('research.agentAdvanced'),
           children: <SwarmStatusCard ticker={currentSymbol} />,
         }]}
       />
 
       {loading && !snapshot ? <Skeleton active paragraph={{ rows: 10 }} /> : snapshot ? (
         <>
-          <ResultLayer layer="summary" title="标的快照摘要" description="先确认对象、价格变化和关键市场事实。">
+          <ResultLayer layer="summary" title={t('research.summary.title')} description={t('research.summary.description')}>
             <section className="instrument-header">
               <div>
                 <Text className="eyebrow">{snapshot.instrument.market} · {snapshot.instrument.exchange}</Text>
                 <Title level={2}>{snapshot.instrument.name} <Text type="secondary">{snapshot.instrument.symbol}</Text></Title>
                 <Space wrap>
-                  <EvidenceChip evidence={{ kind: 'FACT', quality: 'OK', title: `${snapshot.instrument.name} 行情快照`, detail: '该标的快照来自当前可用行情提供方；请结合截至时间阅读。', source: snapshot.provider, asOf: snapshot.as_of }} />
+                  <EvidenceChip evidence={{ kind: 'FACT', quality: 'OK', title: t('research.snapshot.title', { name: snapshot.instrument.name }), detail: t('research.snapshot.detail'), source: snapshot.provider, asOf: snapshot.as_of }} />
                   <Text type="secondary">{snapshot.provider}</Text>
-                  <Text type="secondary">截止 {snapshot.as_of ?? '未知'}</Text>
+                  <Text type="secondary">{t('research.asOf', { value: snapshot.as_of ?? t('research.unknown') })}</Text>
                   <Text type="secondary">{snapshot.timezone}</Text>
                 </Space>
               </div>
               <div className="headline-price">
-                <Text type="secondary">当前/最近价格</Text>
+                <Text type="secondary">{t('research.price.current')}</Text>
                 <div className={priceUp ? 'price-up' : 'price-down'}>{snapshot.data.price.toFixed(2)} <small>{snapshot.currency}</small></div>
                 <Text className={priceUp ? 'price-up' : 'price-down'}>
                   {snapshot.data.change >= 0 ? '+' : ''}{snapshot.data.change.toFixed(2)} ({snapshot.data.change_percent >= 0 ? '+' : ''}{snapshot.data.change_percent.toFixed(2)}%)
@@ -429,76 +504,76 @@ export default function ResearchWorkspace() {
 
             <Row gutter={[12, 12]} className="snapshot-grid">
               {[
-                ['今开', snapshot.data.open], ['最高', snapshot.data.high], ['最低', snapshot.data.low],
-                ['昨收', snapshot.data.last_close], ['成交量', snapshot.data.volume], ['市值', snapshot.data.market_cap],
+                [t('research.snapshot.open'), snapshot.data.open], [t('research.snapshot.high'), snapshot.data.high], [t('research.snapshot.low'), snapshot.data.low],
+                [t('research.snapshot.previousClose'), snapshot.data.last_close], [t('research.snapshot.volume'), snapshot.data.volume], [t('research.snapshot.marketCap'), snapshot.data.market_cap],
               ].map(([label, value]) => (
                 <Col xs={12} sm={8} lg={4} key={String(label)}>
-                  <Card size="small" className="metric-card"><Statistic title={label} value={value == null ? '—' : formatNumber(Number(value))} /></Card>
+                  <Card size="small" className="metric-card"><Statistic title={label} value={value == null ? '—' : formatNumber(Number(value), null, lang, t)} /></Card>
                 </Col>
               ))}
             </Row>
           </ResultLayer>
 
-          <ResultLayer layer="evidence" title="市场、财务与筹码证据">
+          <ResultLayer layer="evidence" title={t('research.evidence.title')}>
             <Row gutter={[18, 18]} align="top">
             <Col xs={24} xl={17}>
-              <Card title="市场数据与技术指标" className="surface-card">
-                {bars ? <ResearchCharts payload={bars} /> : <Empty description="K线数据不可用" />}
+              <Card title={t('research.marketData')} className="surface-card">
+                {bars ? <ResearchCharts payload={bars} /> : <Empty description={t('research.barsUnavailable')} />}
               </Card>
 
-              <Card title="基本财务指标" className="surface-card" style={{ marginTop: 18 }}>
+              <Card title={t('research.fundamentals')} className="surface-card" style={{ marginTop: 18 }}>
                 {fundamentals?.items.length ? (
                   <Row gutter={[12, 12]}>
                     {fundamentals.items.map((item: FundamentalItem) => (
                       <Col xs={24} sm={12} lg={8} key={item.metric}>
                         <div className="fundamental-tile">
-                          <Text type="secondary">{metricLabels[item.metric] ?? item.metric}</Text>
-                          <div className="fundamental-value">{formatNumber(item.value, item.currency)}</div>
-                          <Text type="secondary">{item.period_type ?? '时点'} · {item.as_of}</Text>
+                          <Text type="secondary">{metricKeys[item.metric] ? t(metricKeys[item.metric]) : item.metric}</Text>
+                          <div className="fundamental-value">{formatNumber(item.value, item.currency, lang, t)}</div>
+                          <Text type="secondary">{item.period_type ?? t('research.period.pointInTime')} · {item.as_of}</Text>
                         </div>
                       </Col>
                     ))}
                   </Row>
-                ) : <Empty description="提供方未返回基本面指标；未用 0 或模型数字替代" />}
+                ) : <Empty description={t('research.fundamentalsEmpty')} />}
               </Card>
 
               <FundamentalMetricsPanel fundamentals={fundamentals} error={fundamentalsError} />
 
               {/^\d{6}$/.test(currentSymbol) && (
-                <Card title="筹码分布" className="surface-card" style={{ marginTop: 18 }}>
+                <Card title={t('research.chips')} className="surface-card" style={{ marginTop: 18 }}>
                   {chips ? (
                     <>
                       <Row gutter={[12, 12]}>
-                        <Col xs={12} md={6}><Statistic title="获利比例" value={chips.latest.profit_ratio * 100} precision={2} suffix="%" /></Col>
-                        <Col xs={12} md={6}><Statistic title="平均成本" value={chips.latest.average_cost} precision={2} suffix=" CNY" /></Col>
-                        <Col xs={12} md={6}><Statistic title="90% 成本区间" value={`${chips.latest.cost_90.low}–${chips.latest.cost_90.high}`} /></Col>
-                        <Col xs={12} md={6}><Statistic title="70% 成本区间" value={`${chips.latest.cost_70.low}–${chips.latest.cost_70.high}`} /></Col>
+                        <Col xs={12} md={6}><Statistic title={t('research.chips.profitRatio')} value={chips.latest.profit_ratio * 100} precision={2} suffix="%" /></Col>
+                        <Col xs={12} md={6}><Statistic title={t('research.chips.averageCost')} value={chips.latest.average_cost} precision={2} suffix=" CNY" /></Col>
+                        <Col xs={12} md={6}><Statistic title={t('research.chips.cost90')} value={`${chips.latest.cost_90.low}–${chips.latest.cost_90.high}`} /></Col>
+                        <Col xs={12} md={6}><Statistic title={t('research.chips.cost70')} value={`${chips.latest.cost_70.low}–${chips.latest.cost_70.high}`} /></Col>
                       </Row>
                       <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
-                        <Descriptions.Item label="90% 集中度">{(chips.latest.cost_90.concentration * 100).toFixed(2)}%</Descriptions.Item>
-                        <Descriptions.Item label="70% 集中度">{(chips.latest.cost_70.concentration * 100).toFixed(2)}%</Descriptions.Item>
-                        <Descriptions.Item label="筹码峰位"><Tag>UNKNOWN</Tag> 提供方未公开该字段</Descriptions.Item>
-                        <Descriptions.Item label="口径">AkShare 120 日换手衰减模型（非交易所原始筹码数据）</Descriptions.Item>
-                        <Descriptions.Item label="来源">{chips.provider} · {chips.source} · 截止 {chips.as_of}</Descriptions.Item>
+                        <Descriptions.Item label={t('research.chips.concentration90')}>{(chips.latest.cost_90.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                        <Descriptions.Item label={t('research.chips.concentration70')}>{(chips.latest.cost_70.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                        <Descriptions.Item label={t('research.chips.peak')}><Tag>UNKNOWN</Tag> {t('research.chips.peakUnknown')}</Descriptions.Item>
+                        <Descriptions.Item label={t('research.chips.method')}>{t('research.chips.methodValue')}</Descriptions.Item>
+                        <Descriptions.Item label={t('research.chips.source')}>{t('research.chips.sourceValue', { provider: chips.provider ?? 'UNKNOWN', source: chips.source ?? 'UNKNOWN', asOf: chips.as_of ?? 'UNKNOWN' })}</Descriptions.Item>
                       </Descriptions>
                     </>
-                  ) : <Empty description="真实筹码分布暂不可用；未使用推算或模型数据替代" />}
+                  ) : <Empty description={t('research.chipsEmpty')} />}
                 </Card>
               )}
 
             </Col>
 
             <Col xs={24} xl={7}>
-              <Card title="证据与来源" className="surface-card evidence-sidebar">
+              <Card title={t('research.sources')} className="surface-card evidence-sidebar">
                 <List
                   dataSource={evidence}
-                  locale={{ emptyText: '暂无可用证据' }}
+                  locale={{ emptyText: t('research.sourcesEmpty') }}
                   renderItem={(item) => (
                     <List.Item>
                       <div>
                         <Space><Tag color="blue">{item.label}</Tag><Text strong>{item.title}</Text></Space>
                         <Paragraph style={{ margin: '8px 0 4px' }}>{item.detail}</Paragraph>
-                        <Text type="secondary">{item.provider ?? '来源未知'} · {item.as_of ?? '时间未知'}</Text>
+                        <Text type="secondary">{item.provider ?? t('research.sourceUnknown')} · {item.as_of ?? t('research.timeUnknown')}</Text>
                       </div>
                     </List.Item>
                   )}
@@ -510,20 +585,20 @@ export default function ResearchWorkspace() {
           </ResultLayer>
 
           <ResultLayer layer="method">
-            <Card title="数据口径与质量" className="surface-card">
+            <Card title={t('research.method')} className="surface-card">
               <Descriptions column={{ xs: 1, md: 4 }} size="small">
-                <Descriptions.Item label="频率">{bars?.frequency ?? snapshot.frequency}</Descriptions.Item>
-                <Descriptions.Item label="复权">{bars?.adjustment ?? '不适用'}</Descriptions.Item>
-                <Descriptions.Item label="币种">{snapshot.currency}</Descriptions.Item>
-                <Descriptions.Item label="时区">{snapshot.timezone}</Descriptions.Item>
-                <Descriptions.Item label="行情来源">{snapshot.provider}</Descriptions.Item>
-                <Descriptions.Item label="截止时间">{snapshot.as_of ?? '未知'}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.frequency')}>{bars?.frequency ?? snapshot.frequency}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.adjustment')}>{bars?.adjustment ?? t('research.method.notApplicable')}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.currency')}>{snapshot.currency}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.timezone')}>{snapshot.timezone}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.provider')}>{snapshot.provider}</Descriptions.Item>
+                <Descriptions.Item label={t('research.method.asOf')}>{snapshot.as_of ?? t('research.unknown')}</Descriptions.Item>
               </Descriptions>
               {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].length ? (
                 <Space wrap>
                   {[...(snapshot.quality_flags ?? []), ...(bars?.quality_flags ?? []), ...(fundamentals?.quality_flags ?? [])].map((flag) => <Tag key={flag} color="gold">{flag}</Tag>)}
                 </Space>
-              ) : <Tag color="green">未发现质量标记</Tag>}
+              ) : <Tag color="green">{t('research.method.noFlags')}</Tag>}
             </Card>
           </ResultLayer>
 
@@ -540,18 +615,29 @@ export default function ResearchWorkspace() {
             loading={continuityLoading}
           />
 
-          <Card title="研究笔记" className="surface-card" style={{ marginTop: 18 }}>
-            <Alert type="info" showIcon message="这里保存的是你的研究笔记；任何 AI 生成内容必须显式标为 MODEL_OUTPUT。" style={{ marginBottom: 12 }} />
+          <Card title={t('research.notes')} className="surface-card" style={{ marginTop: 18 }}>
+            <Alert type="info" showIcon message={t('research.notesNotice')} style={{ marginBottom: 12 }} />
             <TextArea
-              aria-label="研究笔记"
+              aria-label={t('research.notes')}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              placeholder="记录当前趋势、主要风险与下一步需要核验的事项……"
+              placeholder={t('research.notesPlaceholder')}
               autoSize={{ minRows: 7, maxRows: 16 }}
             />
           </Card>
         </>
-      ) : <Empty description="标的行情不可用" />}
+      ) : <Empty description={t('research.snapshotUnavailable')} />}
     </main>
   );
+}
+
+export default function ResearchWorkspace() {
+  const { symbol } = useParams<{ symbol: string }>();
+  const [searchParams] = useSearchParams();
+  const rawMode = searchParams.get('mode');
+  if (rawMode === 'thesis') return <ThesisModeSurface />;
+  if (rawMode && routedAgentModes.has(rawMode as AgentMode) && rawMode !== 'analyst') {
+    return <ResearchModeSurface mode={rawMode as Exclude<AgentMode, 'analyst'>} symbol={symbol} />;
+  }
+  return <ResearchWorkspaceCore />;
 }

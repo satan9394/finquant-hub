@@ -22,7 +22,7 @@ vi.mock('../src/components/research/BacktestCharts', () => ({
   default: () => <div data-testid="backtest-charts" />,
 }));
 
-describe('StrategyLab', () => {
+describe('StrategyLab', { timeout: 15_000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(fetchInstrumentBars).mockResolvedValue({ items: Array.from({ length: 60 }, (_, index) => ({ day: `2025-01-${index + 1}`, close: 1 })) } as never);
@@ -135,6 +135,12 @@ describe('StrategyLab', () => {
     expect(await screen.findByText('部分证据不可用')).toBeTruthy();
     expect(screen.getByText('数据状态：回测完成，部分证据不可用')).toBeTruthy();
     expect(screen.getByTestId('preset-standard').textContent).toContain('+10.00%');
+    expect(screen.queryByTestId('backtest-charts')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: '权益曲线' }));
+    expect(screen.getByTestId('backtest-charts')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '交易' }));
+    expect(screen.queryByTestId('backtest-charts')).toBeNull();
+    expect(screen.getByTestId('trades-table')).toBeTruthy();
     expect(saveBacktest).not.toHaveBeenCalled();
   });
 

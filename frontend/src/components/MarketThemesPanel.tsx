@@ -4,6 +4,7 @@ import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react';
 import { fetchMarketThemes } from '../services/marketDiscoveryApi';
 import type { MarketThemesResponse, ThemeSort, ThemeStock } from '../types';
+import { readChartTokens, withAlpha } from '../styles/themeTokens';
 
 interface MarketThemesPanelProps {
   watchCodes: string[];
@@ -57,6 +58,7 @@ const formatSortValue = (value: number | null | undefined, sort: ThemeSort) => s
   : formatPercent(value);
 
 export function buildThemeCandidateChartOption(candidates: ThemeStock[], sort: ThemeSort) {
+  const colors = readChartTokens();
   const rows = candidates.slice(0, 12).reverse();
   return {
     animationDuration: 450,
@@ -65,14 +67,14 @@ export function buildThemeCandidateChartOption(candidates: ThemeStock[], sort: T
     xAxis: {
       type: 'value',
       axisLabel: {
-        color: '#7296ad',
+        color: colors.text,
         formatter: (value: number) => sort === 'capital' ? `${(value / 100_000_000).toFixed(0)}亿` : `${value}%`,
       },
-      splitLine: { lineStyle: { color: 'rgba(107, 187, 224, .1)' } },
+      splitLine: { lineStyle: { color: withAlpha(colors.grid, 0.1) } },
     },
     yAxis: {
       type: 'category', data: rows.map((item) => item.name),
-      axisLabel: { color: '#bdd9e8', width: 76, overflow: 'truncate' },
+      axisLabel: { color: colors.textPrimary, width: 76, overflow: 'truncate' },
     },
     series: [{
       type: 'bar', barWidth: 11,
@@ -80,11 +82,11 @@ export function buildThemeCandidateChartOption(candidates: ThemeStock[], sort: T
         const value = sortValue(stock, sort);
         return {
           value,
-          itemStyle: { color: (value ?? 0) >= 0 ? '#ff7d8b' : '#46d6a3' },
+          itemStyle: { color: (value ?? 0) >= 0 ? colors.up : colors.down },
         };
       }),
       label: {
-        show: true, position: 'right', color: '#dcecf5', fontSize: 9,
+        show: true, position: 'right', color: colors.textPrimary, fontSize: 9,
         formatter: ({ value }: { value: number }) => formatSortValue(value, sort),
       },
     }],

@@ -38,11 +38,13 @@ export const RESEARCH_INTENTS: Array<{
   },
 ];
 
-export function researchIntentPath(intent: ResearchIntent, symbol: string): string {
+export function researchIntentPath(intent: ResearchIntent, symbol: string, lang: 'zh' | 'en' = 'zh'): string {
   const target = symbol.trim().toUpperCase();
   if (intent === 'deep') return `/research/reports?symbol=${encodeURIComponent(target)}`;
   if (intent === 'review') {
-    return `/discussion?topic=${encodeURIComponent(`${target} 多视角审查：寻找反证、分歧和脆弱假设`)}`;
+    const topic = lang === 'zh' ? `${target} 多视角审查：寻找反证、分歧和脆弱假设` : `${target} multi-perspective review: seek counter-evidence, disagreements, and fragile assumptions`;
+    return `/discussion?topic=${encodeURIComponent(topic)}`;
   }
-  return `/chat?prompt=${encodeURIComponent(`请解释 ${target} 当前最值得核验的三项研究问题，并区分事实、推断和未知。`)}`;
+  const prompt = lang === 'zh' ? `请解释 ${target} 当前最值得核验的三项研究问题，并区分事实、推断和未知。` : `Explain the three research questions about ${target} that most need verification now, separating facts, inferences, and unknowns.`;
+  return `/chat?prompt=${encodeURIComponent(prompt)}`;
 }

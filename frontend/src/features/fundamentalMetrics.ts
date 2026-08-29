@@ -35,8 +35,8 @@ export function p1FundamentalMetrics(items: FundamentalItem[] = []): P1MetricVie
   return definitions.map((definition) => ({ ...definition, item: byMetric.get(definition.key) ?? null }));
 }
 
-export function formatP1Metric(metric: P1MetricView): string {
+export function formatP1Metric(metric: P1MetricView, locale = 'zh-CN'): string {
   if (!metric.item) return 'UNKNOWN';
-  const value = metric.item.value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const value = metric.item.value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return metric.unit === 'percent' ? `${value}%` : `${value}x`;
 }

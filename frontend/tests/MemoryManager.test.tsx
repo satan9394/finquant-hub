@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MemoryManager from '../src/components/MemoryManager';
 import * as researchApi from '../src/services/researchApi';
+import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 vi.mock('../src/services/researchApi', () => ({
   fetchMemories: vi.fn(),
@@ -67,5 +68,14 @@ describe('MemoryManager', () => {
       action: 'edit',
       content: { text: 'User corrected' },
     }));
+  });
+
+  it('renders the Library memory workspace in English', async () => {
+    localStorage.setItem('finquant_lang', 'en');
+    render(<LanguageProvider><MemoryManager /></LanguageProvider>);
+
+    expect(await screen.findByText('Pending confirmation')).toBeTruthy();
+    expect(screen.getByText('My Research Memory')).toBeTruthy();
+    expect(screen.getByText(/Source: research_report:4 · Observed: UNKNOWN/)).toBeTruthy();
   });
 });

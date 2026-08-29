@@ -23,6 +23,7 @@ const fields: Array<{ key: ExperimentField; label: string; format: (value: unkno
 ];
 
 const strategyKeys = new Set<ExperimentField>(['short_window', 'long_window', 'max_drawdown_stop_pct']);
+type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 function comparableValue(params: ExperimentParams, key: ExperimentField) {
   const value = params[key];
@@ -31,11 +32,16 @@ function comparableValue(params: ExperimentParams, key: ExperimentField) {
   return value;
 }
 
-export function assessExperimentChange(baseline: ExperimentParams, candidate: ExperimentParams) {
+export function assessExperimentChange(baseline: ExperimentParams, candidate: ExperimentParams, t?: Translate) {
   const differences = fields.flatMap(({ key, label, format }) => (
     comparableValue(baseline, key) === comparableValue(candidate, key)
       ? []
-      : [{ key, label, before: format(baseline[key]), after: format(candidate[key]) }]
+      : [{
+        key,
+        label: t ? t(`strategy.experiment.field.${key}`) : label,
+        before: key === 'benchmark' && t ? t('strategy.chart.buyHold') : format(baseline[key]),
+        after: key === 'benchmark' && t ? t('strategy.chart.buyHold') : format(candidate[key]),
+      }]
   ));
   return {
     status: differences.length === 0 ? 'same' as const : differences.length === 1 ? 'single' as const : 'multiple' as const,
