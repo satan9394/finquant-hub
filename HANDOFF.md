@@ -171,3 +171,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-29 Phase 4 契约层与 README 双路径完成：新建 scripts/openapi_tsgen.py（零依赖从运行时 OpenAPI 生成 frontend/src/types/openapi.generated.ts，59 schemas，--check 漂移检测）；frontend package.json prebuild 挂契约门禁（漂移即 build 失败，已实测拦截）；README 安装段重构为 Docker（推荐）/裸机开发双路径；补 test_openapi_tsgen.py 5 tests | 验证: 生成器测试 5/5；ruff 通过；bun run build（含 prebuild 契约检查）通过；漂移注入实测 exit 1 阻断后恢复通过；生成物 tsc --noEmit 零错误
 
 - 2026-08-29 预存测试失败深入排查完成：8 项全部定位为 LOCAL_ONLY_MODE 测试隔离缺陷（backend/.env 的 local-only 被测试进程继承，session 认证类 fixture 未显式关闭），非环境问题。修复 test_auth/test_credentials/test_user_isolation/test_api fixture 显式关闭 local-only，test_router_contracts 补 lifespan+DB_PATH+关 local-only | 验证: 后端全量 538 passed / 0 failed（此前 525/8）；无需环境变量 hack；ruff 通过；commit 6c48ca3
+
+- 2026-08-29 代理链路修复：requirements.txt 增加 socksio>=1.0（httpx[socks]）；backend/.env 的 LLM_PROXY_URL/NEWS_PROXY_URL 从死端口 7890 改为真实代理 7897；已验证 DeepSeek 经 7897 真实连通 | 验证: 完整后端套件 551 passed / 0 failed（此前须排除 3 个 SOCKS 测试文件）；开代理状态 13/13 SOCKS 测试通过；commit 4c7e7a8

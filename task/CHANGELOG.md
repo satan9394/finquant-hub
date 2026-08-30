@@ -4,6 +4,14 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-08-30
+- **Fix: 补齐 socksio 依赖 + 修正 LLM/News 代理端口（7890→7897）**
+  - What: `backend/requirements.txt` 增加 `socksio>=1.0`（httpx[socks] 的 socks5 协议依赖，Yahoo 客户端 `trust_env=True` 在开代理时走 socks5 需要它）；`backend/.env`（gitignored）`LLM_PROXY_URL`/`NEWS_PROXY_URL` 从死端口 7890 改为真实代理 7897（AGENTS.md 约定端口），已验证 DeepSeek 经 7897 真实连通
+  - Why: ①socksio 缺失导致开代理状态下 3 个真实网络测试失败（ImportError: socksio not installed）②. env 的 7890 是死端口（无监听），开代理时 LLM/News 代理实际走不通
+  - Docs: `task/CHANGELOG.md`
+  - Verification: 完整后端套件 551 passed / 0 failed（此前须排除 3 个 SOCKS 测试文件）；LLM 经 7897 代理真实连通（102 tokens）；socksio 1.0.0
+  - Risk: low（纯依赖补齐 + 本地 .env 端口修正；socksio 是 httpx 官方 extras）
+
+## 2026-08-30
 - **Fix: 预存测试失败排查——LOCAL_ONLY_MODE 测试隔离缺陷（8 项）**
   - What: 排查并修复 8 个预存失败，根因是 `backend/.env` 的 `LOCAL_ONLY_MODE=true` 被测试进程继承，而 session 认证类测试 fixture 未显式关闭——local-only 模式会让 auth 路由按设计返回 404、且所有请求落为同一本地所有者导致跨用户断言失效
   - Files: `backend/tests/test_auth.py`（fixture 加 `monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)`）、`backend/tests/test_credentials.py`、`backend/tests/test_user_isolation.py`、`backend/tests/test_api.py`（同源修复）、`backend/tests/test_router_contracts.py`（加 lifespan 上下文 + DB_PATH + 关 local-only）
