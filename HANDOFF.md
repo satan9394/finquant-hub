@@ -185,3 +185,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-30 BACKLOG-005 完成（Codex 执行）：E2E 扩面新增 19 用例（helpers.ts 统一 mock + chat-paths 6 + discussion-paths 5 + system-pages 8），覆盖 SSE 交互管线与系统/知识页；E2E 35/35、Vitest 63/198 全绿；零业务代码改动；记录业务缺口：Discussion 消费 token/agent_end 但不渲染时间线（未修，待后续任务） | 验证: 独立复测：Playwright 35/35（50.7s）、Vitest 63 files/198 tests（457s）；SSE 帧契约与 sse.ts 解析吻合；git diff 确认无 frontend/src 改动
 
 - 2026-08-30 完成 BACKLOG-006：Discussion per-agent SSE 流式状态、InvestmentCommittee 流式时间线、i18n 与 10 个核心组件直接测试扩面 | 验证: OpenAPI 59 schemas；tsc/Vite build 4238 modules；Vitest 74/74 files 227/227；Discussion E2E 5/5；全量 E2E 35/35；i18n 2208/2208；diff check passed
+
+- 2026-08-30 BACKLOG-007 完成（Codex 执行）：前端 12 组件测试文件 25 用例（ActionBar/EventTimeline/EvidenceRail/FinancialMetric/FinancialTable/PortfolioEvents/PortfolioWhy/SourceChip/StatusChip/Today 系列）；后端 5 确定性测试文件 97 用例，覆盖率 86.83%→90.59%（backtests 74.9→95.4%、market_review 80→97.4%、news_search→89.8%、market_overview→89.7%、settings→96.5% 等 8 靶点全达标）；710 passed 无回归；零业务代码改动 | 验证: 独立复测：后端 710/710 覆盖率 90.59%、前端 Vitest 86 files/252 tests、开/关代理 97/97 确定性一致
