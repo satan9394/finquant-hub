@@ -3,6 +3,45 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-08-29
+- **Architecture: 重构决策分析（基于 vibevibe 进阶篇基准）**
+  - What: 抓取 vibevibe.cn/Advanced/ 基准 + 4 个并行子代理分析（现状审计 / 基准对标 / 技术栈评估 / Agent SDK 评估），产出 `docs/ai/REFACTOR_DECISION.md`
+  - Why: 用户认为当前项目"东一点西一点"，需要基于基准判定是否重构
+  - Docs: `docs/ai/REFACTOR_DECISION.md`（新增）、`task/CHANGELOG.md`
+  - 结论: ①值得重构，做"保留式减法"（3-5 周）而非重写（6-10 周）②维持 FastAPI + React（4.50 分），不迁 Next.js 全栈（3.80 分），Docker 保留 ③不引入 OpenAI/Anthropic Agent SDK，自研吸收 3 个设计点（类型驱动工具校验 / event_sink 事件协议 / loop guardrail）
+  - 验证: 纯只读分析 + 文档交付；未改代码/依赖/schema/数据库
+  - Risk: low（决策文档，等待维护者确认后转执行计划）
+
+## 2026-08-29（Phase 0-1 执行）
+- **Phase 0: Scope Freeze v1 冻结**
+  - What: 产出 `docs/ai/SCOPE_FREEZE_V1.md`——核心用户旅程（7 步闭环）、P0/P1/P2 范围清单、冻结规则、Phase 1-4 路线图、校准记录
+  - Docs: `docs/ai/SCOPE_FREEZE_V1.md`（新增）、`task/CHANGELOG.md`
+  - Risk: low（纯文档，维护者已批准执行）
+- **Phase 1: 前端减法（孤儿页/死组件回收 + Alpha 工作台接线）**
+  - What: 回收 2 个真孤儿页面（`frontend/src/pages/AlphaResearch.tsx`、`Screening.tsx`）、4 个死组件（`components/ChinaMap.tsx`、`CountUp.tsx`、`Marquee.tsx`、`ScrollingTable.tsx`）、2 个测试文件（`tests/AlphaResearch.test.tsx`、`tests/VisualComponents.test.tsx`），全部进回收站；移除死依赖 `@datapool/china.geojson`（仅 ChinaMap 使用）；新建 `components/alpha/AlphaResearchPanel.tsx` 并让 Discover `?mode=alpha` 分发渲染（原独立页面的 Alpha 工作台能力收敛为 Discover 模式面板）；补 `tests/DiscoverModeDispatch.test.tsx`（2 tests）
+  - Why: 执行已批准的保留式减法；回收业务零引用的孤儿资产，同时修复 Discover alpha 模式从未渲染工作台的入口断裂，避免 PROD-034/036/037 成果静默丢失
+  - Docs: `docs/ai/SCOPE_FREEZE_V1.md`（§7 执行校准）、`task/CHANGELOG.md`
+  - Verification: `bun run build` 通过；Vitest 62 files / 196 tests 全绿（含新增 DiscoverModeDispatch 2 tests）；前端页面/组件 grep 零残留引用
+  - Risk: low（删除进回收站可恢复；Alpha 工作台能力保留并有测试背书）
+- **Phase 2: 后端盘点校准 + Agent SDK 3 设计点自研吸收**
+  - What: ①后端死资产断言校准——v1 回测 `/api/backtest` 被 Chat 对话回测活跃消费、`/api/analysis/stock` 是 research 轻量别名、scheduler_loop 是"配置变更重启"非双调度器，均保留；仅组合三轨孤岛表（portfolio_groups/items/trades 零读写）归入 Phase 3 schema 迁移 ②Agent SDK 3 设计点自研吸收（零新依赖）：`ToolRegistry.dispatch()` + `validate_tool_arguments()` 类型驱动前置校验（tools.py）；`TOOL_LOOP_EVENTS` 受控事件枚举 + `chat_with_tools_loop` event_sink/pre_tool_hook/post_tool_hook（llm_client.py）；chat.py `_execute_tool` 改走 dispatch、SSE 工具事件改由 event_sink 收集转发
+  - Why: 执行已批准的 REFACTOR_DECISION §5.2；不引入 OpenAI/Anthropic SDK，自研吸收其 3 个设计点
+  - Docs: `docs/ai/SCOPE_FREEZE_V1.md`（§8/§9）、`task/CHANGELOG.md`
+  - Verification: test_tool_registry + test_chat_tools 共 8 passed；mypy 3 文件 Success；ruff 通过；test_agent_tools_execution 2 项失败为环境性（系统 SOCKS 代理缺 socksio，与改动无关）
+  - Risk: low（新增参数全默认值向后兼容；chat SSE 事件流保持原 tool_call 协议）
+- **Phase 3: schema v24 收敛迁移（删除组合三轨孤岛表）+ 真实备份演练**
+  - What: `database.py` 新增 `_SCHEMA_CLEANUP_VERSION = 24`，从 `_OWNER_TABLES` 与 `SCHEMA` 移除 portfolio_groups/items/trades（零读写遗留表），新增 `_install_schema_cleanup()`（DROP 三表）+ pre-v24 备份；真实 `backend/data/finquant.db` 完成 v23→v24 迁移（副本演练通过后执行，数据完整，pre-v24.bak 生成）；更新 test_api.py 三个 LLM stub 适配 chat_with_tools_loop 新签名（event_sink 等）、test_database_recovery_audit / test_scheduler_runtime_benchmark 版本断言改 `database._SCHEMA_VERSION`
+  - Why: 执行已批准 SCOPE_FREEZE Phase 3——只减表、先备份，活跃组合数据不受影响
+  - Docs: `docs/ai/SCOPE_FREEZE_V1.md`（§9 Phase 3）、`docs/TECH_STACK.md`（v24/49 表）、`docs/ARCHITECTURE.md`（v24 段落/图/表数）、`task/CHANGELOG.md`
+  - Verification: 迁移测试 16/16；后端全量 525 passed / 8 failed = 基线 520 passed / 8 failed（8 个失败经 git stash 基线对比确认全为预存环境性失败，与改动无关）；ruff/mypy 通过；真实 DB user_version=24、遗留表 0、portfolios/positions/research_reports 数据完整
+  - Risk: low（备份先行、可恢复；只删确认零读写的表）
+- **Phase 4: 契约层（OpenAPI→TS 零依赖生成器 + build 门禁）+ README 双路径**
+  - What: 新建 `scripts/openapi_tsgen.py`（纯标准库，从运行时 OpenAPI 生成 `frontend/src/types/openapi.generated.ts`，59 schemas / 361 行，`--check` 模式检测漂移）；`frontend/package.json` 加 `prebuild` 契约门禁（漂移即 build 失败）；README 安装段重构为 Docker（推荐）/ 裸机开发双路径并列；补 `backend/tests/test_openapi_tsgen.py`（5 tests）
+  - Why: 执行已批准 SCOPE_FREEZE Phase 4——分离栈 AI 维护契约层（OpenAPI→TS 自动生成，零新依赖不违反冻结规则），消除前后端类型手写漂移
+  - Docs: `docs/ai/SCOPE_FREEZE_V1.md`（§9 Phase 4）、`README.md`（双路径）、`task/CHANGELOG.md`
+  - Verification: 生成器测试 5/5；ruff 通过；`bun run build`（含 prebuild 契约检查）通过；漂移拦截实测（注入注释 → build exit 1；恢复 → 通过）；生成物 `tsc --noEmit` 独立编译零错误
+  - Risk: low（生成物只读导入，不替换手写 types/index.ts；prebuild 失败即阻断，可随时移除）
+
 ## 2026-07-28
 
 - **Architecture: 完整架构文档体系建立**
@@ -264,3 +303,4 @@
 - Verification: production build passed with 4,231 modules; `StockAnalysis` chunk reduced from 196.67 kB / 63.07 kB gzip to 179.87 kB / 57.32 kB gzip; full Vitest passed 64/64 files and 203/203 tests in 487.37s; zh/en dictionaries are 2,202/2,202 with zero duplicates/parity differences; contrast passed 58/58 with a 4.50:1 minimum; active import-graph scan covered 130 files with zero non-native clickables and zero visible form controls lacking an explicit accessible name; `git diff --check` passed; frontend returned HTTP 200. The latest fixed-port check found an unrelated API on 8000, so current FinQuant backend health remains unverified. The 24 final-labelled narrow captures are real PNGs, but 23 encode at 375×812 and one at 390×844, so they are retained only as historical reference rather than claimed as a complete exact-390 matrix.
 - Completion audit: re-read the full-chain goal and UI-000 through UI-004 cards against the current tree. All 13 required first-class components exist and have active consumers; eight navigation groups, legacy redirects, bilingual persistence, command routing, Entity/Research/Monitor/Today/Strategy/Discover/Portfolio structures, token/static accessibility gates, and existing regression gates have direct code or test evidence. The remaining acceptance requirements are the current-run screenshot/rendered-WCAG matrix and Deep Research Pause/Change scope; neither has an in-scope executable path while Browser capture is policy-blocked and the backend contract is absent.
 - Risk: low; the full current screenshot/rendered WCAG matrix and Deep Pause/Change scope remain blocked. No backend/schema/auth/dependency/reference change and no commit, push, publish, or deploy.
+

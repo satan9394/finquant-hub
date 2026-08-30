@@ -4,9 +4,11 @@
 
 > 当前交付目标：GitHub 获取、个人电脑本地安装和自用。运行时包含 23 个 APIRouter、133 个 `/api/*` 路径和 168 个 HTTP 操作。
 
-## 本地 Docker（推荐）
+## 安装与启动（两种路径）
 
-本地模式前后端全部运行在 Docker 中，浏览器端口仅绑定 `127.0.0.1`。应用使用一个内部本地所有者，不显示登录页、不发送验证码，也不创建浏览器会话；`user_id` 仍作为本地数据归属键保留。这是当前面向使用者的唯一受支持安装路径。
+### 路径 A：本地 Docker（推荐）
+
+本地模式前后端全部运行在 Docker 中，浏览器端口仅绑定 `127.0.0.1`。应用使用一个内部本地所有者，不显示登录页、不发送验证码，也不创建浏览器会话；`user_id` 仍作为本地数据归属键保留。这是当前面向使用者的推荐安装路径，也是开源可复现的构建路径。
 
 前置条件：Docker Desktop，或 Docker Engine + Docker Compose v2。克隆仓库并进入项目根目录后运行：
 
@@ -38,6 +40,23 @@ bash ./scripts/local.sh down
 `down` 只停止容器，不删除保存 SQLite 数据的 named volume。脚本不会执行 `down -v`、删除数据、杀掉端口进程或回显密钥。邮箱登录和公网安全配置仍保留在非本地模式中，但本地 Compose 不启用它们。
 
 维护者可运行 `./scripts/verify_local_install.ps1` 做隔离发布源演练。它使用随机 Compose project、独立 loopback 端口和独立 volume，真实执行 image build/start、local-only HTTP 检查、`down`/`up` 持久化以及 SQLite 非覆盖 backup/restore；结束后停止隔离容器但保留证据 volume。当前工作树未提交时，这项结果不是 GitHub clean-clone 证据。
+
+### 路径 B：本地开发（无 Docker，裸机运行）
+
+不装 Docker 时也可直接运行前后端。前置：Python 3.12 venv、Node 20+ / Bun 1.3+。数据库使用仓库内 `backend/data/finquant.db`（首次启动自动建库迁移）。
+
+```powershell
+# 后端（默认 127.0.0.1:8000）
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+
+# 前端（默认 localhost:5173，Vite 代理 /api → 8000）
+cd frontend
+bun install
+bun run dev
+```
+
+打开 `http://localhost:5173` 即进入本地模式（与路径 A 相同的 LOCAL_ONLY 内部所有者语义）。若 5173 被占用，按项目约定先查 `netstat -ano | findstr 5173` 杀掉占用者，不擅自换端口。本路径用于日常开发，发布验收以路径 A 为准。
 
 ## 功能总览
 
