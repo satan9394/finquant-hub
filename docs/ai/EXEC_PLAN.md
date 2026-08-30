@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-002: Discover 路径 E2E 补测（Alpha 工作台 + 旧路由重定向）
+## [DONE] BACKLOG-002: Discover 路径 E2E 补测（Alpha 工作台 + 旧路由重定向）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-002.md`
 **范围**: 新建 `frontend/e2e/discover-paths.spec.ts` 覆盖 `/discover` 默认模式、`/alpha`→`?mode=alpha` 重定向、`/screening`→`?mode=screening` 重定向、alpha 工作台渲染（mock /wq API）与 390px 无溢出；必要时增强 DiscoverModeDispatch 组件测试。
-**证据**: （执行后填写 build/test/e2e 结果）
+**证据**: 新增 `discover-paths.spec.ts` 5 个确定性用例，覆盖 `/discover` 默认筛选、`/alpha` 与 `/screening` 重定向、API-backed Alpha 类别/模板/搜索结果以及 390px 页面级无横向溢出；同步既有 E2E 的 zh 语言、当前 Tab/FinancialMetric/Today 断言。`bun run build` 4,237 modules；Vitest 63/63 files、198/198 tests；Playwright 16/16 tests（原 11 + 新增 5）；`git diff --check` 通过。无业务组件、后端、schema、认证或依赖改动。
 
 ---
 

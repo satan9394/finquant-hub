@@ -6,11 +6,17 @@ const json = (route: Route, body: unknown) => route.fulfill({
 });
 
 async function mockDashboardApi(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem('finquant_theme', 'light');
+    localStorage.setItem('finquant_lang', 'zh');
+  });
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     const responses: Record<string, unknown> = {
       '/api/auth/me': { user: { id: 1, email: 'dashboard@test.local', is_admin: false } },
       '/api/models': { items: [] },
+      '/api/health': { status: 'ok', db: 'wal' },
       '/api/dashboard/stats': {
         model_count: 2,
         conversation_count: 3,
@@ -133,32 +139,28 @@ test('dashboard renders an evidence-first workbench from API data', async ({ pag
   });
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem('finquant_theme', 'light');
-  });
   await mockDashboardApi(page);
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: '工作台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今日' })).toBeVisible();
   const launchpad = page.locator('.task-launchpad');
   await expect(launchpad.getByRole('heading', { name: '今天想完成什么？' })).toBeVisible();
   await expect(launchpad.getByRole('button', { name: '分析股票' })).toBeVisible();
   await expect(launchpad.getByRole('button', { name: '验证策略' })).toBeVisible();
   await expect(launchpad.getByRole('button', { name: '查看组合' })).toBeVisible();
-  await expect(launchpad.getByRole('button', { name: '示例分析 600519' })).toBeVisible();
-  await expect(launchpad.getByRole('button', { name: '示例回测 600519' })).toBeVisible();
-  await expect(launchpad.getByRole('button', { name: '示例组合 600519' })).toBeVisible();
+  await expect(launchpad.getByRole('button', { name: '试用研究示例 600519' })).toBeVisible();
+  await expect(launchpad.getByRole('button', { name: '试用策略示例 600519' })).toBeVisible();
+  await expect(launchpad.getByRole('button', { name: '试用组合示例 600519' })).toBeVisible();
   await expect(launchpad.getByText('首次任务进度 0/3')).toBeVisible();
   await expect(launchpad.getByText('建议先试用 600519')).toBeVisible();
   await launchpad.getByRole('button', { name: '不再提示' }).click();
   await expect(launchpad.getByText('建议先试用 600519')).toHaveCount(0);
   await launchpad.getByRole('button', { name: '显示提示' }).click();
   await expect(launchpad.getByText('建议先试用 600519')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '真实市场简报' })).toBeVisible();
+  await expect(page.getByText('真实市场简报', { exact: true })).toBeVisible();
   await expect(page.getByText('2026-08-08T10:30:00+08:00')).toBeVisible();
   await expect(page.getByText('eastmoney')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '最新财经消息' })).toBeVisible();
+  await expect(page.getByText('最新财经消息', { exact: true })).toBeVisible();
   await expect(page.getByText('财经市场简报')).toBeVisible();
   await expect(page.getByRole('heading', { name: '大屏概览' })).toHaveCount(0);
   await expect(page.locator('.big-screen-overview')).toHaveCount(0);
@@ -170,10 +172,6 @@ test('dashboard renders an evidence-first workbench from API data', async ({ pag
 });
 
 test('portfolio example pre-fills only verifiable inputs', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-    localStorage.setItem('finquant_theme', 'light');
-  });
   await mockDashboardApi(page);
   await page.goto('/portfolio?example=600519');
 

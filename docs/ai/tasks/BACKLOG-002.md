@@ -1,6 +1,6 @@
 # BACKLOG-002 — Discover 路径 E2E 补测：Alpha 工作台与旧路由重定向
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：重构（Phase 1）将独立 AlphaResearch 页面收敛为 Discover 的 `?mode=alpha` 面板（`frontend/src/components/alpha/AlphaResearchPanel.tsx`），并保留 `/screening`、`/alpha` 旧路由重定向到 `/discover?mode=...`。当前 Playwright E2E（11 个测试）覆盖 research/strategy/portfolio 三条主链，**完全没有 Discover 路径**。本任务为重构产出补 E2E 证据并守住回归。
 
 ---
@@ -63,6 +63,6 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单：
-- 验证输出（build/test/e2e 结果）：
-- 备注（发现的真实缺陷或未完成项）：
+- 修改文件清单：`frontend/e2e/discover-paths.spec.ts`（新增 5 个 Discover 路径用例）；`frontend/e2e/core-paths.spec.ts`、`frontend/e2e/dashboard.spec.ts`（固定 zh 测试语言并同步当前 Tab、FinancialMetric、Today 可访问语义）；`docs/ai/tasks/BACKLOG-002.md`、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`（状态与证据同步）。
+- 验证输出（build/test/e2e 结果）：`bun run build` 通过（4,237 modules，29.10s）；`bun run test` 通过（63/63 files，198/198 tests，400.59s）；`bun run test:e2e` 通过（16/16 tests，原 11 + 新增 5，17.5s）；新增 Discover 专项 5/5 通过；`git diff --check` 通过。
+- 备注（发现的真实缺陷或未完成项）：全量 E2E 暴露既有用例未固定语言且部分断言仍指向旧 UI 结构；已仅在允许的 E2E 文件内固定 `finquant_lang=zh`，并将断言同步到当前“权益曲线”Tab、`FinancialMetric` 与 Today 语义。任务卡写作时将 `/wq/search` 记为 POST，但当前真实前端合同为 GET；新用例实际执行并验证 GET，同时保留 POST fixture 兼容记录。旧路由重定向可由 Playwright 稳定验证，因此未增加组件级替代用例。无业务组件、后端、schema、认证或依赖改动。

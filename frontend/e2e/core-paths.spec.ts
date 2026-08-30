@@ -15,6 +15,7 @@ async function mockApi(page: Page, responses: Record<string, MockValue>) {
   await page.addInitScript(() => {
     localStorage.clear();
     localStorage.setItem('finquant_theme', 'light');
+    localStorage.setItem('finquant_lang', 'zh');
   });
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -183,9 +184,10 @@ test('strategy completes a cost-aware backtest and exposes provenance', async ({
   await page.getByRole('button', { name: '运行回测' }).click();
   await expect(page.getByRole('heading', { name: '回测结论摘要' })).toBeVisible();
   await expect(page.getByTestId('metric-total-return')).toContainText('+12.00%');
+  await expect(page.getByRole('button', { name: '保存实验' })).toBeVisible();
+  await page.getByRole('tab', { name: '权益曲线' }).click();
   await expect(page.getByTestId('backtest-results-charts').locator('canvas').first()).toBeVisible();
   await expect(page.getByText('Yahoo Finance').last()).toBeVisible();
-  await expect(page.getByRole('button', { name: '保存实验' })).toBeVisible();
 });
 
 test('strategy renders a recoverable raw failure instead of a result', async ({ page }) => {
@@ -270,7 +272,7 @@ test('portfolio KPI values remain inside their cards at 390px', async ({ page })
   await expect(cards).toHaveCount(4);
   for (let index = 0; index < await cards.count(); index += 1) {
     const cardBox = await cards.nth(index).boundingBox();
-    const valueBox = await cards.nth(index).locator('.ant-statistic-content').boundingBox();
+    const valueBox = await cards.nth(index).locator('.financial-metric__value').boundingBox();
     expect(cardBox).not.toBeNull();
     expect(valueBox).not.toBeNull();
     expect((valueBox?.x ?? 0) + (valueBox?.width ?? 0)).toBeLessThanOrEqual((cardBox?.x ?? 0) + (cardBox?.width ?? 0) + 1);
