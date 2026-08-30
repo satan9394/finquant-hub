@@ -1,6 +1,6 @@
 # BACKLOG-008 — Discussion 流式 E2E + 剩余组件测试转正 + E2E 并行稳定性（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：BACKLOG-006 新增的 Discussion 流式时间线（per-agent 实时文本/轮次/状态）**尚无浏览器级 E2E 验证**——现有 `discussion-paths.spec.ts` 只断言 done/error 收束，未断言流式文本实时出现在 DOM。同时前端仍有约 20 个无直接测试组件（多为仅被间接覆盖的转正候选）；且完整 E2E（35 用例）本机并行运行时**偶发 1-2 个用例失败**（失败集合每次不同、单独重跑通过），为既有并行稳定性缺陷（见目标 3）。
 >
 > 本任务 = **Discussion 流式时间线 E2E**（主）+ **剩余组件测试转正**（次）+ **E2E 并行稳定性修复**（新增），三合一。
@@ -110,8 +110,10 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（E2E + 组件测试）：
-- 流式 E2E 用例清单（断言了什么）：
-- 组件转正数 / 用例数 = ?/?；Vitest 总结果（86 → ? files，252 → ? tests）：
-- E2E 总结果（35 + 新增 = ?）：
-- 备注（发现的真实缺陷或未完成项，只记录）：
+- 修改文件清单（E2E + 组件测试）：增强 `frontend/e2e/discussion-paths.spec.ts`；调整 `frontend/playwright.config.ts`；新增 `AgentModeSelector`、`CompareGrid`、`DecisionCard`、`DiscoverResults`、`DiscoverSearch`、`LangSwitcher`、`MetricStrip`、`MonitorCard`、`MonitorTypeChips`、`StreamingText` 共 10 个独立 `frontend/tests/*.test.tsx` 文件。未修改 `frontend/src`、后端、schema、认证、依赖、锁文件或 `reference/`。
+- 流式 E2E 用例清单（3 个目标用例）：① `discussion renders streamed text, round, and completed status before retaining the result` 在 `.investment-committee__stream` 内断言两帧 token 合并后的“我认为估值合理”、`第 1 轮` 与 `已完成` Tag，并确认停止按钮收束；② `discussion preserves partial streamed text and marks the member failed after an SSE error` 在同一流式区断言“已识别回撤风险”、`第 2 轮`、`失败` Tag 与页面错误提示；③ `discussion keeps historical room details backward compatible without a streaming region` 断言历史房间、成员与完成态继续渲染，且 `.investment-committee__stream` 数量为 0。focused Discussion E2E 6/6 通过。
+- 组件转正数 / 用例数 = 10/20，每组件 2 用例；全量 Vitest 从 86/252 增至 96/272，`96/96 files`、`272/272 tests` 全绿（1253.83s）。
+- E2E 稳定性诊断与修复：修改前保留原始 `fullyParallel: true`、本机 4 workers、0 retries 连跑 3 次，均为 35/35（50.9s、45.2s、49.5s），本次主机未复现维护者记录的随机失败，故没有虚构失败集合或单项复跑证据。基于既有“失败集合随机且单独重跑通过”的资源竞争证据，最小调整为本机 `workers: 2`、`retries: 1`（CI 仍为 1 worker/2 retries），并仅给新增 SSE/历史详情可见性断言增加 10s 显式 timeout；未删除或弱化断言。
+- E2E 总结果（35 + 净新增 1 = 36；其中 2 个既有用例增强为流式区断言、1 个新增长期兼容用例）：修复后完整 Chromium E2E 连跑 3 次均为 36/36（1.2m、1.1m、1.2m），三轮均无 retry 记录，满足 36/36 × 3 硬验收。
+- 其余验证：OpenAPI 59 schemas freshness、TypeScript、Vite production build（4,238 modules）通过；未新增 i18n key，parity 不受影响；`git diff --check` 与变更范围审计通过。未 commit、push、publish 或 deploy。
+- 备注（发现的真实缺陷，只记录）：历史房间详情 API 的 `messages` 已载入，但 `InvestmentCommittee` 的历史观点展示被 `completed` 成员必须同时具有 `position` 的条件门控，而 Discussion 映射未提供 `position`，因此“历史观点仍可读取”不会出现在当前委员会 DOM。按本任务纪律未修改业务组件；兼容 E2E 只验证现有可承诺的房间/成员/完成态和无流式区边界。

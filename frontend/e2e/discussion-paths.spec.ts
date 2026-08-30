@@ -77,11 +77,12 @@ test('discussion creates a room from the legacy route topic draft', async ({ pag
   });
 });
 
-test('discussion consumes agent lifecycle SSE frames and reaches done cleanly', async ({ page }) => {
+test('discussion renders streamed text, round, and completed status before retaining the result', async ({ page }) => {
   let startCount = 0;
   const stream = [
     'event: agent_start\ndata: {"agent":"value_investor","name":"价值投资官","round":1}',
-    'event: token\ndata: {"delta":"我认为..."}',
+    'event: token\ndata: {"delta":"我认为"}',
+    'event: token\ndata: {"delta":"估值合理"}',
     'event: agent_end\ndata: {"agent":"value_investor","message_id":31,"token_count":320}',
     'event: done\ndata: {"room_id":9}',
     '',
@@ -95,24 +96,69 @@ test('discussion consumes agent lifecycle SSE frames and reaches done cleanly', 
 
   await page.getByRole('button', { name: '开始讨论' }).click();
 
-  await expect(page.getByText('已完成').last()).toBeVisible();
+  const streamRegion = page.locator('.investment-committee__stream');
+  await expect(streamRegion).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('我认为估值合理', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('第 1 轮', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('已完成', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: '停止讨论' })).toHaveCount(0);
   await expect(page.getByText('价值投资官').first()).toBeVisible();
   expect(startCount).toBe(1);
 });
 
-test('discussion surfaces an SSE error and exits the streaming state', async ({ page }) => {
+test('discussion preserves partial streamed text and marks the member failed after an SSE error', async ({ page }) => {
+  const stream = [
+    'event: agent_start\ndata: {"agent":"risk_manager","name":"风控委员","round":2}',
+    'event: token\ndata: {"delta":"已识别回撤风险"}',
+    'event: error\ndata: {"agent":"risk_manager","error":"讨论上游失败"}',
+    '',
+  ].join('\n\n');
   await openExistingDiscussion(page, {
     'POST /api/discussion/rooms/9/start': async (route) => {
-      await fulfillSSE(route, 'event: error\ndata: {"error":"讨论上游失败"}\n\n');
+      await fulfillSSE(route, stream);
     },
   });
 
   await page.getByRole('button', { name: '开始讨论' }).click();
 
-  await expect(page.getByText('讨论上游失败')).toBeVisible();
+  const streamRegion = page.locator('.investment-committee__stream');
+  await expect(streamRegion).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('已识别回撤风险', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('第 2 轮', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(streamRegion.getByText('失败', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('讨论上游失败')).toBeVisible({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: '开始讨论' })).toBeVisible();
   await expect(page.getByRole('button', { name: '停止讨论' })).toHaveCount(0);
+});
+
+test('discussion keeps historical room details backward compatible without a streaming region', async ({ page }) => {
+  const historicalRoom = { ...room, current_phase: 'done', summary: '历史讨论总结' };
+  await mockApi(page, {
+    ...baseResponses,
+    'GET /api/discussion/rooms': { items: [historicalRoom] },
+    'GET /api/discussion/rooms/9': {
+      room: historicalRoom,
+      messages: [{
+        id: 81,
+        conversation_id: 9,
+        role: 'agent',
+        agent_name: 'value_investor',
+        content: '历史观点仍可读取',
+        round_number: 1,
+        token_count: 120,
+        created_at: '2026-08-29T00:00:00Z',
+      }],
+    },
+  });
+
+  await page.goto('/research?mode=review');
+  await page.getByText(room.topic).first().click();
+
+  await expect(page.getByRole('heading', { name: room.topic })).toBeVisible({ timeout: 10_000 });
+  const committee = page.locator('.investment-committee');
+  await expect(committee.getByText('价值投资官', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(committee.getByText('已完成', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.investment-committee__stream')).toHaveCount(0);
 });
 
 test('legacy discussion route redirects to Research review mode and preserves the topic', async ({ page }) => {

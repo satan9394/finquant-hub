@@ -369,3 +369,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-007.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: frontend full Vitest passed 86/86 files and 252/252 tests; OpenAPI freshness (59 schemas), TypeScript, and Vite production build (4,238 modules) passed. Backend coverage and no-coverage suites both passed 710/710 with TOTAL 90.59%; all eight priority modules reached the +5pp-or-≥88% rule; the five new backend files passed 97/97 with proxy variables cleared and 97/97 with the 7897 proxy enabled; tests Ruff passed.
 - Risk: low; tests and evidence docs only. `PortfolioWhy` currently formats a negative contribution as `¥-10.00`; recorded without changing business code. No `backend/app`, `frontend/src`, schema, authentication, dependency, lock file, `reference/`, commit, push, publish, or deploy change.
+
+## 2026-08-30
+- What changed: strengthened three Discussion browser paths around the live `.investment-committee__stream` contract, added 10 direct component test files with 20 cases, and limited local Playwright to 2 workers with one retry.
+- Why: prove streamed text/round/status and failure retention in the browser, close the remaining direct component-test gap, and reduce known local E2E resource contention without weakening assertions.
+- Docs updated: `docs/ai/tasks/BACKLOG-008.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: pre-change E2E ran 35/35 three times without reproducing the maintainer's intermittent failures; focused Discussion passed 6/6; full Vitest passed 96/96 files and 272/272 tests; OpenAPI freshness, TypeScript, and Vite production build (4,238 modules) passed; post-fix full E2E passed 36/36 three consecutive times with no retry records; `git diff --check` and scope audit passed.
+- Risk: low; tests, Playwright scheduling, and evidence docs only. Historical Discussion messages are currently hidden by the committee's missing-position gate and were recorded without changing business code. No `frontend/src`, backend, schema, authentication, dependency, lock file, `reference/`, commit, push, publish, or deploy change.

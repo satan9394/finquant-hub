@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-008: Discussion 流式时间线 E2E + 剩余组件测试转正 + E2E 并行稳定性（综合）
+## [DONE] BACKLOG-008: Discussion 流式时间线 E2E + 剩余组件测试转正 + E2E 并行稳定性（综合）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-008.md`
 **范围**: ①核心：Discussion 流式时间线（BACKLOG-006 新功能）浏览器级 E2E——新增/增强 ≥3 用例断言流式区实时文本/轮次标签/状态 Tag/completed/failed 收束（断言 `.investment-committee__stream`，非只最终 summary），且无 streaming 数据的历史房间向后兼容；②剩余组件测试转正：AgentModeSelector/AlphaResearchPanel/BacktestCharts/CommandBar/CompareGrid/DecisionCard/DiscoverResults/LangSwitcher/MetricStrip/ModelSelector/MonitorCard/StreamingText/ThesisBlock/LazyEChart 等 ≥10 组件每组件 ≥2 用例；③E2E 并行稳定性修复（维护者实测：35 用例全并行偶发 1-2 个不同用例失败、单独重跑通过）：限 workers / 本机 retries:1 / 慢断言加显式 timeout，修复后完整 E2E 连跑 3 次全绿，不得放宽断言语义；④纯测试 + 仅允许改 playwright.config.ts，不改业务代码（发现 bug 只记录）。
-**证据**: （执行后填写——流式 E2E 用例清单 + 组件转正数 + E2E 稳定性修复说明与 3 次全绿 + build/test/e2e 结果）
+**证据**: Discussion 3 个目标 E2E 均限定断言 `.investment-committee__stream`：完成态验证两帧 token 合并文本/第 1 轮/已完成，失败态验证部分文本/第 2 轮/失败及页面错误，历史态验证房间/成员/完成态且无流式区；focused 6/6。新增 10 个独立组件测试文件 / 20 用例，每组件 2 用例；全量 Vitest 86→96 files、252→272 tests，96/96 与 272/272 全绿。修改前原始 4 workers/0 retries 连跑 3 次均 35/35（本机未复现既有随机失败）；按维护者既有资源竞争证据将本机最小限制为 2 workers/retries 1，并给新增慢断言 10s 显式 timeout，未放宽语义。修复后完整 E2E 36/36 连跑 3 次全绿且无 retry 记录。OpenAPI 59 schemas freshness、TypeScript、Vite build 4,238 modules、`git diff --check` 与范围审计通过；记录历史消息受缺失 `position` 门控而不显示的业务缺陷，未越界修复。无 `frontend/src`/后端/schema/auth/依赖/锁文件/`reference/` 改动，未 commit/push/publish/deploy。
 
 ---
 
