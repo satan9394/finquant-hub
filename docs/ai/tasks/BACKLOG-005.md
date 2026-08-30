@@ -1,6 +1,6 @@
 # BACKLOG-005 — E2E 扩面：SSE 交互管线（Chat/Discussion）+ 系统与知识页
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：现有 16 个 Playwright E2E 覆盖 research / strategy / portfolio / discover 四条主链。**/chat（单 Agent SSE 对话）、/discussion（多 Agent SSE 讨论）、/knowledge、/models、/mcp-market、/alerts、/thesis、/settings、/compare、/analysis/:ticker 均无 E2E**。其中 Chat 与 Discussion 是 SSE 流式交互管线（项目核心 AI 能力），最值得补；其余为系统/知识页，补基础渲染与交互回归。
 >
 > 本任务 = **SSE 交互管线 E2E（主）** + **系统/知识页 E2E（次）**，二合一。
@@ -127,8 +127,9 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（新增 spec + 文档）：
-- 用例数：chat / discussion / system = ?/?/?
-- E2E 总结果（16 + 新增 = ?）：
-- SSE mock 契约确认（实际使用的帧格式）：
-- 发现的真实缺陷或未完成项（只记录，业务 bug 不修）：
+- 修改文件清单：新增 `frontend/e2e/helpers.ts`、`chat-paths.spec.ts`、`discussion-paths.spec.ts`、`system-pages.spec.ts`；同步本任务卡、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。未修改 `frontend/src`、后端、schema、认证、依赖或 `reference/`。
+- 用例数：chat / discussion / system = 6 / 5 / 8，共新增 19 个确定性 Chromium E2E；所有 `/api/**` 均由共享 helper 拦截，未声明请求固定返回 404，不依赖真实网络。
+- E2E 总结果：新增 3 个 spec 聚焦运行 19 passed（14.1s）；完整 Playwright 为既有 16 + 新增 19 = 35 passed（33.4s）。
+- SSE mock 契约确认：Chat 使用 `token(贵州茅台)` → `token(今日收涨)` → `done(message_id=11, token_count=245)` 及 `error(上游失败)`；Discussion 使用 `agent_start(round=1)` → `token(我认为...)` → `agent_end(message_id=31, token_count=320)` → `done(room_id=9)` 及 `error(讨论上游失败)`。全部使用 `event:` + `data:` + 空行分帧，并返回 `Content-Type: text/event-stream; charset=utf-8`。
+- 其余验证：Bun 不在当前 PATH，已逐项运行 `bun run build` 的等价脚本：OpenAPI TypeScript freshness 59 schemas、`tsc -b`、Vite production build（4,237 modules）均通过；全量 Vitest 63 files / 198 tests passed（509.23s）；`git diff --check` 与修改白名单检查通过。
+- 发现的真实缺陷或未完成项（只记录，业务 bug 不修）：当前 Discussion 消费 `token` / `agent_end` 帧并可由 `done` 正常结束，但 `InvestmentCommittee` 未渲染讨论中的 token 文本、轮次标签或 agent_end 时间线；本任务按约束仅以“事件被消费、状态不挂起、done/error 正常收束”建立回归合同，未修改业务组件。

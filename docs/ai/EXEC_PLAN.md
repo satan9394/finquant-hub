@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-005: E2E 扩面——SSE 交互管线（Chat/Discussion）+ 系统/知识页
+## [DONE] BACKLOG-005: E2E 扩面——SSE 交互管线（Chat/Discussion）+ 系统/知识页
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-005.md`
 **范围**: ①`frontend/e2e/chat-paths.spec.ts`（≥6 用例）：Chat SSE 对话管线——空态/创建会话/SSE 流式回复（token+done 帧 mock）/error 事件/校验失败/旧路由 /chat 重定向；②`frontend/e2e/discussion-paths.spec.ts`（≥5 用例）：多 Agent SSE 讨论流（agent_start/token/agent_end/done 帧 mock）；③`frontend/e2e/system-pages.spec.ts`（≥8 用例）：knowledge/models/mcp-market/alerts/settings/compare/thesis/analysis 渲染+关键交互。API 全 mock 确定性，不改业务组件（发现 bug 只记录）。
-**证据**: （执行后填写——用例数 + e2e 总结果 + SSE mock 契约）
+**证据**: 新增共享 API/SSE mock helper 与 19 个确定性 Chromium E2E：Chat 6、Discussion 5、knowledge/models/mcp-market/alerts/settings/compare/thesis/analysis 各 1，共 system 8；所有 `/api/**` 请求均拦截，未声明请求固定 404。Chat 按 `token/token/done` 与 error、Discussion 按 `agent_start/token/agent_end/done` 与 error 的 `event:` + `data:` + 空行契约返回 `text/event-stream`。新增 spec 19 passed（14.1s），完整 E2E 35 passed（既有 16 + 新增 19，33.4s）；Vitest 63 files / 198 tests passed（509.23s）；OpenAPI 59 schemas freshness、TypeScript 与 Vite production build（4,237 modules）通过，diff/白名单检查通过。Discussion 当前不展示流式 token、轮次或 agent_end 时间线，已按任务边界记录且未改业务组件；未改 backend/schema/auth/deps/`reference/`，未 commit。
 
 ---
 

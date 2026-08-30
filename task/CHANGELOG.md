@@ -4,6 +4,13 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-08-30
+- **Test: BACKLOG-005 Chat/Discussion SSE 与系统页 E2E 扩面**
+  - What: 新增 `frontend/e2e/helpers.ts` 统一确定性 API/SSE mock；新增 `chat-paths.spec.ts` 6 条、`discussion-paths.spec.ts` 5 条、`system-pages.spec.ts` 8 条，覆盖 Chat/Discussion 空态、创建、SSE done/error、旧路由，以及 knowledge/models/mcp-market/alerts/settings/compare/thesis/analysis 的渲染和关键交互
+  - Why: 消除核心 AI 流式交互与系统/知识页的 E2E 空白，所有 `/api/**` 均 mock，防止测试依赖真实网络或本地数据
+  - Docs: `docs/ai/tasks/BACKLOG-005.md`、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`
+  - Verification: 新增 spec 19 passed（14.1s）；完整 Playwright 35 passed（33.4s）；Vitest 63 files / 198 tests passed（509.23s）；OpenAPI 59 schemas freshness、TypeScript、Vite build（4,237 modules）与 diff/白名单检查通过
+  - Risk: low（纯 E2E 与文档；Discussion 不渲染 token/轮次/agent_end 时间线的业务缺口仅记录，未改 `frontend/src`；未 commit）
+
 - **Fix: 补齐 socksio 依赖 + 修正 LLM/News 代理端口（7890→7897）**
   - What: `backend/requirements.txt` 增加 `socksio>=1.0`（httpx[socks] 的 socks5 协议依赖，Yahoo 客户端 `trust_env=True` 在开代理时走 socks5 需要它）；`backend/.env`（gitignored）`LLM_PROXY_URL`/`NEWS_PROXY_URL` 从死端口 7890 改为真实代理 7897（AGENTS.md 约定端口），已验证 DeepSeek 经 7897 真实连通
   - Why: ①socksio 缺失导致开代理状态下 3 个真实网络测试失败（ImportError: socksio not installed）②. env 的 7890 是死端口（无监听），开代理时 LLM/News 代理实际走不通
