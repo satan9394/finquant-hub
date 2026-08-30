@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-008: Discussion 流式时间线 E2E + 剩余组件测试转正（综合）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-008.md`
+**范围**: ①核心：Discussion 流式时间线（BACKLOG-006 新功能）浏览器级 E2E——新增/增强 ≥3 用例断言流式区实时文本/轮次标签/状态 Tag/completed/failed 收束（断言 `.investment-committee__stream`，非只最终 summary），且无 streaming 数据的历史房间向后兼容；②剩余组件测试转正：AgentModeSelector/AlphaResearchPanel/BacktestCharts/CommandBar/CompareGrid/DecisionCard/DiscoverResults/LangSwitcher/MetricStrip/ModelSelector/MonitorCard/StreamingText/ThesisBlock/LazyEChart 等 ≥10 组件每组件 ≥2 用例；③纯测试，不改业务代码（发现 bug 只记录）。
+**证据**: （执行后填写——流式 E2E 用例清单 + 组件转正数 + build/test/e2e 结果）
+
+---
+
 ## [DONE] BACKLOG-007: 前端组件测试续扩 + 后端覆盖率攻坚 86.8%→90%（综合）
 
 **优先级**: P1
