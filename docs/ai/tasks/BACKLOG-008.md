@@ -1,9 +1,9 @@
-# BACKLOG-008 — Discussion 流式 E2E + 剩余组件测试转正（综合）
+# BACKLOG-008 — Discussion 流式 E2E + 剩余组件测试转正 + E2E 并行稳定性（综合）
 
 > 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
-> 背景：BACKLOG-006 新增的 Discussion 流式时间线（per-agent 实时文本/轮次/状态）**尚无浏览器级 E2E 验证**——现有 `discussion-paths.spec.ts` 只断言 done/error 收束，未断言流式文本实时出现在 DOM。同时前端仍有约 20 个无直接测试组件（多为仅被间接覆盖的转正候选）。
+> 背景：BACKLOG-006 新增的 Discussion 流式时间线（per-agent 实时文本/轮次/状态）**尚无浏览器级 E2E 验证**——现有 `discussion-paths.spec.ts` 只断言 done/error 收束，未断言流式文本实时出现在 DOM。同时前端仍有约 20 个无直接测试组件（多为仅被间接覆盖的转正候选）；且完整 E2E（35 用例）本机并行运行时**偶发 1-2 个用例失败**（失败集合每次不同、单独重跑通过），为既有并行稳定性缺陷（见目标 3）。
 >
-> 本任务 = **Discussion 流式时间线 E2E**（主）+ **剩余组件测试转正**（次），二合一。
+> 本任务 = **Discussion 流式时间线 E2E**（主）+ **剩余组件测试转正**（次）+ **E2E 并行稳定性修复**（新增），三合一。
 
 ---
 
@@ -62,17 +62,30 @@
 
 **目标**：新增 ≥10 个组件、≥20 个测试用例（每组件 ≥2）。
 
-### 目标 3：验证
+### 目标 3：E2E 并行稳定性修复（新增，2026-08-30 维护者实测发现）
+
+**背景**：完整 `bun run test:e2e`（35 用例）在本机多次运行，每次有 **1-2 个不同用例**偶发失败（chat 空态、strategy 回测、alerts 渲染轮流出现），**单独重跑全部通过**。根因是 `frontend/playwright.config.ts` 的 `fullyParallel: true` + 本机 workers 不限 + `retries: 0`——35 个测试全并行时 AntD Table 首屏渲染慢、SSE mock 与资源竞争导致部分 `toBeVisible()`（默认 5s 超时）过早断言失败。这是**既有稳定性缺陷**，不是任何单次改动引入。
+
+**要求**：
+1. **诊断**：先复现——连跑 `bun run test:e2e` 2-3 次记录失败集合（应各不相同、单独重跑通过），确认并行资源竞争。
+2. **修复**（选一或组合，**最小改动**）：
+   - `playwright.config.ts`：本机 `workers` 限制（如 `workers: process.env.CI ? 1 : 2` 或显式 `fullyParallel: false`），或本机 `retries: 1`（仅失败重试一次）
+   - 对**已知慢的断言**（AntD Table cell 可见性、SSE 流式文本）显式加 `expect(...).toBeVisible({ timeout: 10_000 })` 或 `await expect(...).toBeVisible()` 默认即可但确认不缩
+   - 若某用例有真实时序依赖（如 SSE mock 分批帧），用 `expect.poll` 等待
+3. **验证**：修改后完整 `bun run test:e2e` **连跑 3 次全绿**（35/35 × 3），这是稳定性达标的硬证据。
+4. **不得**放宽断言语义（不能把 `toBeVisible` 改成不检查、不能移除断言）；只加等待/降并行。
+
+### 目标 4：验证
 
 - `cd frontend && bun run build` 通过
 - `bun run test` 全绿（86 files 基线 + 新增）
-- `bun run test:e2e` 全绿（35 基线 + 新增 ≥3；`discussion-paths.spec.ts` 或新增流式 spec 必须过）
+- `bun run test:e2e` 全绿（35 基线 + 新增 ≥3；**修复后连跑 3 次全绿**）
 - `git diff --check` 通过
 - i18n parity 不受影响（不新增 key 则跳过，若需要新增流式相关文案 key 则保持 zh/en parity）
 
-### 目标 4：文档同步
+### 目标 5：文档同步
 
-- `docs/ai/EXEC_PLAN.md` 标记 `[DONE]`（证据：流式 E2E 用例清单、组件转正数、build/test/e2e 结果）
+- `docs/ai/EXEC_PLAN.md` 标记 `[DONE]`（证据：流式 E2E 用例清单、组件转正数、**E2E 稳定性修复说明 + 3 次全绿**、build/test/e2e 结果）
 - `task/CHANGELOG.md` 追加一条
 
 ---
