@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-003: 真实网络 Agent 工具测试稳定化（去网络依赖）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-003.md`
+**范围**: 把 `test_agent_tools_execution.py` 中两个真实请求腾讯行情的测试（test_get_stock_data_returns_quote_fields / test_calculate_indicators_returns_requested_indicators）改为 `monkeypatch` mock `MarketDataService.quote/kline` 的确定性测试（参考 test_trading_agent_tools 既有模式）；核查 test_agent_market_tools 是否已确定性；不改业务代码。
+**证据**: （执行后填写——开/关代理双环境验证结果）
+
+---
+
 ## [DONE] BACKLOG-002: Discover 路径 E2E 补测（Alpha 工作台 + 旧路由重定向）
 
 **优先级**: P1
