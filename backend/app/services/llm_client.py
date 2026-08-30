@@ -14,6 +14,11 @@ from .llm_usage import record_llm_usage
 
 JSONDict = dict[str, Any]
 
+# 受控工具循环事件枚举（借鉴 OpenAI Agents SDK run_streamed 的类型化事件）。
+# chat_with_tools_loop 通过 event_sink 回调发出这些事件，SSE 层/编排层直接消费，
+# 避免各调用方自行解析 tool_calls 后重新拼事件。
+TOOL_LOOP_EVENTS = ("tool_started", "tool_completed", "tool_failed", "tool_loop_done", "tool_loop_exhausted")
+
 
 class LLMError(Exception):
     """LLM 调用失败，message 面向用户可读。"""
@@ -200,6 +205,9 @@ class LLMClient:
         tools: list[JSONDict],
         tool_executor: Callable[[str, str], Awaitable[str]],
         max_rounds: int = 5,
+        event_sink: Callable[[str, JSONDict], Awaitable[None]] | None = None,
+        pre_tool_hook: Callable[[str, str], Awaitable[str | None]] | None = None,
+        post_tool_hook: Callable[[str, str, str], Awaitable[str | None]] | None = None,
     ) -> tuple[str, list[JSONDict], int | None]:
         """完整 function_calling 循环：调用 LLM → 执行工具 → 反馈 → 最终回复。
 
@@ -208,6 +216,12 @@ class LLMClient:
             tools: OpenAI 格式的工具定义列表
             tool_executor: 异步 callable(name, arguments) → str（工具执行结果文本）
             max_rounds: 最大 tool_use 轮数
+            event_sink: 异步 callable(event, data)（可选）。受控事件见 TOOL_LOOP_EVENTS；
+                事件 data 统一为 {"tool_name", "arguments", ...}，SSE 层可直接转发。
+            pre_tool_hook: 异步 callable(name, arguments_json) → str | None（可选）。
+                返回非 None 文本时跳过工具执行，以该文本作为工具结果（guardrail 拦截）。
+            post_tool_hook: 异步 callable(name, arguments_json, result_text) → str | None（可选）。
+                返回非 None 文本时替换工具结果（输出校验/tripwire 检查）。
 
         返回：
             (最终文本, 全部工具调用记录 list[dict], total_tokens)
@@ -223,6 +237,8 @@ class LLMClient:
             total_tokens += tokens or 0
 
             if not tool_calls:
+                if event_sink is not None:
+                    await event_sink("tool_loop_done", {"tool_calls": all_tool_calls})
                 return content, all_tool_calls, total_tokens or None
 
             assistant_message = {
@@ -241,27 +257,53 @@ class LLMClient:
 
             for tc in tool_calls:
                 func = tc["function"]
-                try:
-                    result_text = await tool_executor(func["name"], func["arguments"])
-                except Exception as e:
-                    result_text = f"工具执行异常：{e}"
+                tool_name = func["name"]
+                tool_args = func["arguments"]
+                if event_sink is not None:
+                    await event_sink("tool_started", {"tool_name": tool_name, "arguments": tool_args})
+
+                result_text: str | None = None
+                if pre_tool_hook is not None:
+                    block = await pre_tool_hook(tool_name, tool_args)
+                    if block is not None:
+                        result_text = block
+
+                if result_text is None:
+                    try:
+                        result_text = await tool_executor(tool_name, tool_args)
+                    except Exception as e:
+                        result_text = f"工具执行异常：{e}"
+
+                if post_tool_hook is not None and result_text is not None:
+                    replacement = await post_tool_hook(tool_name, tool_args, result_text)
+                    if replacement is not None:
+                        result_text = replacement
 
                 all_tool_calls.append({
-                    "name": func["name"],
-                    "arguments": func["arguments"],
+                    "name": tool_name,
+                    "arguments": tool_args,
                     "result": result_text,
                 })
+
+                if event_sink is not None:
+                    await event_sink("tool_completed", {
+                        "tool_name": tool_name,
+                        "arguments": tool_args,
+                        "result": result_text,
+                    })
 
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": result_text,
+                    "content": result_text or "",
                 })
 
         # 超出最大轮数，强制要求最终回复
         messages.append({"role": "user", "content": "请基于已有数据输出最终结论。"})
         content, _, tokens = await self.chat_with_tools_safe(messages, tools)
         total_tokens += tokens or 0
+        if event_sink is not None:
+            await event_sink("tool_loop_exhausted", {"tool_calls": all_tool_calls})
         return content, all_tool_calls, total_tokens or None
 
     async def chat_stream(self, messages: list[JSONDict]) -> AsyncIterator[str]:

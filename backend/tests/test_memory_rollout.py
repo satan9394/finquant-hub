@@ -145,7 +145,7 @@ async def test_chat_opt_in_injects_typed_context_and_finalizes_audit(rollout_db,
     captured: list[list[dict[str, str]]] = []
 
     class CapturingClient:
-        async def chat_with_tools_loop(self, messages, tools, executor):
+        async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
             captured.append(messages)
             return "fixture response", [], 4
 

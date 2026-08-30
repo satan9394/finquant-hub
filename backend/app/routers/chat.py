@@ -30,16 +30,8 @@ DEFAULT_SYSTEM = (
 
 
 async def _execute_tool(name: str, arguments: str) -> str:
-    tool = ToolRegistry().get(name)
-    if tool is None:
-        return json.dumps({"success": False, "error": f"未知工具：{name}"}, ensure_ascii=False)
-    try:
-        payload = json.loads(arguments or "{}")
-    except json.JSONDecodeError:
-        return json.dumps({"success": False, "error": "工具参数不是有效 JSON"}, ensure_ascii=False)
-    if not isinstance(payload, dict):
-        return json.dumps({"success": False, "error": "工具参数必须是对象"}, ensure_ascii=False)
-    result = await tool.run(**payload)
+    """类型驱动执行工具：ToolRegistry.dispatch 负责 JSON 解析 + schema 前置校验。"""
+    result = await ToolRegistry().dispatch(name, arguments)
     return json.dumps(
         {"success": result.success, "data": result.data, "error": result.error},
         ensure_ascii=False,
@@ -179,19 +171,29 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
             llm_messages += [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
             registry = ToolRegistry()
+            tool_events: list[dict[str, Any]] = []
+
+            async def _event_sink(event: str, data: dict[str, Any]) -> None:
+                # 受控工具循环事件 → 收集后统一转发 SSE（事件枚举见 llm_client.TOOL_LOOP_EVENTS）。
+                # 保持"每工具调用一个 tool_call 事件"契约：仅在 completed 时发（含执行结果）。
+                if event == "tool_completed":
+                    tool_events.append({
+                        "event": "tool_call",
+                        "data": json.dumps({
+                            "tool_name": data.get("tool_name"),
+                            "arguments": data.get("arguments"),
+                            "result": data.get("result"),
+                        }, ensure_ascii=False),
+                    })
+
             full, tool_calls, llm_tokens = await client.chat_with_tools_loop(
                 llm_messages,
                 registry.to_openai_tools(),
                 _execute_tool,
+                event_sink=_event_sink,
             )
-            for call in tool_calls:
-                yield {
-                    "event": "tool_call",
-                    "data": json.dumps({
-                        "tool_name": call["name"],
-                        "arguments": call["arguments"],
-                    }, ensure_ascii=False),
-                }
+            for ev in tool_events:
+                yield ev
             if full:
                 yield {"event": "token", "data": json.dumps({"delta": full}, ensure_ascii=False)}
 

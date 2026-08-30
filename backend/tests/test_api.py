@@ -29,7 +29,7 @@ class FakeLLMClient:
         for t in ["这是", "假模型", "的回复。"]:
             yield t
 
-    async def chat_with_tools_loop(self, messages, tools, executor):
+    async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
         return "这是假模型的回复。", [], 12
 
 
@@ -244,7 +244,7 @@ class TestChat:
         captured_messages = []
 
         class CapturingClient:
-            async def chat_with_tools_loop(self, messages, tools, executor):
+            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
                 captured_messages.append(messages)
                 return "已读取历史线索", [], 8
 
@@ -282,8 +282,16 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_executes_registered_tool_and_emits_tool_event(self, client, monkeypatch):
         class ToolCallingClient:
-            async def chat_with_tools_loop(self, messages, tools, executor):
+            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
+                if event_sink is not None:
+                    await event_sink("tool_started", {"tool_name": "calculate_by_financial_rigor", "arguments": '{"expression":"2+2"}'})
                 result = await executor("calculate_by_financial_rigor", '{"expression":"2+2"}')
+                if event_sink is not None:
+                    await event_sink("tool_completed", {
+                        "tool_name": "calculate_by_financial_rigor",
+                        "arguments": '{"expression":"2+2"}',
+                        "result": result,
+                    })
                 return "精确计算结果为 4。", [{
                     "name": "calculate_by_financial_rigor",
                     "arguments": '{"expression":"2+2"}',
