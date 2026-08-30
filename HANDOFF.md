@@ -183,3 +183,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-31 BrowserSkill 副本升级 0.1.10→0.1.11（Codex 调用用）：git fast-forward 67 commits（6b78211→120dc44）至 Tencent/BrowserSkill main；215 文件 +28k/-3k（trace v2/v3 协议、跨框架录制、vom semantic-graph、dsh-plugin phase-one 工具族、evals/browser 评测 harness） | 验证: 与远程零差异；bsk CLI 0.1.11 已装（C:\Users\Satanchen\.local\bin）；bsk doctor 全 ok（daemon 运行、extension 连接 1 浏览器、protocol 兼容、agent skill up to date in 3 harnesses）；工作树干净
 
 - 2026-08-30 BACKLOG-005 完成（Codex 执行）：E2E 扩面新增 19 用例（helpers.ts 统一 mock + chat-paths 6 + discussion-paths 5 + system-pages 8），覆盖 SSE 交互管线与系统/知识页；E2E 35/35、Vitest 63/198 全绿；零业务代码改动；记录业务缺口：Discussion 消费 token/agent_end 但不渲染时间线（未修，待后续任务） | 验证: 独立复测：Playwright 35/35（50.7s）、Vitest 63 files/198 tests（457s）；SSE 帧契约与 sse.ts 解析吻合；git diff 确认无 frontend/src 改动
+
+- 2026-08-30 完成 BACKLOG-006：Discussion per-agent SSE 流式状态、InvestmentCommittee 流式时间线、i18n 与 10 个核心组件直接测试扩面 | 验证: OpenAPI 59 schemas；tsc/Vite build 4238 modules；Vitest 74/74 files 227/227；Discussion E2E 5/5；全量 E2E 35/35；i18n 2208/2208；diff check passed

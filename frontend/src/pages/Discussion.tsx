@@ -14,23 +14,16 @@ import InvestmentCommittee from '../components/InvestmentCommittee';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../i18n/LanguageContext';
+import {
+  interruptDiscussionStream,
+  reduceDiscussionStream,
+  type DiscussionStreamData,
+  type DiscussionStreamingByAgent,
+} from '../features/discussionStream';
 
 const { Sider, Content } = Layout;
 const { Text, Title } = Typography;
 const { TextArea } = Input;
-
-type DiscussionStreamData = {
-  error?: string;
-  message?: string;
-  agent?: string;
-  name?: string;
-  round?: number;
-  delta?: string;
-  message_id?: number;
-  token_count?: number | null;
-  content?: string;
-  room_id?: number;
-};
 
 export default function Discussion({ initialTopic }: { initialTopic?: string } = {}) {
   const { t } = useLanguage();
@@ -51,6 +44,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   const [totalRounds, setTotalRounds] = useState(3);
   const [creating, setCreating] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [streamingByAgent, setStreamingByAgent] = useState<DiscussionStreamingByAgent>({});
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -76,6 +70,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // 加载房间详情
   useEffect(() => {
     if (!currentRoomId) { setRoomDetail(null); return; }
+    setStreamingByAgent({});
     setLoadingDetail(true);
     apiClient.get(`/discussion/rooms/${currentRoomId}`)
       .then((res) => {
@@ -120,6 +115,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
     }
 
     setIsStreaming(true);
+    setStreamingByAgent({});
 
     abortRef.current = new AbortController();
 
@@ -134,52 +130,48 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      let accumulatedContent = '';
+      let streamSnapshot: DiscussionStreamingByAgent = {};
       await readSSE<DiscussionStreamData>(response.body, ({ event, data }) => {
-        if (event === 'agent_start') accumulatedContent = '';
+        streamSnapshot = reduceDiscussionStream(streamSnapshot, event, data);
+        setStreamingByAgent(streamSnapshot);
+
         if (event === 'error') {
           const errorText = data.error ?? data.message ?? t('discussion.requestFailed');
           setRoomDetail((prev) => prev ? { ...prev, current_phase: 'failed' } : prev);
           message.error(errorText);
           return;
         }
-        if (data.agent && data.name && data.round !== undefined) {
-          accumulatedContent = '';
-          return;
-        }
-        if (data.delta !== undefined) {
-          accumulatedContent += data.delta;
-          return;
-        }
-        if (data.agent && data.message_id !== undefined) {
-          if (accumulatedContent) {
+        if (event === 'agent_end' && data.agent && data.message_id !== undefined) {
+          const completed = streamSnapshot[data.agent];
+          if (completed?.content) {
             const msg: Message = {
               id: data.message_id,
               conversation_id: currentRoomId,
               role: 'agent',
               agent_name: data.agent,
-              content: accumulatedContent,
-              round_number: 0,
+              content: completed.content,
+              round_number: completed.round,
               token_count: data.token_count ?? null,
               created_at: new Date().toISOString(),
             };
             addMessage(currentRoomId, msg);
           }
-          accumulatedContent = '';
           return;
         }
-        if (data.content && data.delta === undefined) {
+        if (event === 'summary' && data.content) {
           const summary = data.content;
           setRoomDetail((prev) => prev ? { ...prev, summary, current_phase: 'done' } : prev);
           return;
         }
-        if (data.room_id !== undefined) {
+        if (event === 'done' && data.room_id !== undefined) {
           setRoomDetail((prev) => prev ? { ...prev, current_phase: 'done' } : prev);
           setIsStreaming(false);
         }
       }, t('discussion.streamMissing'));
     } catch (err: any) {
+      setStreamingByAgent((prev) => interruptDiscussionStream(prev));
       if (err.name !== 'AbortError') {
+        setRoomDetail((prev) => prev ? { ...prev, current_phase: 'failed' } : prev);
         message.error(err.message || t('discussion.startFailed'));
       }
     } finally {
@@ -191,6 +183,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // 停止讨论
   const handleStop = () => {
     abortRef.current?.abort();
+    setStreamingByAgent((prev) => interruptDiscussionStream(prev));
     setIsStreaming(false);
   };
 
@@ -266,14 +259,18 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
             <InvestmentCommittee
               topic={roomDetail.topic}
               phase={roomDetail.current_phase === 'done' ? 'completed' : roomDetail.current_phase === 'failed' ? 'partial' : isStreaming ? 'in-session' : 'awaiting-confirmation'}
-              members={roomDetail.participants.map((participant) => ({
-                key: participant.role_key,
-                name: participant.name,
-                role: participant.role_key,
-                avatar: participant.avatar,
-                status: isStreaming ? 'running' : roomDetail.current_phase === 'done' ? 'completed' : 'waiting',
-                summary: currentMessages.slice().reverse().find((message) => message.agent_name === participant.name)?.content,
-              }))}
+              members={roomDetail.participants.map((participant) => {
+                const streaming = streamingByAgent[participant.role_key];
+                return {
+                  key: participant.role_key,
+                  name: participant.name,
+                  role: participant.role_key,
+                  avatar: participant.avatar,
+                  status: streaming?.status ?? (roomDetail.current_phase === 'done' ? 'completed' : 'waiting'),
+                  summary: currentMessages.slice().reverse().find((message) => message.agent_name === participant.role_key)?.content,
+                  streaming,
+                };
+              })}
             />
           </>
         )}

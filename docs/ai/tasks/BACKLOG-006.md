@@ -1,6 +1,6 @@
 # BACKLOG-006 — Discussion 流式时间线修复 + 前端组件测试扩面（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：BACKLOG-005 的 E2E 暴露真实业务缺口——Discussion 讨论页消费 SSE 时**丢弃流式过程**：token 累加进 `accumulatedContent` 但 agent_end 前不渲染；`agent_start`/`round` 信息被忽略；`InvestmentCommittee` 渲染层只有成员状态（waiting/running/completed），无 per-member 流式文本、轮次标签、agent_end 时间线。同时前端有 **52 个组件无直接测试**，其中 `InvestmentCommittee`（本任务核心修改组件）等属于核心 UI 原语。
 >
 > 本任务 = **修复 Discussion 流式时间线缺口（业务改动）** + **为修改面与核心组件补测试（质量闭环）**，二合一。
@@ -109,10 +109,10 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（页面/组件/i18n/测试）：
-- 流式时间线设计说明（状态结构 + 渲染区 + 兼容性）：
-- 新增测试数：InvestmentCommittee / DiscussionStreaming / 组件扩面 = ?/?/?
-- Vitest 总结果（63 → ? files，198 → ? tests）：
-- E2E 结果（35 基线 + 是否更新 discussion 断言）：
-- i18n parity 结果：
-- 备注（未完成项或风险）：
+- 修改文件清单（页面/组件/i18n/测试）：`frontend/src/pages/Discussion.tsx`、`frontend/src/features/discussionStream.ts`、`frontend/src/components/InvestmentCommittee.tsx`、`frontend/src/i18n/{zh,en}.ts`；新增 `InvestmentCommittee`、`DiscussionStreaming` 及 `DiscussionTimeline`、`RoleAvatar`、`EvidenceCard`、`EvidenceChip`、`EntityHeader`、`AgentStatusCard`、`AgentRail`、`AgentRun`、`CommandComposer` 的直接测试。
+- 流式时间线设计说明（状态结构 + 渲染区 + 兼容性）：消费侧维护 `Record<agentKey, { round, content, status }>`；纯函数 reducer 按 `agent_start → token → agent_end/error → summary/done` 初始化、逐 token 追加并收束，兼容 token 帧含或不含 agent；停止/Abort 将仍运行条目标为 failed 并保留部分文本。委员会 output 区新增 `aria-live="polite"` 时间线，显示成员、轮次、实时/最终文本和 running/completed/failed 标签；成员未提供 `streaming` 时完全不渲染新区。
+- 新增测试数：InvestmentCommittee / DiscussionStreaming / 组件扩面 = 6 / 5 / 18（另 9 个组件各 2 项；连同 InvestmentCommittee 共覆盖任务清单中的 10 个核心组件，合计新增 11 files / 29 tests）。
+- Vitest 总结果（63 → 74 files，198 → 227 tests）：全量 74/74 files、227/227 tests 通过（493.05s），新增专项 11/11 files、29/29 tests 通过（81.45s）。
+- E2E 结果（35 基线 + 是否更新 discussion 断言）：Discussion 5/5 通过；完整 Chromium 35/35 通过（32.0s），基线未减少；现有断言无需更新，也未放宽。
+- i18n parity 结果：zh/en 各 2,208 keys，双方重复 0、差异 0。
+- 备注（未完成项或风险）：OpenAPI freshness 59 schemas、TypeScript `tsc -b`、Vite production build（4,238 modules）与 `git diff --check` 均通过。当前会话找不到 Bun，且 npm 无法解析现有 Unix 风格 prebuild 可执行路径，因此用项目已安装的锁定版本工具拆分执行同等 build/test/E2E 门禁；未安装依赖、未改后端/SSE 契约/E2E、未 commit。附加 harness audit 因递归扫描约 13,927 个只读 `reference/` 文件，运行 6.5 分钟仍未结束，已停止本轮 audit 进程且不宣称 audit 通过；该附加检查不属于本任务完成门禁。

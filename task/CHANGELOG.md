@@ -348,3 +348,9 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-004.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: full coverage suite passed 613/613 with TOTAL 87%; full no-coverage suite passed 613/613; all nine targets improved by at least 5 percentage points or reached 88%; the nine new files passed 62/62 both with the listening 7897 proxy enabled and with `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` temporarily unset; full backend test Ruff passed.
 - Risk: low; tests and task evidence only. No `backend/app`, database schema, authentication, dependency, lock file, frontend, `reference/`, commit, push, publish, or deploy change.
+
+- What changed: added a per-agent Discussion stream reducer/state and a backward-compatible InvestmentCommittee live timeline with round, live/final text, and failure status; added 29 deterministic tests across the stream reducer and 10 core components.
+- Why: make the real Discussion SSE process visible before `agent_end` and close the direct-test gap on the changed UI and related research primitives.
+- Docs updated: `docs/ai/tasks/BACKLOG-006.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: OpenAPI freshness passed for 59 schemas; TypeScript and Vite production build passed with 4,238 modules; full Vitest passed 74/74 files and 227/227 tests; Discussion E2E passed 5/5 and full Chromium E2E passed 35/35; zh/en dictionaries are 2,208/2,208 with zero duplicates/parity differences; `git diff --check` passed.
+- Risk: medium; this is a user-visible Discussion behavior change. Streaming state remains frontend-session state and intentionally preserves partial text as failed when stopped or interrupted. No backend, schema, authentication, SSE contract, dependency, E2E assertion, `reference/`, commit, push, publish, or deploy change.

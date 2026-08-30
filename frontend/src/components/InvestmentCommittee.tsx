@@ -3,6 +3,7 @@ import RoleAvatar from './RoleAvatar';
 import EvidenceChip from './EvidenceChip';
 import type { EvidenceRecord } from './EvidenceDrawer';
 import { useLanguage } from '../i18n/LanguageContext';
+import type { DiscussionStreamingEntry } from '../features/discussionStream';
 
 export interface CommitteeMember {
   key: string;
@@ -12,6 +13,7 @@ export interface CommitteeMember {
   position?: '看多' | '中性' | '看空';
   summary?: string;
   evidence?: EvidenceRecord[];
+  streaming?: DiscussionStreamingEntry;
 }
 
 export default function InvestmentCommittee({
@@ -37,6 +39,7 @@ export default function InvestmentCommittee({
   const leadingPosition = Object.entries(positionCounts).sort((left, right) => right[1] - left[1])[0];
   const unresolved = members.filter((member) => member.status === 'waiting' || member.status === 'failed');
   const hasConflict = completed.some((member) => member.position === '看多') && completed.some((member) => member.position === '看空');
+  const streamingMembers = members.filter((member) => member.streaming);
   return (
     <section className="investment-committee" aria-label={t('committee.aria')}>
       <Card className="investment-committee__agenda" size="small">
@@ -73,6 +76,30 @@ export default function InvestmentCommittee({
               <section><h3>{t('committee.unresolved')}</h3><p>{unresolved.length ? unresolved.map((member) => `${member.name}: ${memberStatus(member.status)}`).join(t('committee.separator')) : 'UNKNOWN'}</p></section>
               <section><h3>{t('committee.conflict')}</h3><p>{hasConflict ? t('committee.conflictPresent') : 'UNKNOWN'}</p>{hasConflict ? completed.flatMap((member) => member.evidence ?? []).map((evidence, index) => <EvidenceChip key={evidence.id || index} evidence={evidence} />) : null}</section>
             </div>
+            {streamingMembers.length ? (
+              <section className="investment-committee__stream" aria-label={t('committee.stream.title')} aria-live="polite">
+                <h3>{t('committee.stream.title')}</h3>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {streamingMembers.map((member) => {
+                    const streaming = member.streaming!;
+                    return (
+                      <article key={member.key} className={`investment-committee__stream-item investment-committee__stream-item--${streaming.status}`}>
+                        <Space wrap size={6}>
+                          <Typography.Text strong>{member.name}</Typography.Text>
+                          <Tag>{t('committee.stream.round', { round: streaming.round })}</Tag>
+                          <Tag color={streaming.status === 'running' ? 'processing' : streaming.status === 'completed' ? 'success' : 'error'}>
+                            {t(`committee.stream.${streaming.status}`)}
+                          </Tag>
+                        </Space>
+                        <Typography.Paragraph style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap' }}>
+                          {streaming.content || (streaming.status === 'running' ? t('committee.stream.waiting') : 'UNKNOWN')}
+                        </Typography.Paragraph>
+                      </article>
+                    );
+                  })}
+                </Space>
+              </section>
+            ) : null}
           </Card>
         </Col>
       </Row>
