@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-002: Discover 路径 E2E 补测（Alpha 工作台 + 旧路由重定向）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-002.md`
+**范围**: 新建 `frontend/e2e/discover-paths.spec.ts` 覆盖 `/discover` 默认模式、`/alpha`→`?mode=alpha` 重定向、`/screening`→`?mode=screening` 重定向、alpha 工作台渲染（mock /wq API）与 390px 无溢出；必要时增强 DiscoverModeDispatch 组件测试。
+**证据**: （执行后填写 build/test/e2e 结果）
+
+---
+
 ## ✅ TASK-001: 前端路由懒加载拆包
 
 **状态**: 已完成。router.tsx 已有 `React.lazy()`，vite.config.ts 已有 `manualChunks`。
