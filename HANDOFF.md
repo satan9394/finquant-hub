@@ -177,3 +177,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-29 BACKLOG-002 完成（Codex 执行）：新增 frontend/e2e/discover-paths.spec.ts 5 用例覆盖 Discover 默认模式、/alpha 与 /screening 旧路由重定向、alpha 工作台 API 渲染与 390px 无溢出；固定既有 E2E 语言为 zh 并同步当前 UI 断言；校准 /api/wq/search 为 GET | 验证: build 4,237 modules；Vitest 63/63 files 198/198；e2e 16/16（11+5）；Discover 专项 5/5；git diff --check 通过
 
 - 2026-08-29 BACKLOG-003 完成（Codex 执行）：test_agent_tools_execution 两个真实腾讯行情测试改为 monkeypatch mock MarketDataService.quote/kline 确定性测试（类方法补丁+参数断言+120根K线fixture），零业务代码改动 | 验证: 开代理 13 passed / 关代理 13 passed（确定性）；完整后端 551 passed 基线保持；ruff 通过；commit 7aace3b
+
+- 2026-08-30 BACKLOG-004 完成（Codex 执行）：9 个确定性测试文件 62 用例（market_data 降级链/熔断/快照、scheduler 恢复、fundamentals 降级、monitor_targets、report_export/audit、thesis_drift、thesis 服务）+ 6 条 SSE 管线错误路径全覆盖（上游失败→error 事件+流关闭+报告落 failed、校验失败→4xx、notifications 断点续传/ping）；零业务代码改动 | 验证: 覆盖率 84%→86.83%（≈87%）；613 passed 无回归；开/关代理双环境 62 passed 确定性一致；ruff 通过；commit 待记
