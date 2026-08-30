@@ -175,3 +175,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-29 代理链路修复：requirements.txt 增加 socksio>=1.0（httpx[socks]）；backend/.env 的 LLM_PROXY_URL/NEWS_PROXY_URL 从死端口 7890 改为真实代理 7897；已验证 DeepSeek 经 7897 真实连通 | 验证: 完整后端套件 551 passed / 0 failed（此前须排除 3 个 SOCKS 测试文件）；开代理状态 13/13 SOCKS 测试通过；commit 4c7e7a8
 
 - 2026-08-29 BACKLOG-002 完成（Codex 执行）：新增 frontend/e2e/discover-paths.spec.ts 5 用例覆盖 Discover 默认模式、/alpha 与 /screening 旧路由重定向、alpha 工作台 API 渲染与 390px 无溢出；固定既有 E2E 语言为 zh 并同步当前 UI 断言；校准 /api/wq/search 为 GET | 验证: build 4,237 modules；Vitest 63/63 files 198/198；e2e 16/16（11+5）；Discover 专项 5/5；git diff --check 通过
+
+- 2026-08-29 BACKLOG-003 完成（Codex 执行）：test_agent_tools_execution 两个真实腾讯行情测试改为 monkeypatch mock MarketDataService.quote/kline 确定性测试（类方法补丁+参数断言+120根K线fixture），零业务代码改动 | 验证: 开代理 13 passed / 关代理 13 passed（确定性）；完整后端 551 passed 基线保持；ruff 通过；commit 7aace3b
