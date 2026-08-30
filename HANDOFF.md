@@ -179,3 +179,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-29 BACKLOG-003 完成（Codex 执行）：test_agent_tools_execution 两个真实腾讯行情测试改为 monkeypatch mock MarketDataService.quote/kline 确定性测试（类方法补丁+参数断言+120根K线fixture），零业务代码改动 | 验证: 开代理 13 passed / 关代理 13 passed（确定性）；完整后端 551 passed 基线保持；ruff 通过；commit 7aace3b
 
 - 2026-08-30 BACKLOG-004 完成（Codex 执行）：9 个确定性测试文件 62 用例（market_data 降级链/熔断/快照、scheduler 恢复、fundamentals 降级、monitor_targets、report_export/audit、thesis_drift、thesis 服务）+ 6 条 SSE 管线错误路径全覆盖（上游失败→error 事件+流关闭+报告落 failed、校验失败→4xx、notifications 断点续传/ping）；零业务代码改动 | 验证: 覆盖率 84%→86.83%（≈87%）；613 passed 无回归；开/关代理双环境 62 passed 确定性一致；ruff 通过；commit 待记
+
+- 2026-08-31 BrowserSkill 副本升级 0.1.10→0.1.11（Codex 调用用）：git fast-forward 67 commits（6b78211→120dc44）至 Tencent/BrowserSkill main；215 文件 +28k/-3k（trace v2/v3 协议、跨框架录制、vom semantic-graph、dsh-plugin phase-one 工具族、evals/browser 评测 harness） | 验证: 与远程零差异；bsk CLI 0.1.11 已装（C:\Users\Satanchen\.local\bin）；bsk doctor 全 ok（daemon 运行、extension 连接 1 浏览器、protocol 兼容、agent skill up to date in 3 harnesses）；工作树干净
