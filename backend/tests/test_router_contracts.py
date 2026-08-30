@@ -1,6 +1,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app import config, database
 from app.main import app
 
 
@@ -57,8 +58,15 @@ def test_paper_portfolio_openapi_is_separate_and_has_no_real_execution_paths():
 
 
 @pytest.mark.asyncio
-async def test_every_business_router_rejects_missing_session():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        for module, (path, method) in ROUTER_SENTINELS.items():
-            response = await client.request(method, path)
-            assert response.status_code == 401, f"{module} router is public"
+async def test_every_business_router_rejects_missing_session(tmp_path, monkeypatch):
+    # 需要 lifespan 初始化数据库；并关闭 local-only 以走真实 session 认证（期望 401）。
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "router-contracts.db")
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)
+    async with app.router.lifespan_context(app):
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                for module, (path, method) in ROUTER_SENTINELS.items():
+                    response = await client.request(method, path)
+                    assert response.status_code == 401, f"{module} router is public"
+        finally:
+            await database.close_db()

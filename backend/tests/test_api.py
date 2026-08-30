@@ -47,6 +47,10 @@ async def _fake_resolve_research_target(raw, _service):
 async def client(tmp_path, monkeypatch):
     """每个测试独立 SQLite 库 + Fake LLM。"""
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "test.db")
+    # fixture 用 session cookie 认证（tests@example.com + claim_unowned_data），
+    # 必须显式关闭 local-only；否则继承 backend/.env 的 LOCAL_ONLY_MODE=true
+    # 会让所有请求落为同一本地所有者，跨用户/owner 断言失效。
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)
     monkeypatch.setattr(model_router, "get_client", _fake_get_client)
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:

@@ -13,6 +13,9 @@ from app.main import app
 async def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "auth.db")
     monkeypatch.setattr(config, "APP_ENV", "development")
+    # auth 测试走真实邮箱验证码/session 路径，必须显式关闭 local-only；
+    # 否则继承 backend/.env 的 LOCAL_ONLY_MODE=true 会让 /api/auth/* 按设计返回 404。
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)
     monkeypatch.setattr(config, "SMTP_HOST", "")
     monkeypatch.setattr(config, "SMTP_FROM", "")
     await database.init_db()

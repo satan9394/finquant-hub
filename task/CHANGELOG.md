@@ -3,6 +3,15 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-08-30
+- **Fix: 预存测试失败排查——LOCAL_ONLY_MODE 测试隔离缺陷（8 项）**
+  - What: 排查并修复 8 个预存失败，根因是 `backend/.env` 的 `LOCAL_ONLY_MODE=true` 被测试进程继承，而 session 认证类测试 fixture 未显式关闭——local-only 模式会让 auth 路由按设计返回 404、且所有请求落为同一本地所有者导致跨用户断言失效
+  - Files: `backend/tests/test_auth.py`（fixture 加 `monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)`）、`backend/tests/test_credentials.py`、`backend/tests/test_user_isolation.py`、`backend/tests/test_api.py`（同源修复）、`backend/tests/test_router_contracts.py`（加 lifespan 上下文 + DB_PATH + 关 local-only）
+  - Why: 这 8 项此前被归类为"预存环境性失败"；深入排查确认是测试隔离缺陷而非环境问题——修复后无需任何环境变量 hack 即可全绿
+  - Docs: `task/CHANGELOG.md`
+  - Verification: 后端全量 538 passed / 0 failed（此前 525/8）；ruff 通过；auth 5/5、credentials 4/4、user_isolation 2/2、router_contracts 3/3、test_api 49/49
+  - Risk: low（纯测试 fixture 修复，不涉及业务代码/schema/依赖）
+
 ## 2026-08-29
 - **Architecture: 重构决策分析（基于 vibevibe 进阶篇基准）**
   - What: 抓取 vibevibe.cn/Advanced/ 基准 + 4 个并行子代理分析（现状审计 / 基准对标 / 技术栈评估 / Agent SDK 评估），产出 `docs/ai/REFACTOR_DECISION.md`

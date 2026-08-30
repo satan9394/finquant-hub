@@ -18,6 +18,9 @@ from app.services.auth import reset_current_user, set_current_user
 async def credential_users(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "credentials.db")
     monkeypatch.setattr(config, "MASTER_KEY", Fernet.generate_key().decode())
+    # 本测试用 session cookie 认证两个不同用户，必须显式关闭 local-only；
+    # 否则继承 backend/.env 的 LOCAL_ONLY_MODE=true 会让所有请求落为同一本地所有者。
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", False)
     monkeypatch.setattr(config, "SCHEDULER_ENABLED", False)
     async with app.router.lifespan_context(app):
         first_id = await database.execute(
