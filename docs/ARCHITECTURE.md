@@ -54,7 +54,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 │  ToolRegistry 单例 + BaseTool 抽象基类                  │
 ├─────────────────────────────────────────────────────────┤
 │                     数据层                                │
-│  aiosqlite 单连接 + WAL + schema v23（52 张逻辑表）       │
+│  aiosqlite 单连接 + WAL + schema v24（49 张逻辑表）       │
 │  database.query_one/query_all/execute 直接 SQL 调用     │
 ├─────────────────────────────────────────────────────────┤
 │                     外部API                               │
@@ -221,7 +221,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 ### 2.10 单机 scheduler 恢复语义
 
-schema v23 在既有 `scheduled_research_runs` 上增加稳定 idempotency identity、有限 lease owner/expiry/heartbeat，并以 `scheduled_research_run_events` 保存 append-only claim、heartbeat、recovery、retry 和终态事件。状态转换与事件在同一 SQLite 事务提交；有效 lease 不重复认领。重启时，已有 completed report 的过期 run 只做终态 reconciliation，不重新生成 report/memory/evidence；未完成 run 标为 failed/`UPSTREAM_ERROR`，保留同一 identity 与 retry lineage 后由本机 scheduler 重试。该设计只覆盖单进程 SQLite 恢复，不承诺分布式 exactly-once 或横向扩展。
+schema v24 在既有 `scheduled_research_runs`（v23）之上移除三张零读写的遗留组合表（`portfolio_groups`/`portfolio_items`/`portfolio_trades`，见 §3 迁移记录），保留 v23 的稳定 idempotency identity、有限 lease owner/expiry/heartbeat 与 `scheduled_research_run_events` append-only claim、heartbeat、recovery、retry 和终态事件。状态转换与事件在同一 SQLite 事务提交；有效 lease 不重复认领。重启时，已有 completed report 的过期 run 只做终态 reconciliation，不重新生成 report/memory/evidence；未完成 run 标为 failed/`UPSTREAM_ERROR`，保留同一 identity 与 retry lineage 后由本机 scheduler 重试。该设计只覆盖单进程 SQLite 恢复，不承诺分布式 exactly-once 或横向扩展。
 
 AIOS-061 的三次临时 SQLite deterministic fixture 基准均通过预设本地 SLO；最差 lifecycle P95 为 4.6498 ms、20-job batch 为 84.3661 ms、20-run recovery 为 8.2897 ms，重复关键写入为 0，失败/恢复记录完整率为 100%。该结果仅度量 scheduler/数据库 bookkeeping，不包含 LLM、行情、网络、真实多人并发或跨进程恢复，因此未触发 PostgreSQL 或 durable queue 决策门。可复核口径见 `docs/ai/SCHEDULER_SLO_BASELINE.md`。
 
@@ -240,7 +240,7 @@ AIOS-064 提供离线维护 runner，以 SQLite backup API 从只读 source 创�
 ### 数据库层
 - **不存在 ORM**：所有数据库操作为原生 SQL，没有 SQLAlchemy 或其他 ORM 层。
 - **不存在连接池**：`aiosqlite` 单连接，`get_db()` 断言全局 `_db` 不为 None。
-- **不存在 ORM 建模入口**：schema v23 的 52 张逻辑表由 `database.py` 的 `SCHEMA` 与集中迁移步骤创建，仍通过原生 SQL 管理；其中 `memory_fts` 是 FTS5 虚拟表。
+- **不存在 ORM 建模入口**：schema v24 的 49 张逻辑表由 `database.py` 的 `SCHEMA` 与集中迁移步骤创建，仍通过原生 SQL 管理；其中 `memory_fts` 是 FTS5 虚拟表。
 - **不存在外部迁移框架**：`_migrate_schema()` 按 `PRAGMA user_version` 顺序执行显式迁移；简单变更使用 `ALTER TABLE`，需要调整唯一约束时重建目标表。
 
 ### 服务层
@@ -425,7 +425,7 @@ Router → ticker.py → MarketDataService → 腾讯API
    - 方案：明确 canonical ticker 与 provider symbol 的边界，避免路由层新增第四套转换。
 
 2. **维持集中建表的版本化迁移纪律**
-   - 52 张逻辑表已集中到 `database.py`；当前目标 schema version 为 23，迁移入口仍是 `_migrate_schema()`。
+   - 49 张逻辑表已集中到 `database.py`；当前目标 schema version 为 24，迁移入口仍是 `_migrate_schema()`。
    - 方案：继续保持单入口，并为不可逆结构变化引入显式 schema version 步骤。
 
 3. **维持 SSE 可观测性纪律**

@@ -214,38 +214,6 @@ CREATE TABLE IF NOT EXISTS alpha_fields (
     alpha_count   INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS portfolio_groups (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    name          TEXT NOT NULL,
-    description   TEXT,
-    created_at    TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS portfolio_items (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id      INTEGER,
-    ticker        TEXT NOT NULL,
-    name          TEXT,
-    shares        REAL,
-    avg_cost      REAL,
-    currency      TEXT DEFAULT 'CNY',
-    added_at      TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (group_id) REFERENCES portfolio_groups(id)
-);
-
-CREATE TABLE IF NOT EXISTS portfolio_trades (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    item_id       INTEGER,
-    action        TEXT NOT NULL,
-    shares        REAL,
-    price         REAL,
-    total         REAL,
-    traded_at     TEXT,
-    note          TEXT,
-    created_at    TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (item_id) REFERENCES portfolio_items(id)
-);
-
 CREATE TABLE IF NOT EXISTS portfolios (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,
@@ -293,12 +261,12 @@ _THESIS_REVIEW_WORKFLOW_VERSION = 20
 _PRODUCT_METRICS_VERSION = 21
 _PAPER_PORTFOLIO_VERSION = 22
 _JOB_RUNTIME_VERSION = 23
-_SCHEMA_VERSION = _JOB_RUNTIME_VERSION
+_SCHEMA_CLEANUP_VERSION = 24
+_SCHEMA_VERSION = _SCHEMA_CLEANUP_VERSION
 _OWNER_TABLES = (
     "model_configs", "conversations", "messages", "discussion_rooms",
     "research_reports", "research_events", "research_workspaces",
     "backtest_runs", "quant_backtests", "analysis_reports", "analysis_signals", "agent_runs",
-    "portfolio_groups", "portfolio_items", "portfolio_trades",
     "portfolios", "positions", "notifications", "alert_rules", "alert_triggers",
     "market_reviews", "scheduled_research_jobs", "llm_usage", "thesis", "thesis_claims",
     "evidence_objects", "evidence_input_refs",
@@ -335,6 +303,7 @@ _MIGRATION_NAMES = {
     _PRODUCT_METRICS_VERSION: "install_product_metrics",
     _PAPER_PORTFOLIO_VERSION: "install_paper_portfolios",
     _JOB_RUNTIME_VERSION: "install_job_runtime",
+    _SCHEMA_CLEANUP_VERSION: "install_schema_cleanup",
 }
 
 
@@ -377,6 +346,8 @@ async def init_db() -> None:
         await _backup_database_before_paper_portfolio_migration(config.DB_PATH)
     if existing_database and current_version < _JOB_RUNTIME_VERSION:
         await _backup_database_before_job_runtime_migration(config.DB_PATH)
+    if existing_database and current_version < _SCHEMA_CLEANUP_VERSION:
+        await _backup_database_before_schema_cleanup_migration(config.DB_PATH)
     await _db.executescript(SCHEMA)
     await _migrate_schema()
     await _seed_models()
@@ -689,6 +660,19 @@ async def _migrate_schema() -> None:
             await _db.execute("RELEASE SAVEPOINT install_job_runtime")
             raise
         version = _JOB_RUNTIME_VERSION
+
+    if version < _SCHEMA_CLEANUP_VERSION:
+        await _db.execute("SAVEPOINT install_schema_cleanup")
+        try:
+            await _install_schema_cleanup()
+            await _db.execute(f"PRAGMA user_version={_SCHEMA_CLEANUP_VERSION}")
+            await _record_schema_version(_SCHEMA_CLEANUP_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_schema_cleanup")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_schema_cleanup")
+            await _db.execute("RELEASE SAVEPOINT install_schema_cleanup")
+            raise
+        version = _SCHEMA_CLEANUP_VERSION
 
     # Existing databases already tracked only PRAGMA user_version; backfill their audit trail.
     for applied_version in range(1, min(version, _SCHEMA_VERSION) + 1):
@@ -1982,6 +1966,18 @@ async def _backup_database_before_job_runtime_migration(path: Path) -> None:
         target.close()
 
 
+async def _backup_database_before_schema_cleanup_migration(path: Path) -> None:
+    """Keep one recoverable pre-v24 image before legacy portfolio table removal."""
+    backup_path = path.with_suffix(f"{path.suffix}.pre-v24.bak")
+    if backup_path.exists():
+        return
+    target = sqlite3.connect(backup_path)
+    try:
+        await _db.backup(target)
+    finally:
+        target.close()
+
+
 async def _install_user_data_isolation() -> None:
     """Add explicit ownership columns and indexes to every user-data table."""
     for table in _OWNER_TABLES:
@@ -2107,6 +2103,20 @@ async def _rebuild_notification_tables_for_owner_unique() -> None:
         "CREATE INDEX idx_alert_triggers_rule_created ON alert_triggers(user_id, rule_id, id DESC)"
     )
     await _db.execute("CREATE INDEX idx_alert_triggers_user_id ON alert_triggers(user_id)")
+
+
+async def _install_schema_cleanup() -> None:
+    """Drop the legacy zero-read portfolio_groups/items/trades tables (schema v24).
+
+    These three tables were created early in the project, were never read or
+    written by any router/service (verified by grep over backend/app), and had
+    no user_id guard until v10 migration added the column only if present.
+    Active portfolio data lives in portfolios/positions and paper_portfolios.
+    The pre-v24 backup is created before this migration runs.
+    """
+    await _db.execute("DROP TABLE IF EXISTS portfolio_trades")
+    await _db.execute("DROP TABLE IF EXISTS portfolio_items")
+    await _db.execute("DROP TABLE IF EXISTS portfolio_groups")
 
 
 async def claim_unowned_data(user_id: int) -> None:

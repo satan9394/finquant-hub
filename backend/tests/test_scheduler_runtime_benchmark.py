@@ -4,6 +4,7 @@ import sys
 
 import pytest
 
+from app import database
 from app.services import research_jobs
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -39,7 +40,7 @@ async def test_fixture_benchmark_covers_load_failure_recovery_and_cleans_temp_da
 
     assert report["schema_version"] == "scheduler-runtime-benchmark/v1"
     assert report["evidence_scope"] == "temporary_sqlite_deterministic_fixture_only"
-    assert report["environment"]["schema_version"] == 23
+    assert report["environment"]["schema_version"] == database._SCHEMA_VERSION
     assert report["environment"]["temporary_database_removed"] is True
     assert report["configuration"] == {
         "samples": 4,

@@ -46,7 +46,7 @@ FastAPI + aiosqlite WAL + React 18 + AntD 5 + lightweight-charts，本地运行�
 
 | 技术 | 说明 |
 |------|------|
-| SQLite（via aiosqlite） | 单连接 + WAL 模式，schema v23，52 张逻辑表（含 1 张 FTS5 虚拟表） |
+| SQLite（via aiosqlite） | 单连接 + WAL 模式，schema v24，49 张逻辑表（含 1 张 FTS5 虚拟表） |
 | 迁移策略 | lifespan 启动时按 `PRAGMA user_version` 顺序迁移，不绕过备份 |
 
 ---

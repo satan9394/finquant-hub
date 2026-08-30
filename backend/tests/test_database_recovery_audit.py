@@ -123,7 +123,7 @@ async def test_backup_restore_drill_preserves_snapshot_and_audits_refs(
         "all_integrity_checks_pass": True,
         "all_logical_audits_pass": True,
     }
-    assert result["artifacts"]["source"]["schema_version"] == 23
+    assert result["artifacts"]["source"]["schema_version"] == database._SCHEMA_VERSION
     assert result["artifacts"]["source"]["logical_fingerprint"] == result["artifacts"]["backup"]["logical_fingerprint"]
     assert result["artifacts"]["source"]["logical_fingerprint"] == result["artifacts"]["restore"]["logical_fingerprint"]
     assert result["audits"]["restore"]["counts"]["scheduled_run_evidence_refs"] == 2

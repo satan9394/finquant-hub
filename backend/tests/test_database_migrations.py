@@ -57,6 +57,7 @@ async def test_legacy_research_and_backtest_tickers_are_normalized(tmp_path, mon
             {"version": 21, "name": "install_product_metrics"},
             {"version": 22, "name": "install_paper_portfolios"},
             {"version": 23, "name": "install_job_runtime"},
+            {"version": 24, "name": "install_schema_cleanup"},
         ]
         notification_table = await database.query_one(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'"
@@ -567,7 +568,7 @@ async def test_job_runtime_migration_creates_pre_v23_backup_and_append_only_even
     await database.init_db()
     try:
         version = await (await database.get_db().execute("PRAGMA user_version")).fetchone()
-        assert version[0] == database._SCHEMA_VERSION == 23
+        assert version[0] == database._SCHEMA_VERSION == 24
         assert backup_path.exists()
         columns = await database.query_all("PRAGMA table_info(scheduled_research_runs)")
         assert {"idempotency_key", "lease_owner", "lease_expires_at", "heartbeat_at"} <= {
@@ -605,6 +606,53 @@ async def test_job_runtime_migration_creates_pre_v23_backup_and_append_only_even
     try:
         backup_version = await (await backup.execute("PRAGMA user_version")).fetchone()
         assert backup_version[0] == 22
+    finally:
+        await backup.close()
+
+
+@pytest.mark.asyncio
+async def test_schema_cleanup_migration_creates_pre_v24_backup_and_drops_legacy_portfolio_tables(tmp_path, monkeypatch):
+    path = tmp_path / "schema-cleanup-migration.db"
+    monkeypatch.setattr(config, "DB_PATH", path)
+    await database.init_db()
+    # 模拟 v23 库状态：三个遗留表存在、user_version=23、schema_version 审计不含 24。
+    await database.execute("CREATE TABLE portfolio_groups (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+    await database.execute("CREATE TABLE portfolio_items (id INTEGER PRIMARY KEY, group_id INTEGER, ticker TEXT)")
+    await database.execute("CREATE TABLE portfolio_trades (id INTEGER PRIMARY KEY, item_id INTEGER, action TEXT)")
+    await database.get_db().execute("DELETE FROM schema_version WHERE version=24")
+    await database.get_db().execute("PRAGMA user_version=23")
+    await database.get_db().commit()
+    await database.close_db()
+
+    backup_path = path.with_suffix(f"{path.suffix}.pre-v24.bak")
+    assert not backup_path.exists()
+    await database.init_db()
+    try:
+        version = await (await database.get_db().execute("PRAGMA user_version")).fetchone()
+        assert version[0] == database._SCHEMA_VERSION == 24
+        assert backup_path.exists()
+        for table in ("portfolio_groups", "portfolio_items", "portfolio_trades"):
+            row = await database.query_one(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            )
+            assert row is None, f"{table} 应已被 v24 迁移删除"
+        # 活跃组合表不受影响
+        portfolios = await database.query_one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='portfolios'"
+        )
+        assert portfolios is not None
+    finally:
+        await database.close_db()
+
+    backup = await aiosqlite.connect(backup_path)
+    try:
+        backup_version = await (await backup.execute("PRAGMA user_version")).fetchone()
+        assert backup_version[0] == 23
+        # 备份中遗留表仍然存在（可恢复）
+        row = await (await backup.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='portfolio_groups'"
+        )).fetchone()
+        assert row is not None
     finally:
         await backup.close()
 
