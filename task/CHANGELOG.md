@@ -4,6 +4,14 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-08-30
+- **Fix: PortfolioWhy 负数货币格式（¥-10.00 → -¥10.00）**
+  - What: `frontend/src/components/PortfolioWhy.tsx` 新增 `formatMoney`（符号在 ¥ 前，负数为 `-¥10.00`，正数 contribution 列保留 `+¥20.00`、marketValue 列无符号）与 `formatPercent`；更新 `frontend/tests/PortfolioWhy.test.tsx` 断言
+  - Why: BACKLOG-007 记录的业务表现——负贡献显示为 `¥-10.00` 不符合中文财务惯例（符号应在前）
+  - Docs: `task/CHANGELOG.md`
+  - Verification: PortfolioWhy 测试 2/2；`bun run build` 通过；全量 Vitest 无回归
+  - Risk: low（纯展示格式，无数据/逻辑改动）
+
+## 2026-08-30
 - **Test: BACKLOG-005 Chat/Discussion SSE 与系统页 E2E 扩面**
   - What: 新增 `frontend/e2e/helpers.ts` 统一确定性 API/SSE mock；新增 `chat-paths.spec.ts` 6 条、`discussion-paths.spec.ts` 5 条、`system-pages.spec.ts` 8 条，覆盖 Chat/Discussion 空态、创建、SSE done/error、旧路由，以及 knowledge/models/mcp-market/alerts/settings/compare/thesis/analysis 的渲染和关键交互
   - Why: 消除核心 AI 流式交互与系统/知识页的 E2E 空白，所有 `/api/**` 均 mock，防止测试依赖真实网络或本地数据

@@ -28,7 +28,8 @@ describe('PortfolioWhy', () => {
 
     expect(screen.getByText('核心仓')).toBeTruthy();
     expect(screen.getByText('+¥20.00')).toBeTruthy();
-    expect(screen.getByText('¥-10.00')).toBeTruthy();
+    // 负数货币：符号在 ¥ 前（-¥10.00），符合中文财务惯例
+    expect(screen.getByText('-¥10.00')).toBeTruthy();
     expect(screen.getAllByText('UNKNOWN')).toHaveLength(2);
   });
 });
