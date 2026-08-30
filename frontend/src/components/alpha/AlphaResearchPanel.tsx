@@ -1,23 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Empty, Input, List, Space, Spin, Tag, Typography, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
 
-import AlphaTemplateCatalog from '../components/alpha/AlphaTemplateCatalog';
-import AlphaSimulationWorkbench from '../components/alpha/AlphaSimulationWorkbench';
-import TaskPageHeader from '../components/TaskPageHeader';
-import { readAlphaStudies } from '../features/alpha/studies';
-import { readProfessionalPreferences, updateProfessionalPreferences } from '../features/professionalPreferences';
+import AlphaTemplateCatalog from './AlphaTemplateCatalog';
+import AlphaSimulationWorkbench from './AlphaSimulationWorkbench';
+import TaskPageHeader from '../TaskPageHeader';
+import { readAlphaStudies } from '../../features/alpha/studies';
+import { readProfessionalPreferences, updateProfessionalPreferences } from '../../features/professionalPreferences';
 import {
   fetchAlphaCatalog, searchAlpha, type AlphaCatalogueMetadata, type AlphaCategory, type AlphaSearchResult, type AlphaTemplate,
-} from '../services/alphaApi';
+} from '../../services/alphaApi';
 
 const { Text, Paragraph } = Typography;
 
-export default function AlphaResearch() {
-  const [searchParams] = useSearchParams();
-  const preset = searchParams.get('query')?.trim() || '';
-  const [query, setQuery] = useState(preset);
+/**
+ * Alpha 因子研究工作台（Discover ?mode=alpha 面板）。
+ * 从已回收的独立 AlphaResearch 页面收敛而来：真实字段类别 → 模板 → 本地模拟/相关性 → 保存/恢复，
+ * 字段搜索保留为专业入口。选择不会自动模拟或提交。
+ */
+export default function AlphaResearchPanel() {
+  const [query, setQuery] = useState('');
   const [items, setItems] = useState<AlphaSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -44,9 +46,9 @@ export default function AlphaResearch() {
           ? current
           : catalog.templates.some((template) => template.id === savedTemplateId)
             ? savedTemplateId
-          : readAlphaStudies().find((study) => (
-            catalog.templates.some((template) => template.id === study.templateId)
-          ))?.templateId ?? null
+            : readAlphaStudies().find((study) => (
+              catalog.templates.some((template) => template.id === study.templateId)
+            ))?.templateId ?? null
       ));
     } catch (error: any) {
       setCategories([]);
@@ -72,7 +74,6 @@ export default function AlphaResearch() {
   }, []);
 
   useEffect(() => { void loadCatalog(); }, [loadCatalog]);
-  useEffect(() => { if (preset) void search(preset); }, [preset, search]);
 
   const selected = templates.find((template) => template.id === selectedId);
   const savePreferredTemplate = () => {
@@ -93,7 +94,7 @@ export default function AlphaResearch() {
       : `${catalogue?.data_status ?? 'UNKNOWN'} · ${categories.length} 类 · ${templates.length} 个可用模板`;
 
   return (
-    <main className="product-page" data-testid="alpha-research">
+    <section className="product-page" data-testid="alpha-research" aria-label="Alpha 因子研究">
       <TaskPageHeader
         eyebrow="ALPHA RESEARCH · LOCAL FIRST"
         title="Alpha 因子研究"
@@ -194,6 +195,6 @@ export default function AlphaResearch() {
           )}
         />
       </Card>
-    </main>
+    </section>
   );
 }

@@ -5,6 +5,7 @@ import DiscoverSearch from '../components/DiscoverSearch';
 import DiscoverResults, { type DiscoveredStock } from '../components/DiscoverResults';
 import SourceChip from '../components/SourceChip';
 import TaskPageHeader from '../components/TaskPageHeader';
+import AlphaResearchPanel from '../components/alpha/AlphaResearchPanel';
 import apiClient from '../services/api';
 import { searchAlpha, type AlphaSearchResult } from '../services/alphaApi';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -19,7 +20,9 @@ export default function Discover() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const mode = searchParams.get('mode');
   const initialQuery = searchParams.get('q') || searchParams.get('query') || searchParams.get('tickers') || '';
+
   const [query, setQuery] = useState(initialQuery);
   const [stocks, setStocks] = useState<DiscoveredStock[]>([]);
   const [factors, setFactors] = useState<AlphaSearchResult[]>([]);
@@ -58,7 +61,7 @@ export default function Discover() {
   };
 
   useEffect(() => {
-    if (initialQuery) void run(initialQuery);
+    if (mode !== 'alpha' && initialQuery) void run(initialQuery);
     // URL presets are explicit user input and should execute once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -70,6 +73,10 @@ export default function Discover() {
     }
     message.success(t('discover.watchAdded', { name: stock.name }));
   };
+
+  if (mode === 'alpha') {
+    return <AlphaResearchPanel />;
+  }
 
   return <main className="product-page discover-page">
     <TaskPageHeader

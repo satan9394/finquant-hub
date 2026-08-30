@@ -7,7 +7,6 @@
       "dependencies": {
         "@ant-design/icons": "^5.5.2",
         "@ant-design/pro-components": "^2.8.5",
-        "@datapool/china.geojson": "1.2.0",
         "antd": "^5.24.6",
         "axios": "^1.7.9",
         "dayjs": "^1.11.13",
@@ -131,8 +130,6 @@
     "@csstools/css-tokenizer": ["@csstools/css-tokenizer@4.0.0", "", {}, "sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA=="],
 
     "@ctrl/tinycolor": ["@ctrl/tinycolor@3.6.1", "", {}, "sha512-SITSV6aIXsuVNV3f3O0f2n/cgyEDWoSqtZMYiAmcsYHydcKrOz3gUxB/iXd/Qf08+IZX4KpgNbvUdMBmWz+kcA=="],
-
-    "@datapool/china.geojson": ["@datapool/china.geojson@1.2.0", "", {}, "sha512-LWPLKjkSsrIBdB02uC+eI7bpyAha9N7RmNBgNafAA8M0t7c42q81OZLKrzzwCeHRPWzJWOaG5SZZZoqs69yIFA=="],
 
     "@dnd-kit/accessibility": ["@dnd-kit/accessibility@3.1.1", "", { "dependencies": { "tslib": "^2.0.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw=="],
 
