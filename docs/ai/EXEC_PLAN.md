@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-006: Discussion 流式时间线修复 + 前端组件测试扩面（综合）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-006.md`
+**范围**: ①业务改动（BACKLOG-005 暴露缺口）：Discussion 页 SSE 消费侧收集流式状态（agent_start/token/agent_end/error→streamingByAgent），InvestmentCommittee 新增流式时间线展示区（实时文本/轮次标签/失败态，向后兼容），i18n 双语；②测试闭环：InvestmentCommittee.test.tsx（≥5）+ DiscussionStreaming.test.tsx（≥4，推荐提取纯函数 reduceDiscussionStream）+ 核心组件测试扩面（≥10 组件每组件 ≥2 用例）；③后端/契约/依赖零改动。
+**证据**: （执行后填写——流式设计 + 新增测试数 + build/test/e2e 结果 + i18n parity）
+
+---
+
 ## [DONE] BACKLOG-005: E2E 扩面——SSE 交互管线（Chat/Discussion）+ 系统/知识页
 
 **优先级**: P1
