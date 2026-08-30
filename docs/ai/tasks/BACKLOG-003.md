@@ -1,6 +1,6 @@
 # BACKLOG-003 — 真实网络 Agent 工具测试稳定化（去网络依赖）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：`backend/tests/test_agent_tools_execution.py` 中 `test_get_stock_data_returns_quote_fields` 与 `test_calculate_indicators_returns_requested_indicators` 直接调用工具 `run()`，工具内部硬编码 `MarketDataService()` 真实请求腾讯行情（A 股）。这些测试：
 > 1. 依赖真实网络连通性（上游挂了/没网就 fail）
 > 2. 依赖代理环境（有 `ALL_PROXY=socks5://...` 时走 socks5，缺 socksio 包就 ImportError——已装好，但开/关代理行为不同）
@@ -74,8 +74,8 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单：
-- 开代理验证输出：
-- 关代理验证输出（确定性证明）：
-- 完整套件结果：
-- 备注（发现的真实问题或未完成项）：
+- 修改文件清单：`backend/tests/test_agent_tools_execution.py`、`docs/ai/tasks/BACKLOG-003.md`、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`
+- 开代理验证输出：`ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` 均为 `http://127.0.0.1:7897`，端口 7897 正在监听；三个指定测试文件 `13 passed in 1.68s`
+- 关代理验证输出（确定性证明）：子进程内临时清空 `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` 并确认均为 unset；相同三个测试文件 `13 passed in 0.70s`
+- 完整套件结果：`551 passed in 62.28s`（`--no-cov -p no:cacheprovider`，基线未减少）；指定两文件 Ruff `All checks passed!`
+- 备注（发现的真实问题或未完成项）：两个遗留测试已分别以类方法 monkeypatch 固定 `quote` 和 120 根 `kline` 数据，不再请求真实腾讯行情；`test_agent_market_tools.py` 的美股 quote 与港股 kline 测试原本已确定性 mock，无需修改；未改业务代码、依赖、schema、前端或 `reference/`，未 commit

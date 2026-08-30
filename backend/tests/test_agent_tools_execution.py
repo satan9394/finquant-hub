@@ -1,5 +1,6 @@
 import pytest
 
+from app.agent import tools_definitions
 from app.agent.tools import ToolRegistry
 from app.agent.tools_definitions import (
     AnalyzePortfolioRisk,
@@ -17,7 +18,12 @@ from app.agent.tools_definitions import (
 
 
 @pytest.mark.asyncio
-async def test_get_stock_data_returns_quote_fields():
+async def test_get_stock_data_returns_quote_fields(monkeypatch):
+    async def fake_quote(_service, ticker):
+        assert ticker == "000001"
+        return {"price": 12.34, "market_cap": 123_400_000_000, "pe": 8.5, "source": "fixture"}
+
+    monkeypatch.setattr(tools_definitions.MarketDataService, "quote", fake_quote)
     result = await GetStockData().run(ticker="000001")
 
     assert result.success
@@ -25,7 +31,24 @@ async def test_get_stock_data_returns_quote_fields():
 
 
 @pytest.mark.asyncio
-async def test_calculate_indicators_returns_requested_indicators():
+async def test_calculate_indicators_returns_requested_indicators(monkeypatch):
+    async def fake_kline(_service, ticker, period="1d", count=100):
+        assert ticker == "000001"
+        assert period == "1d"
+        assert count == 120
+        return [
+            {
+                "day": f"2026-{index // 28 + 1:02d}-{index % 28 + 1:02d}",
+                "open": 100.0 + index,
+                "high": 102.0 + index,
+                "low": 99.0 + index,
+                "close": 101.0 + index,
+                "volume": 1_000_000 + index,
+            }
+            for index in range(count)
+        ]
+
+    monkeypatch.setattr(tools_definitions.MarketDataService, "kline", fake_kline)
     result = await CalculateIndicators().run(ticker="000001", indicators="ma,rsi")
 
     assert result.success

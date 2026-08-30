@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-003: 真实网络 Agent 工具测试稳定化（去网络依赖）
+## [DONE] BACKLOG-003: 真实网络 Agent 工具测试稳定化（去网络依赖）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-003.md`
 **范围**: 把 `test_agent_tools_execution.py` 中两个真实请求腾讯行情的测试（test_get_stock_data_returns_quote_fields / test_calculate_indicators_returns_requested_indicators）改为 `monkeypatch` mock `MarketDataService.quote/kline` 的确定性测试（参考 test_trading_agent_tools 既有模式）；核查 test_agent_market_tools 是否已确定性；不改业务代码。
-**证据**: （执行后填写——开/关代理双环境验证结果）
+**证据**: `test_agent_tools_execution.py` 的 quote/kline 遗留真实请求已改为类方法 monkeypatch fixture，kline 固定 120 根；`test_agent_market_tools.py` 核查为既有确定性 mock，无需修改。代理开启（3 个变量均为 `http://127.0.0.1:7897` 且端口监听）与子进程临时清空 `ALL_PROXY/HTTP_PROXY/HTTPS_PROXY` 两种环境运行相同三文件测试均为 13 passed（1.68s / 0.70s）；完整 backend 保持 551 passed（62.28s），指定 Ruff 通过。未改业务代码、依赖、schema、前端或 `reference/`，未 commit。
 
 ---
 
