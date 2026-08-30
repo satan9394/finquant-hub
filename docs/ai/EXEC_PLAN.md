@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-004: 后端覆盖率攻坚（84%→≥87%）+ SSE 管线错误路径补强
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-004.md`
+**范围**: ①覆盖率攻坚：9 个薄弱靶点模块（market_data 76.5% / scheduler 75.5% / fundamentals 77.4% / monitor_targets 74.7% / report_export 79.8% / report_audit 79.1% / thesis_drift 78.8% / research_jobs 80.9% / thesis 83.4%）确定性补测，总体从 84% 提到 ≥87%；②SSE 管线错误路径：6 条管线（chat/discussion/analysis/research/swarm/notifications）各补 ≥2 个错误路径用例（上游失败→error 事件、校验失败→4xx、流中断清理）；③纯补测试，不改业务代码（发现 bug 只记录）。
+**证据**: （执行后填写——覆盖率前后对比 + SSE 用例清单 + 开/关代理确定性）
+
+---
+
 ## [DONE] BACKLOG-003: 真实网络 Agent 工具测试稳定化（去网络依赖）
 
 **优先级**: P1
