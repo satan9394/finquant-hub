@@ -187,3 +187,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-30 完成 BACKLOG-006：Discussion per-agent SSE 流式状态、InvestmentCommittee 流式时间线、i18n 与 10 个核心组件直接测试扩面 | 验证: OpenAPI 59 schemas；tsc/Vite build 4238 modules；Vitest 74/74 files 227/227；Discussion E2E 5/5；全量 E2E 35/35；i18n 2208/2208；diff check passed
 
 - 2026-08-30 BACKLOG-007 完成（Codex 执行）：前端 12 组件测试文件 25 用例（ActionBar/EventTimeline/EvidenceRail/FinancialMetric/FinancialTable/PortfolioEvents/PortfolioWhy/SourceChip/StatusChip/Today 系列）；后端 5 确定性测试文件 97 用例，覆盖率 86.83%→90.59%（backtests 74.9→95.4%、market_review 80→97.4%、news_search→89.8%、market_overview→89.7%、settings→96.5% 等 8 靶点全达标）；710 passed 无回归；零业务代码改动 | 验证: 独立复测：后端 710/710 覆盖率 90.59%、前端 Vitest 86 files/252 tests、开/关代理 97/97 确定性一致
+
+- 2026-08-30 维护者修复 PortfolioWhy 负数货币格式（¥-10.00 → -¥10.00）：formatMoney 符号前置 + formatPercent，contribution 列正数保留 +¥、marketValue 列无符号；更新测试断言；BACKLOG-008（Discussion 流式 E2E + 剩余组件测试转正）已登记供 Codex 执行 | 验证: PortfolioWhy 聚焦 2/2、全量 Vitest 252/252、build 通过；浏览器实测 Portfolio 页渲染正常（AntD destroyOnClose 弃用警告为库提示非错误）；commit b994582
