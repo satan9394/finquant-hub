@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-007: 前端组件测试续扩 + 后端覆盖率攻坚 86.8%→90%（综合）
+## [DONE] BACKLOG-007: 前端组件测试续扩 + 后端覆盖率攻坚 86.8%→90%（综合）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-007.md`
 **范围**: ①前端组件测试续扩：42 个无直接测试组件中补 ≥12 个（优先 20 个完全裸奔的：ActionBar/CommandBar/EventTimeline/EvidenceDrawer/EvidenceRail/FinancialTable/FundamentalsSourcePanel/MCPServerSettingsPanel/ModelSelector/SourceChip/StatusChip/StockChart/TimeseriesChart/LazyEChart/SystemSettingsPanel/Today 系列等，每组件 ≥2 用例 ≥25 用例）；②后端覆盖率 86.83%→≥90%：优先 backtests 74.9% / market_review 80% / news_search 82.7% / market_overview 84% / settings 80% / discussion_orch / swarm_orch / mcp_bridge；③纯补测试，不改业务代码（发现 bug 只记录）。
-**证据**: （执行后填写——组件/用例数 + 覆盖率前后对比 + 双环境确定性）
+**证据**: 前端新增 12 个独立组件测试文件 / 25 用例，每组件 ≥2；全量 Vitest 74→86 files、227→252 tests，86/86 与 252/252 全绿。OpenAPI 59 schemas freshness、TypeScript、Vite production build 4,238 modules 通过；当前 shell 无 Bun，按 package scripts 拆分执行同一锁定工具。后端新增 5 files / 97 tests，全量 710/710；TOTAL 86.83%→90.59%。八靶点依次为 backtests 95.4%、market_review 97.4%、news_search 89.8%、market_overview 89.7%、settings 96.5%、discussion_orch 96.2%、swarm_orch 97.4%、mcp_bridge 92.6%；均 +5pp 或 ≥88%。新增后端测试代理关闭 97/97、7897 代理开启 97/97，Ruff 通过；仅测试和证据文档，无业务代码/schema/auth/dependency/lock/reference 改动，未 commit。记录 `PortfolioWhy` 负数货币显示为 `¥-10.00`，未越界修复。
 
 ---
 

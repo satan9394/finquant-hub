@@ -354,3 +354,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-006.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: OpenAPI freshness passed for 59 schemas; TypeScript and Vite production build passed with 4,238 modules; full Vitest passed 74/74 files and 227/227 tests; Discussion E2E passed 5/5 and full Chromium E2E passed 35/35; zh/en dictionaries are 2,208/2,208 with zero duplicates/parity differences; `git diff --check` passed.
 - Risk: medium; this is a user-visible Discussion behavior change. Streaming state remains frontend-session state and intentionally preserves partial text as failed when stopped or interrupted. No backend, schema, authentication, SSE contract, dependency, E2E assertion, `reference/`, commit, push, publish, or deploy change.
+
+## 2026-08-30
+- What changed: added 12 direct frontend component test files with 25 cases and five deterministic backend coverage files with 97 cases, covering all eight BACKLOG-007 priority modules plus migration rollback and secondary router/service branches.
+- Why: close direct component-test gaps and raise backend coverage from 86.83% to the required ≥90% without changing production behavior.
+- Docs updated: `docs/ai/tasks/BACKLOG-007.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: frontend full Vitest passed 86/86 files and 252/252 tests; OpenAPI freshness (59 schemas), TypeScript, and Vite production build (4,238 modules) passed. Backend coverage and no-coverage suites both passed 710/710 with TOTAL 90.59%; all eight priority modules reached the +5pp-or-≥88% rule; the five new backend files passed 97/97 with proxy variables cleared and 97/97 with the 7897 proxy enabled; tests Ruff passed.
+- Risk: low; tests and evidence docs only. `PortfolioWhy` currently formats a negative contribution as `¥-10.00`; recorded without changing business code. No `backend/app`, `frontend/src`, schema, authentication, dependency, lock file, `reference/`, commit, push, publish, or deploy change.

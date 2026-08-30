@@ -1,6 +1,6 @@
 # BACKLOG-007 — 前端组件测试续扩 + 后端覆盖率攻坚 86.8%→90%（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 完成：2026-08-30 ｜ 执行者：Codex
 > 背景：BACKLOG-006 已为 10 个核心组件补了直接测试，但前端仍有 **42 个组件无直接测试**（其中约 20 个完全裸奔、22 个仅被其他测试间接覆盖）。后端覆盖率 BACKLOG-004 后为 **86.83%**（613 passed），距 90% 差约 390 语句，剩余薄点集中在 backtests 74.9%、market_review 80%、news_search 82.7%、market_overview 84% 及一批 routers 层。
 >
 > 本任务 = **前端组件测试续扩** + **后端覆盖率 86.8%→≥90%**，二合一（上次合并任务效果好，继续此模式）。
@@ -110,8 +110,12 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（前端测试 / 后端测试）：
-- 前端：新增组件数 / 用例数 = ?/?；Vitest 总结果（74 → ? files，227 → ? tests）
-- 后端：覆盖率 TOTAL 86.83% → ?%；新增测试数；完整套件结果
-- 开/关代理确定性验证：
-- 备注（发现的真实业务 bug 或未完成项，只记录）：
+- 修改文件清单：
+  - 前端测试（12）：`ActionBar.test.tsx`、`EventTimeline.test.tsx`、`EvidenceRail.test.tsx`、`FinancialMetric.test.tsx`、`FinancialTable.test.tsx`、`PortfolioEvents.test.tsx`、`PortfolioWhy.test.tsx`、`SourceChip.test.tsx`、`StatusChip.test.tsx`、`TodayMarketPulse.test.tsx`、`TodayNeedAttention.test.tsx`、`TodayUniverse.test.tsx`。
+  - 后端测试（5）：`test_backlog007_targets.py`、`test_backlog007_router_branches.py`、`test_backlog007_service_branches.py`、`test_backlog007_thesis_router_branches.py`、`test_database_migration_rollbacks_backlog007.py`。
+- 前端：新增组件数 / 用例数 = **12 / 25**，每组件 ≥2；全量 Vitest **74 → 86 files、227 → 252 tests，86/86 files 与 252/252 tests 全绿**（801.07s）。新增 12 files / 25 tests 聚焦复验全绿。所有新增组件测试均由 `LanguageProvider` 包裹，无网络请求；外部行为使用 callback/fixture 或既有 UI primitive。
+- 前端构建：当前 shell 无可调用 Bun，`npm run build` 又因 package script 的 POSIX 相对可执行路径在 Windows `cmd` 下未进入构建；按同一 script 定义拆分执行 OpenAPI freshness（59 schemas）、`tsc -b`、Vite production build，全部通过（4,238 modules）。未修改 package script、依赖或锁文件。
+- 后端：覆盖率 TOTAL **86.83% → 90.59%**；新增 **97 tests**；覆盖率全量 **710/710 passed**（147.86s），无覆盖率全量 **710/710 passed**（123.79s），tests Ruff 全绿。
+- 八个优先靶点前后：`routers/backtests.py` 74.9%→95.4%；`services/market_review.py` 80.0%→97.4%；`services/news_search.py` 82.7%→89.8%；`services/market_overview.py` 84.0%→89.7%；`routers/settings.py` 80.0%→96.5%；`services/discussion_orch.py` 82.1%→96.2%；`services/swarm_orch.py` 84.8%→97.4%；`tools/mcp_bridge.py` 84.7%→92.6%。每个模块均提升 ≥5pp 或达到 ≥88%。
+- 开/关代理确定性验证：5 个新增后端文件在清空 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` 且 `NO_PROXY=*` 时 **97/97 passed**（5.10s）；设置 `HTTP_PROXY=http://127.0.0.1:7897`、`HTTPS_PROXY=http://127.0.0.1:7897`、`ALL_PROXY=socks5://127.0.0.1:7897` 时 **97/97 passed**（6.95s），结果一致。所有上游分支使用 `httpx.MockTransport`、`AsyncMock` 或 `monkeypatch`，无真实网络/LLM/行情依赖。
+- 备注：发现 `PortfolioWhy` 负贡献显示为 `¥-10.00`（而非更常见的 `-¥10.00`）；按纯测试纪律只记录，未修改业务组件。未修改 `backend/app/`、`frontend/src/`、schema、认证、依赖、锁文件或 `reference/`，未 commit。
