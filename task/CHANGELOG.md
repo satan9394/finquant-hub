@@ -334,3 +334,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-003.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: the same three Agent test files passed 13/13 with proxy variables pointing to the listening `127.0.0.1:7897` and 13/13 after temporarily clearing `ALL_PROXY`, `HTTP_PROXY`, and `HTTPS_PROXY`; full backend remained 551/551 passed; focused Ruff passed.
 - Risk: low; tests and task evidence only. `test_agent_market_tools.py` was already deterministic and remained unchanged; no business code, dependency, schema, frontend, `reference/`, commit, push, publish, or deploy change.
+
+## 2026-08-30
+- What changed: added 62 deterministic backend tests across nine coverage targets and six SSE pipelines, including market/fundamental degradation, scheduler and research-run recovery, monitor binding, four report export formats, audit verdict branches, Thesis drift/version/evidence/review paths, SSE upstream failures, validation rejection, replay, ping, and stream cleanup.
+- Why: raise trustworthy backend coverage from 84% to the required 87% while proving failure and cleanup behavior without external network, LLM, market-data, proxy, or timing dependencies.
+- Docs updated: `docs/ai/tasks/BACKLOG-004.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: full coverage suite passed 613/613 with TOTAL 87%; full no-coverage suite passed 613/613; all nine targets improved by at least 5 percentage points or reached 88%; the nine new files passed 62/62 both with the listening 7897 proxy enabled and with `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` temporarily unset; full backend test Ruff passed.
+- Risk: low; tests and task evidence only. No `backend/app`, database schema, authentication, dependency, lock file, frontend, `reference/`, commit, push, publish, or deploy change.

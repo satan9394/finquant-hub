@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-004: 后端覆盖率攻坚（84%→≥87%）+ SSE 管线错误路径补强
+## [DONE] BACKLOG-004: 后端覆盖率攻坚（84%→≥87%）+ SSE 管线错误路径补强
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-004.md`
 **范围**: ①覆盖率攻坚：9 个薄弱靶点模块（market_data 76.5% / scheduler 75.5% / fundamentals 77.4% / monitor_targets 74.7% / report_export 79.8% / report_audit 79.1% / thesis_drift 78.8% / research_jobs 80.9% / thesis 83.4%）确定性补测，总体从 84% 提到 ≥87%；②SSE 管线错误路径：6 条管线（chat/discussion/analysis/research/swarm/notifications）各补 ≥2 个错误路径用例（上游失败→error 事件、校验失败→4xx、流中断清理）；③纯补测试，不改业务代码（发现 bug 只记录）。
-**证据**: （执行后填写——覆盖率前后对比 + SSE 用例清单 + 开/关代理确定性）
+**证据**: 新增 9 个确定性测试文件、62 个测试：TOTAL 84%（551 passed）→ 87%（613 passed），九靶点依次为 market_data 86%、scheduler 93%、fundamentals 95%、monitor_targets 95%、report_export 98%、report_audit 94%、thesis_drift 100%、research_jobs 89%、thesis 90%，均满足至少 +5pp 或 ≥88%。chat/discussion/analysis/research/swarm/notifications 各新增 2 个错误路径用例，覆盖 error 事件/4xx/中断清理，notifications 另覆盖 replay cursor 与 ping。9 文件在代理开/关环境均为 62 passed（11.82s / 13.53s）；完整无覆盖率 613 passed（84.15s），覆盖率 613 passed / TOTAL 87%（141.36s），全 tests Ruff 通过。未改 `backend/app`、schema、认证、依赖、frontend 或 `reference/`，未 commit。
 
 ---
 

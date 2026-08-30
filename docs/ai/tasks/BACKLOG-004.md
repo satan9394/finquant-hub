@@ -1,6 +1,6 @@
 # BACKLOG-004 — 后端覆盖率攻坚 + SSE 管线错误路径补强（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
 > 背景：后端全量 551 个测试全绿，但**总体覆盖率 84%**，且核心模块存在明显薄点：`market_data.py`（行情降级链）仅 76.5%、`scheduler.py` 75.5%、`fundamentals.py` 77.4%、`monitor_targets.py` 74.7%、`report_export.py` 79.8%、`report_audit.py` 79.1%、`thesis_drift.py` 78.8%、`research_jobs.py` 80.9%；同时 6 条 SSE 管线（chat/discussion/analysis/research/swarm/notifications）的错误路径测试稀少。这些薄点恰是项目"可信度承诺"的核心（数据降级、失败恢复、证据审计），值得优先补测。
 >
 > 本任务 = **覆盖率攻坚（量化目标）** + **SSE 错误路径补强（质化目标）**，二合一。
@@ -95,10 +95,25 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（新增/修改的测试文件）：
-- 覆盖率前后对比（TOTAL 84% → ?%）：
+- 修改文件清单（新增/修改的测试文件）：新增 `test_market_data_degradation.py`、`test_fundamentals_branches.py`、`test_scheduler_recovery.py`、`test_monitor_targets_branches.py`、`test_report_export_branches.py`、`test_report_audit_branches.py`、`test_thesis_drift_branches.py`、`test_thesis_service_branches.py`、`test_sse_error_paths_backlog004.py`；同步本任务卡、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`
+- 覆盖率前后对比（TOTAL 84% → 87%）：基线 `551 passed`、`TOTAL 84%`（12,119 statements / 1,635 missing / 3,340 branches / 624 partial）；完成后 `613 passed`、`TOTAL 87%`（12,119 statements / 1,362 missing / 3,340 branches / 548 partial）
 - 各靶点模块提升明细：
+  - `services/market_data.py`：76% → 86%（+10pp）
+  - `services/scheduler.py`：75% → 93%（+18pp）
+  - `services/fundamentals.py`：77% → 95%（+18pp）
+  - `services/monitor_targets.py`：75% → 95%（+20pp）
+  - `services/report_export.py`：80% → 98%（+18pp）
+  - `tools/report_audit.py`：79% → 94%（+15pp）
+  - `services/thesis_drift.py`：79% → 100%（+21pp）
+  - `services/research_jobs.py`：81% → 89%（+8pp）
+  - `services/thesis.py`：83% → 90%（+7pp）
 - SSE 错误路径用例清单（管线 × 场景）：
-- 开/关代理确定性验证结果：
-- 完整套件结果：
-- 备注（发现的真实业务 bug 或未完成项，只记录不修复）：
+  - chat：mock `LLMError` → 单一 `error` 事件并结束；空消息 → HTTP 422、无 SSE
+  - discussion：生成器中途异常 → `error` 事件并执行 generator finally；非法 room payload → HTTP 422、无 SSE
+  - analysis：研究生成器中途异常 → `error` 事件并关闭；空 ticker → HTTP 422、无 SSE
+  - research：研究生成器中途异常 → `error` 事件、报告转 `failed`、流关闭；空 ticker → HTTP 422、无 SSE
+  - swarm：runner 中途异常 → `error` 事件、报告转 `failed`、流关闭；空 ticker → HTTP 422、无 SSE
+  - notifications：`Last-Event-ID` 断点续传、15 秒 ping、客户端主动关闭触发 finally；负 `after_id` → HTTP 422、非法 header → HTTP 400，均无 SSE
+- 开/关代理确定性验证结果：9 个新增测试文件在代理开启（3 个变量均为 `http://127.0.0.1:7897`，端口监听）时 `62 passed in 11.82s`；子进程临时清空 `ALL_PROXY/HTTP_PROXY/HTTPS_PROXY` 并确认 unset 后，相同命令 `62 passed in 13.53s`
+- 完整套件结果：无覆盖率回归 `613 passed in 84.15s`；覆盖率回归 `613 passed in 141.36s`、`TOTAL 87%`；`ruff check backend/tests` 为 `All checks passed!`
+- 备注（发现的真实业务 bug 或未完成项，只记录不修复）：未发现需要另开任务的业务 bug；全部外部 HTTP/LLM/行情均使用 `httpx.MockTransport`、假服务或 monkeypatch，新增测试无真实出网；未修改 `backend/app`、数据库 schema、认证、依赖、锁文件、frontend 或 `reference/`，未 commit
