@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-007: 前端组件测试续扩 + 后端覆盖率攻坚 86.8%→90%（综合）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-007.md`
+**范围**: ①前端组件测试续扩：42 个无直接测试组件中补 ≥12 个（优先 20 个完全裸奔的：ActionBar/CommandBar/EventTimeline/EvidenceDrawer/EvidenceRail/FinancialTable/FundamentalsSourcePanel/MCPServerSettingsPanel/ModelSelector/SourceChip/StatusChip/StockChart/TimeseriesChart/LazyEChart/SystemSettingsPanel/Today 系列等，每组件 ≥2 用例 ≥25 用例）；②后端覆盖率 86.83%→≥90%：优先 backtests 74.9% / market_review 80% / news_search 82.7% / market_overview 84% / settings 80% / discussion_orch / swarm_orch / mcp_bridge；③纯补测试，不改业务代码（发现 bug 只记录）。
+**证据**: （执行后填写——组件/用例数 + 覆盖率前后对比 + 双环境确定性）
+
+---
+
 ## [DONE] BACKLOG-006: Discussion 流式时间线修复 + 前端组件测试扩面（综合）
 
 **优先级**: P1
