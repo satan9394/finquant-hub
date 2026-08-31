@@ -1,6 +1,6 @@
 # BACKLOG-009 — 历史讨论观点显示修复 + 剩余组件测试清零（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-30 ｜ 完成：2026-08-30 ｜ 执行者：Codex
 > 背景：BACKLOG-008 记录了一个真实业务缺陷——**历史 Discussion 房间的观点不可见**。根因在 `frontend/src/components/InvestmentCommittee.tsx`：L37 `const completed = members.filter((member) => member.status === 'completed' && member.position)`——`position` 是硬性条件，而历史 Discussion 消息（`Discussion.tsx` 映射的成员）**没有 `position` 字段**，导致这些成员的 `summary`（讨论内容）在 disagreement 区（L75）被整体排除，用户打开旧房间看不到任何历史讨论观点。同时前端仍有 **20 个组件无直接测试**。
 >
 > 本任务 = **修复历史讨论观点显示缺陷（业务改动，主）** + **剩余组件测试清零（测试，次）**，二合一。
@@ -93,9 +93,9 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（业务 + 测试）：
-- 修复设计说明（completed 过滤/position 可选/summary 可见）：
-- 组件测试清零结果（20/20 组件，新增用例数）；Vitest 总结果（96 → ? files，272 → ? tests）：
-- E2E 结果（36 基线 + 是否更新断言）：
-- i18n parity 结果：
-- 备注（未完成项或风险）：
+- 修改文件清单（业务 + 测试）：业务仅修改 `frontend/src/components/InvestmentCommittee.tsx`；增强 `frontend/tests/InvestmentCommittee.test.tsx` 2 个回归用例；新增任务列出的 20 个同名直接测试文件（`frontend/tests/<Component>.test.tsx`），每文件 2 个用例。未修改 `Discussion.tsx`、i18n、E2E、后端、依赖或锁文件。
+- 修复设计说明（completed 过滤/position 可选/summary 可见）：`completed` 只按 `status === 'completed'` 收集所有已完成观点；单独派生 `positionedCompleted` 与安全的 `Partial<Record<CommitteePosition, number>>` 统计，共识分母、leadingPosition、hasConflict 仅使用有 position 的成员；无 position 成员仍进入 disagreement 并显示 `summary`，标签为 `UNKNOWN`。组件内 `position!` 与既有 `streaming!` 均已移除，无非空断言。
+- 组件测试清零结果（20/20 组件，新增用例数）；Vitest 总结果（96 → ? files，272 → ? tests）：20/20 组件全部新增直接测试，每组件 2 个，共 40 个组件用例；InvestmentCommittee 新增 2 个，因此总计新增 20 files / 42 tests。聚焦 21 files / 48 tests 通过；全量由 96 → 116 files、272 → 314 tests，116/116、314/314 全绿（810.22s）。图表边界使用 ECharts/lightweight-charts mock；设置面板覆盖交互与保存/连接回调；AlphaResearchPanel mock `fetchAlphaCatalog`/`searchAlpha`，全程无网络。
+- E2E 结果（36 基线 + 是否更新断言）：Chromium 36/36 通过（48.3s）；历史 Discussion 向后兼容用例通过，既有断言无需修改，未减少或放宽语义。
+- i18n parity 结果：未新增或修改 key；zh/en 均 2,208 keys，双方重复 key 0、parity 差集 0。
+- 备注（未完成项或风险）：OpenAPI freshness 59 schemas、`tsc -b`、Vite production build 4,238 modules 与 `git diff --check` 均通过。当前 shell 无全局 Bun，按 package scripts 直接调用同一项目本地版本锁定入口完成 build/Vitest/Playwright；未 commit/push/publish/deploy。风险低，唯一业务变化是恢复历史讨论观点可见性。

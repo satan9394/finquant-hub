@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-009: 历史讨论观点显示修复 + 剩余组件测试清零（综合）
+## [DONE] BACKLOG-009: 历史讨论观点显示修复 + 剩余组件测试清零（综合）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-009.md`
 **范围**: ①业务修复（BACKLOG-008 记录缺陷）：InvestmentCommittee 的 `completed` 过滤把 `position` 当硬条件，历史 Discussion 消息无 position → 观点（summary）不可见。修复：completed 只按 status 过滤、position 全程可选（positionCounts/leadingPosition/hasConflict 只统计有 position 成员、disagreement 区无 position 成员显示 summary+UNKNOWN）、不得用非空断言 `!`；增强 InvestmentCommittee.test.tsx ≥2 用例；②组件测试清零：20 个无直接测试组件（AlphaResearchPanel/BacktestCharts/CommandBar/EvidenceDrawer/LazyEChart/ModelSelector/StockChart/TimeseriesChart/SystemSettingsPanel 等）全部补齐每组件 ≥2 用例（≥40 用例）；③保持 i18n parity、E2E 36 基线（DOM 变化可更新断言不得放宽语义）。
-**证据**: （执行后填写——修复设计 + 组件清零结果 + build/test/e2e + i18n parity）
+**证据**: `completed` 现只按 completed status 收集观点；positionedCompleted/positionCounts/leadingPosition/hasConflict 只统计有 position 成员，共识分母排除无 position 成员，无 position 历史成员在 disagreement 显示 summary + UNKNOWN；InvestmentCommittee 内无 position/streaming 非空断言。新增 20 个同名直接组件测试文件 / 40 用例（每组件 2），InvestmentCommittee 另增 2 个回归用例；聚焦 21 files / 48 tests，全量 Vitest 96→116 files、272→314 tests，116/116 与 314/314 通过。OpenAPI freshness 59 schemas、TypeScript、Vite production build 4,238 modules 通过；Chromium E2E 36/36，历史 Discussion 既有断言无需修改；zh/en 2,208/2,208、重复 0、parity 差集 0；`git diff --check` 通过。当前 shell 无全局 Bun，直接调用项目本地版本锁定入口执行等价门禁。仅业务组件、测试与证据文档，无后端/SSE/schema/auth/依赖/锁文件/reference 改动；未 commit。
 
 ---
 

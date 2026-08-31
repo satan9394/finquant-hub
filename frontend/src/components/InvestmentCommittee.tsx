@@ -16,6 +16,9 @@ export interface CommitteeMember {
   streaming?: DiscussionStreamingEntry;
 }
 
+type CommitteePosition = NonNullable<CommitteeMember['position']>;
+const committeePositions: CommitteePosition[] = ['看多', '中性', '看空'];
+
 export default function InvestmentCommittee({
   topic,
   members,
@@ -34,12 +37,20 @@ export default function InvestmentCommittee({
   };
   const memberStatus = (status: CommitteeMember['status']) => t(`committee.member.${status}`);
   const positionLabel = (position: CommitteeMember['position']) => position ? t(`committee.position.${position}`) : 'UNKNOWN';
-  const completed = members.filter((member) => member.status === 'completed' && member.position);
-  const positionCounts = completed.reduce<Record<string, number>>((counts, member) => ({ ...counts, [member.position!]: (counts[member.position!] ?? 0) + 1 }), {});
-  const leadingPosition = Object.entries(positionCounts).sort((left, right) => right[1] - left[1])[0];
+  const completed = members.filter((member) => member.status === 'completed');
+  const positionedCompleted = completed.filter((member) => member.position !== undefined);
+  const positionCounts = positionedCompleted.reduce<Partial<Record<CommitteePosition, number>>>((counts, member) => {
+    const position = member.position;
+    if (position) counts[position] = (counts[position] ?? 0) + 1;
+    return counts;
+  }, {});
+  const leadingPosition = committeePositions
+    .map((position) => ({ position, count: positionCounts[position] ?? 0 }))
+    .filter(({ count }) => count > 0)
+    .sort((left, right) => right.count - left.count)[0];
   const unresolved = members.filter((member) => member.status === 'waiting' || member.status === 'failed');
-  const hasConflict = completed.some((member) => member.position === '看多') && completed.some((member) => member.position === '看空');
-  const streamingMembers = members.filter((member) => member.streaming);
+  const hasConflict = (positionCounts['看多'] ?? 0) > 0 && (positionCounts['看空'] ?? 0) > 0;
+  const streamingMembers = members.flatMap((member) => member.streaming ? [{ member, streaming: member.streaming }] : []);
   return (
     <section className="investment-committee" aria-label={t('committee.aria')}>
       <Card className="investment-committee__agenda" size="small">
@@ -71,7 +82,7 @@ export default function InvestmentCommittee({
         <Col xs={24} md={17} xl={19}>
           <Card size="small" title={t('committee.output')} className="investment-committee__timeline">
             <div className="review-summary">
-              <section><h3>{t('committee.consensus')}</h3><p>{leadingPosition ? t('committee.consensusSummary', { count: leadingPosition[1], total: completed.length, position: positionLabel(leadingPosition[0] as CommitteeMember['position']) }) : 'UNKNOWN'}</p></section>
+              <section><h3>{t('committee.consensus')}</h3><p>{leadingPosition ? t('committee.consensusSummary', { count: leadingPosition.count, total: positionedCompleted.length, position: positionLabel(leadingPosition.position) }) : 'UNKNOWN'}</p></section>
               <section><h3>{t('committee.disagreement')}</h3>{completed.length ? completed.map((member) => <p key={member.key}><strong>{member.name} · {positionLabel(member.position)}</strong> {member.summary || 'UNKNOWN'}</p>) : <p>UNKNOWN</p>}</section>
               <section><h3>{t('committee.unresolved')}</h3><p>{unresolved.length ? unresolved.map((member) => `${member.name}: ${memberStatus(member.status)}`).join(t('committee.separator')) : 'UNKNOWN'}</p></section>
               <section><h3>{t('committee.conflict')}</h3><p>{hasConflict ? t('committee.conflictPresent') : 'UNKNOWN'}</p>{hasConflict ? completed.flatMap((member) => member.evidence ?? []).map((evidence, index) => <EvidenceChip key={evidence.id || index} evidence={evidence} />) : null}</section>
@@ -80,8 +91,7 @@ export default function InvestmentCommittee({
               <section className="investment-committee__stream" aria-label={t('committee.stream.title')} aria-live="polite">
                 <h3>{t('committee.stream.title')}</h3>
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  {streamingMembers.map((member) => {
-                    const streaming = member.streaming!;
+                  {streamingMembers.map(({ member, streaming }) => {
                     return (
                       <article key={member.key} className={`investment-committee__stream-item investment-committee__stream-item--${streaming.status}`}>
                         <Space wrap size={6}>
