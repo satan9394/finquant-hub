@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-011: a-stock-data 数据能力接入——筹码/资金流/涨停/龙虎榜/估值历史
+## [DONE] BACKLOG-011: a-stock-data 数据能力接入——筹码/资金流/涨停/龙虎榜/估值历史
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-011.md`
 **范围**: 新建 `backend/app/services/a_stock_extra.py` 实现 5 个 A 股深度能力（纯 httpx 直连东财，参照 a-stock-data SKILL.md §3.4/§3.5/§3.9/§4.5/§4.6/§8.x 移植逻辑）：筹码分布（本地推演 OHLC+换手率）、资金流向（push2/push2his）、涨停池（push2ex）、龙虎榜（datacenter-web，空窗口不崩溃）、估值历史（**不引入 baostock**，东财不可直连则降级为快照+UNKNOWN 并说明）；统一节流（em_get 模式）；注册 ≥3 个 Agent 工具（get_chip_distribution/get_money_flow/get_dragon_tiger 等）；可选统一端点 `GET /api/market/extra/{capability}`；确定性测试（MockTransport），**零新依赖**（不引入 baostock/mootdx/pandas）。
-**证据**: （执行后填写——能力清单/测试数/覆盖率/双环境确定性/估值历史降级说明）
+**证据**: 新增独立 `AStockExtraService`：筹码分布（东财 OHLC+换手率、本地首日播种推演）、分钟/120 日资金流、涨停/跌停池、龙虎榜及腾讯当前估值快照 + 日频历史 `UNKNOWN`，所有东财请求共用 ≥1s+抖动的串行节流与复用客户端；HTTP/schema/拒绝均显式失败，空龙虎榜稳定返回空结构。注册 4 个 Agent 工具，未新增 API。新增 MockTransport 测试 26 个；全量 760 passed，覆盖率 92.06%→92.22%，新服务 97.2%；代理 7897 开启与四项代理变量清空均 26/26。依赖零变化。a-stock-data V3.7.1 §6.5 只给 baostock TCP 历史实现，故按约束不引入 baostock、不伪造历史。
 
 ---
 

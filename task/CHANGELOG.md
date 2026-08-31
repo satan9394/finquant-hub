@@ -389,3 +389,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-010.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: OpenAPI freshness (59 schemas), TypeScript, and Vite build (4,238 modules) passed; Vitest passed 116/116 files and 314/314 tests; Chromium E2E passed 41/41 (36 baseline + 5); backend coverage and no-cov suites passed 734/734 with TOTAL 92.05%; new backend tests passed 24/24 with proxy variables cleared and 24/24 with 7897 enabled; tests Ruff and `git diff --check` passed.
 - Risk: low; tests and evidence docs only. No `frontend/src`, `backend/app`, schema, authentication, dependency, lock file, `reference/`, commit, push, publish, or deploy change; no new Chat business defect was found.
+
+## 2026-08-31
+- What changed: added `AStockExtraService` with five A-share depth capabilities (locally inferred chip distribution, minute/120-day money flow, limit-up/down pools, dragon-tiger records with TOP5 seats, and current valuation snapshot with explicit UNKNOWN history); added one shared serialized Eastmoney throttle, four Agent tools, and 26 deterministic MockTransport tests.
+- Why: fill the a-stock-data capability gaps using only direct httpx logic while preserving FinQuant's explicit failure/UNKNOWN and provenance rules.
+- Docs updated: `docs/ai/tasks/BACKLOG-011.md`, `docs/ai/EXEC_PLAN.md`, `task/CHANGELOG.md`, and `HANDOFF.md`; no API contract update because no endpoint was added.
+- Verification: full backend passed 760/760; coverage rose from 92.06% to 92.22% (new service 97.2%); focused tests passed 26/26 with proxy variables set to 7897 and 26/26 with proxy variables cleared; Ruff, mypy, and diff checks passed; requirements unchanged.
+- Risk: medium; new provider-facing behavior depends on Eastmoney availability and throttling. Valuation history intentionally remains UNKNOWN because the referenced implementation requires baostock and exposes no verified zero-auth Eastmoney daily PE/PB HTTP contract. No schema, authentication, dependency, frontend, `reference/`, endpoint, commit, push, publish, or deploy change.

@@ -197,3 +197,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-31 BACKLOG-010 完成（Codex 执行）：chat-paths 新增 5 深交互 E2E（角色切换 PUT 契约/删除会话/历史恢复/角色预选/多会话隔离，断言请求方法+路由+请求体）；后端 24 确定性测试，覆盖率 90.59%→92.06%（analysis 61.7→97.4%、instruments→99.3%、alpha→98.8%、tools_definitions→99.3%、chip_distribution→100%）；734 passed 无回归；零业务代码改动 | 验证: 维护者独立复测：后端 734/734 覆盖率 92.06%、E2E 41/41、Vitest 314/314、开/关代理 24/24、ruff 通过
 
 - 2026-08-31 决策记录（2026-08-31 调研）：Financial-API（同花顺官方，MIT，2057★）暂不接入——新项目(2个月)/限流政策模糊(动态限流无QPS承诺)/API Key 有真实坑(code=2003 官方未回)/MCP prompts/list 协议不完整/全量数据不含退市股无法历史回测/能力补全期(无分钟K/港股美股/两融)。标记 PARKED 待其成熟后评估（重点看基金数据与官方数据质量）。选定 a-stock-data（simonlin1212，9395★，零鉴权无key）作为 A 股数据能力扩展源 | 验证: GitHub Issues 调研：#37 QPS/429、#45 API Key 2003、#40 MCP prompts/list、#32 退市股缺失、#27 两融/分钟K 均未解决
+
+- 2026-08-31 完成 BACKLOG-011：新增 a-stock-data 五项 A 股扩展能力、统一东财节流、4 个 Agent 工具与 26 个确定性测试；估值历史保持腾讯快照 + UNKNOWN | 验证: backend 760 passed，coverage 92.22%，新服务 97.2%；代理开/关均 26/26；零新依赖；未 commit

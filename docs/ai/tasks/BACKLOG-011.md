@@ -1,6 +1,6 @@
 # BACKLOG-011 — a-stock-data 数据能力接入：筹码/资金流/涨停/龙虎榜/估值历史
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 执行者：Codex
 > 背景：FinQuant Hub 现有 A 股数据源（腾讯/新浪/东财/Yahoo）覆盖 search/quote/kline/fundamentals/news，但缺筹码分布、资金流向、涨停池、龙虎榜、估值历史等深度能力。经维护者调研 GitHub 收藏（300 个 starred 筛出 27 个金融相关），选定 **a-stock-data**（simonlin1212，9395★，MIT，零鉴权零 key，19 数据源 54 端点，自包含 SKILL.md 内嵌可运行 Python）作为扩展源——其 5 个能力正好补 FinQuant 缺口且大部分可纯 httpx 直连东财（零新依赖）。
 >
 > **关键约束**：项目铁律"不新增依赖"。a-stock-data 中**筹码分布（本地计算 OHLC+换手率）、资金流（东财 push2/push2his）、涨停池（东财 push2ex）、龙虎榜（东财 datacenter-web）均可纯 httpx 实现（参考其 SKILL.md §4.6/§3.4/§3.5/§3.9/§8.1-8.5 与 `em_get()` 节流模式）**；**估值历史（§6.5）依赖 baostock TCP 客户端**——本任务**不引入 baostock**，估值历史用东财/腾讯可用替代（若东财有日频 PE/PB 历史则接入，否则该能力降级为"当前估值快照 + 明确 UNKNOWN 历史"，在证据中说明）。
@@ -93,10 +93,11 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（services/tools/routers/tests）：
-- 能力实现清单（5 个，含估值历史降级说明）：
-- 新增端点/工具清单：
-- 测试数；全量套件结果；覆盖率前后：
-- 开/关代理确定性验证：
-- 依赖变化（应为零，若有说明）：
-- 备注（发现的真实问题）：
+- 修改文件清单（services/tools/routers/tests）：新增 `backend/app/services/a_stock_extra.py`、`backend/tests/test_a_stock_extra.py`；扩展 `backend/app/agent/tools_definitions.py`。未修改 routers/frontend/schema/auth/`reference/`。
+- 能力实现清单（5 个）：① 筹码分布读取东财前复权日 K+换手率并本地推演，首日播种全部流通筹码，输出获利比例/平均成本/90%-70% 成本区间/集中度/筹码峰并标记 `INFERENCE`；② 分钟与 120 日资金流分别直连 push2/push2his；③ 涨停/跌停池直连 push2ex，`data:null` 明确标记 `UNKNOWN`；④ 龙虎榜直连 datacenter-web，空窗口返回稳定空结构，最近记录带买卖席位 TOP5；⑤ 估值历史不引入 baostock，腾讯仅提供当前 PE/PB 快照，日频历史固定为 `UNKNOWN` 并携带原因/质量标志，快照失败继续明确 `UNKNOWN`，不补造。
+- 新增端点/工具清单：注册 `get_chip_distribution`、`get_money_flow`、`get_dragon_tiger`、`get_limit_up_pool` 共 4 个 Agent 工具；未新增 API 端点，因此无需更新 `docs/API_CONTRACT.md`。
+- 节流/失败语义：所有 Eastmoney URL 均通过同一个模块级 `EastmoneyThrottle`，异步锁串行化、请求间隔 ≥1s + 0.1-0.5s 抖动，并由单个 service 复用 `httpx.AsyncClient`；HTTP、JSON、上游拒绝及 schema 漂移均转为明确 `AStockExtraError`，不以假 0 或伪数据掩盖。
+- 测试数；全量套件结果；覆盖率前后：新增 `httpx.MockTransport` 确定性测试 26 个，覆盖五能力成功/失败或 UNKNOWN、节流与 4 工具 dispatch；全量 `760 passed`。覆盖率由修改前 `92.06%`（734 passed）升至 `92.22%`（760 passed）；新服务 `97.2%`。
+- 开/关代理确定性验证：`HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` 指向 `127.0.0.1:7897` 时 26/26；清空四项代理变量时 26/26，结果一致。
+- 依赖变化：零；`backend/requirements.txt` 未修改，未引入 baostock/mootdx/pandas 或其他包。
+- 备注（发现的真实问题）：抓取的 a-stock-data V3.7.1 `SKILL.md` 中 §6.5 日频 PE/PB 历史只提供 baostock TCP 实现，未提供可验证的东财零鉴权日频 PE/PB HTTP 合同；本任务按硬约束保留腾讯当前快照 + 历史 `UNKNOWN`。东财住宅 IP 风控仍是外部现实，代码通过统一节流与显式错误保留该不确定性。

@@ -7,6 +7,7 @@ from decimal import Decimal, Context, ROUND_HALF_EVEN
 from typing import Any
 
 from ..agent.tools import BaseTool, ToolResult, ToolRegistry
+from ..services.a_stock_extra import AStockExtraError, AStockExtraService
 from ..services.market_data import MarketDataService
 from ..services.news_search import NewsSearchService
 from ..tools.trading_analysis import analyze_shadow_trades, connector_design_assessment
@@ -625,6 +626,111 @@ class AssessTradingConnector(BaseTool):
         return ToolResult(True, data=connector_design_assessment(
             str(kwargs.get("broker") or ""), kwargs.get("requested_capabilities") or []
         ))
+
+
+# ===================================================================
+# A 股深度数据 — 筹码 / 资金流 / 龙虎榜 / 涨停池
+# ===================================================================
+
+
+class GetChipDistribution(BaseTool):
+    """Infer the current A-share chip distribution from OHLC and turnover."""
+
+    name = "get_chip_distribution"
+    description = "获取 A 股筹码分布推演，含获利比例、平均成本、成本区间、集中度与筹码峰"
+    parameters = {
+        "type": "object",
+        "properties": {"ticker": {"type": "string", "description": "6 位 A 股代码"}},
+        "required": ["ticker"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        service = AStockExtraService()
+        try:
+            return ToolResult(True, data=await service.chip_distribution(str(kwargs.get("ticker") or "")))
+        except (AStockExtraError, ValueError) as exc:
+            return ToolResult(False, error=str(exc))
+        finally:
+            await service.aclose()
+
+
+class GetMoneyFlow(BaseTool):
+    """Fetch minute or 120-day A-share money flow."""
+
+    name = "get_money_flow"
+    description = "获取 A 股主力、大单、中单和小单资金流，支持分钟或 120 日周期"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "ticker": {"type": "string", "description": "6 位 A 股代码"},
+            "period": {"type": "string", "enum": ["minute", "120d"], "default": "minute"},
+        },
+        "required": ["ticker"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        service = AStockExtraService()
+        try:
+            data = await service.money_flow(
+                str(kwargs.get("ticker") or ""), str(kwargs.get("period") or "minute")
+            )
+            return ToolResult(True, data=data)
+        except (AStockExtraError, ValueError) as exc:
+            return ToolResult(False, error=str(exc))
+        finally:
+            await service.aclose()
+
+
+class GetDragonTiger(BaseTool):
+    """Fetch A-share dragon-tiger records and latest top-five seats."""
+
+    name = "get_dragon_tiger"
+    description = "获取指定 A 股与日期窗口内的龙虎榜记录及最近买卖席位 TOP5"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "ticker": {"type": "string", "description": "6 位 A 股代码"},
+            "date": {"type": "string", "description": "交易日 YYYY-MM-DD"},
+        },
+        "required": ["ticker", "date"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        service = AStockExtraService()
+        try:
+            data = await service.dragon_tiger(
+                str(kwargs.get("ticker") or ""), str(kwargs.get("date") or "")
+            )
+            return ToolResult(True, data=data)
+        except (AStockExtraError, ValueError) as exc:
+            return ToolResult(False, error=str(exc))
+        finally:
+            await service.aclose()
+
+
+class GetLimitUpPool(BaseTool):
+    """Fetch the Eastmoney A-share limit-up pool for one trade date."""
+
+    name = "get_limit_up_pool"
+    description = "获取指定交易日 A 股涨停池，含连板数、封板资金、炸板次数与行业"
+    parameters = {
+        "type": "object",
+        "properties": {"date": {"type": "string", "description": "交易日 YYYY-MM-DD"}},
+        "required": ["date"],
+        "additionalProperties": False,
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        service = AStockExtraService()
+        try:
+            return ToolResult(True, data=await service.limit_pool(str(kwargs.get("date") or "")))
+        except (AStockExtraError, ValueError) as exc:
+            return ToolResult(False, error=str(exc))
+        finally:
+            await service.aclose()
 
 
 # ===================================================================
