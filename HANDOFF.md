@@ -191,3 +191,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-30 维护者修复 PortfolioWhy 负数货币格式（¥-10.00 → -¥10.00）：formatMoney 符号前置 + formatPercent，contribution 列正数保留 +¥、marketValue 列无符号；更新测试断言；BACKLOG-008（Discussion 流式 E2E + 剩余组件测试转正）已登记供 Codex 执行 | 验证: PortfolioWhy 聚焦 2/2、全量 Vitest 252/252、build 通过；浏览器实测 Portfolio 页渲染正常（AntD destroyOnClose 弃用警告为库提示非错误）；commit b994582
 
 - 2026-08-30 BACKLOG-008 完成（Codex 执行）：discussion-paths 增强 3 流式 E2E（流式区实时文本/轮次/状态、失败部分保留、历史房间向后兼容）+ 10 组件转正 20 用例 + playwright.config 本机 workers:2/retries:1 稳定性修复（CI 不变）；Vitest 96/96 files 272/272、E2E 36/36 x3（维护者独立连跑 3 次全绿）；零业务代码改动；记录历史房间观点被 position 门控隐藏的缺陷（未修） | 验证: 维护者独立复测：E2E 36/36 x3 全绿（稳定性达标）、Vitest 272/272、流式断言落 .investment-committee__stream
+
+- 2026-08-31 BACKLOG-009 完成（Codex 执行）：InvestmentCommittee 修复历史讨论观点被 position 门控隐藏的缺陷（completed 只按 status、positionedCompleted 分离共识/冲突统计、无 position 成员显示 summary+UNKNOWN、非空断言清零）；20 组件测试清零（20 文件 40 用例）+ InvestmentCommittee 2 回归；Vitest 116/116 files 314/314、E2E 36/36 断言未改、i18n 2208 parity 0 | 验证: 维护者独立复测：Vitest 314/314、E2E 36/36、非空断言零残留、i18n parity 0；commit 待记
