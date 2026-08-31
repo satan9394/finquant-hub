@@ -193,3 +193,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-08-30 BACKLOG-008 完成（Codex 执行）：discussion-paths 增强 3 流式 E2E（流式区实时文本/轮次/状态、失败部分保留、历史房间向后兼容）+ 10 组件转正 20 用例 + playwright.config 本机 workers:2/retries:1 稳定性修复（CI 不变）；Vitest 96/96 files 272/272、E2E 36/36 x3（维护者独立连跑 3 次全绿）；零业务代码改动；记录历史房间观点被 position 门控隐藏的缺陷（未修） | 验证: 维护者独立复测：E2E 36/36 x3 全绿（稳定性达标）、Vitest 272/272、流式断言落 .investment-committee__stream
 
 - 2026-08-31 BACKLOG-009 完成（Codex 执行）：InvestmentCommittee 修复历史讨论观点被 position 门控隐藏的缺陷（completed 只按 status、positionedCompleted 分离共识/冲突统计、无 position 成员显示 summary+UNKNOWN、非空断言清零）；20 组件测试清零（20 文件 40 用例）+ InvestmentCommittee 2 回归；Vitest 116/116 files 314/314、E2E 36/36 断言未改、i18n 2208 parity 0 | 验证: 维护者独立复测：Vitest 314/314、E2E 36/36、非空断言零残留、i18n parity 0；commit 待记
+
+- 2026-08-31 BACKLOG-010 完成（Codex 执行）：chat-paths 新增 5 深交互 E2E（角色切换 PUT 契约/删除会话/历史恢复/角色预选/多会话隔离，断言请求方法+路由+请求体）；后端 24 确定性测试，覆盖率 90.59%→92.06%（analysis 61.7→97.4%、instruments→99.3%、alpha→98.8%、tools_definitions→99.3%、chip_distribution→100%）；734 passed 无回归；零业务代码改动 | 验证: 维护者独立复测：后端 734/734 覆盖率 92.06%、E2E 41/41、Vitest 314/314、开/关代理 24/24、ruff 通过
