@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-010: Chat 深交互 E2E + 后端残余薄点攻坚（综合）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-010.md`
+**范围**: ①主：Chat 深交互 E2E（≥5 新用例）——角色切换（断言 PUT /chat/sessions/{id} 请求体）、删除会话（DELETE）、历史会话恢复（GET messages 路由参数）、角色默认预选（role_preset=agents 首项）、多会话状态隔离；纯测试，发现缺陷只记录。②次：后端覆盖率 90.6%→≥92%——优先 analysis.py 61.7% / instruments.py 63.4% / alpha_service.py 70.6% / tools_definitions.py 74.5% / chip_distribution.py 73.8% / agents/credentials/models_crud 75-79%，确定性补测（MockTransport/monkeypatch，开/关代理一致）。
+**证据**: （执行后填写——Chat E2E 用例清单 + 覆盖率前后对比 + 双环境确定性 + build/test/e2e）
+
+---
+
 ## [DONE] BACKLOG-009: 历史讨论观点显示修复 + 剩余组件测试清零（综合）
 
 **优先级**: P1
