@@ -382,3 +382,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-009.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
 - Verification: OpenAPI freshness passed for 59 schemas; TypeScript and Vite production build passed with 4,238 modules; focused Vitest passed 21/21 files and 48/48 tests; full Vitest passed 116/116 files and 314/314 tests; Chromium E2E remained 36/36 without assertion changes; zh/en dictionaries remained 2,208/2,208 with zero duplicates or parity differences; `git diff --check` passed.
 - Risk: low; the only production behavior change restores historical summaries previously hidden by a missing optional field. No Discussion mapping, i18n, E2E, backend, schema, authentication, SSE contract, dependency, lock file, `reference/`, commit, push, publish, or deploy change.
+
+## 2026-08-31
+- What changed: added five deterministic Chat deep-interaction E2E cases with method/path/body assertions and 24 deterministic backend tests for analysis SSE/chart errors, instrument provenance, Alpha correlation/search fallbacks, Agent tool validation/parser paths, and chip-distribution boundaries.
+- Why: cover user-visible Chat session management and raise trustworthy backend coverage from 90.59% to the required ≥92% without changing production behavior.
+- Docs updated: `docs/ai/tasks/BACKLOG-010.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`.
+- Verification: OpenAPI freshness (59 schemas), TypeScript, and Vite build (4,238 modules) passed; Vitest passed 116/116 files and 314/314 tests; Chromium E2E passed 41/41 (36 baseline + 5); backend coverage and no-cov suites passed 734/734 with TOTAL 92.05%; new backend tests passed 24/24 with proxy variables cleared and 24/24 with 7897 enabled; tests Ruff and `git diff --check` passed.
+- Risk: low; tests and evidence docs only. No `frontend/src`, `backend/app`, schema, authentication, dependency, lock file, `reference/`, commit, push, publish, or deploy change; no new Chat business defect was found.

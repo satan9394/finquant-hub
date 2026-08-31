@@ -1,6 +1,6 @@
 # BACKLOG-010 — Chat 深交互 E2E + 后端残余薄点攻坚（综合）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 完成：2026-08-31 ｜ 执行者：Codex
 > 背景：现有 `chat-paths.spec.ts` 6 个用例覆盖 Chat 基础（空态/创建/SSE 流式/error/空消息/旧路由重定向），但 **Chat 的会话管理交互零浏览器覆盖**：角色切换（`handleChangeRole` → `PUT /chat/sessions/{id}`）、删除会话（`handleDeleteSession`）、历史会话恢复（多会话列表切换）、角色预选（agents 列表首项默认选中）。后端覆盖率 90.6% 后仍有残余薄点：`routers/analysis.py` 61.7%（SSE 路由）、`services/instruments.py` 63.4%、`services/alpha_service.py` 70.6%、`agent/tools_definitions.py` 74.5%（246 语句）、`services/chip_distribution.py` 73.8%。
 >
 > 本任务 = **Chat 深交互 E2E（主，用户价值）** + **后端残余薄点攻坚（次，覆盖率）**，二合一。
@@ -96,9 +96,15 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（前端 E2E / 后端测试）：
+- 修改文件清单（前端 E2E / 后端测试）：`frontend/e2e/chat-paths.spec.ts` 新增 5 个深交互用例；`backend/tests/test_backlog010_targets.py` 新增 24 个确定性分支用例。未修改 `frontend/src/`、`backend/app/`、schema、认证、依赖、锁文件或 `reference/`。
 - Chat 深交互用例清单（断言了什么请求体/路由）：
-- 覆盖率 TOTAL 90.6% → ?%；后端新增测试数；完整套件结果
-- 开/关代理确定性验证：
-- 前端 Vitest / E2E 总结果：
-- 备注（发现的真实业务缺陷，只记录）：
+  1. 角色切换：捕获并断言 `PUT /api/chat/sessions/7`、请求体 `{role_preset: "technical_analyst"}`，同时断言“角色已切换”成功提示。
+  2. 删除会话：捕获并断言 `DELETE /api/chat/sessions/7`，确认后断言会话 7 从列表移除、会话 8 保留且当前会话回到未选择态。
+  3. 历史会话恢复：切到会话 8，断言唯一消息请求路由为 `GET /api/chat/sessions/8/messages`，并渲染该会话的用户/助手历史。
+  4. 角色默认预选：agents 首项为 `value_investor`，捕获并断言 `POST /api/chat/sessions` 请求体 `{role_preset: "value_investor", model_id: null}`。
+  5. 多会话状态隔离：断言 A 的消息 POST 路由和 `{content: "A 会话新问题"}`，A 流式完成后依次切 B/A；消息 GET 路由序列为 `/7/messages → /8/messages → /7/messages`，A/B 内容互不串线且回到 A 后答案保留。
+- 覆盖率 TOTAL 90.59% → 92.05%；后端新增 24 个测试；完整 coverage 与 no-cov 套件均为 734/734。重点模块：`analysis.py` 61.7%→97.4%，`instruments.py` 63.4%→99.3%，`alpha_service.py` 70.6%→98.8%，`tools_definitions.py` 74.5%→99.3%，`chip_distribution.py` 73.8%→100%。
+- 开/关代理确定性验证：显式清空 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` 及小写变量时 24/24；显式设置 HTTP/HTTPS `127.0.0.1:7897` 与 ALL_PROXY `socks5://127.0.0.1:7897` 时同样 24/24。新增测试仅使用 monkeypatch、内存 fixture 与直接函数/路由调用，无真实网络、LLM 或行情请求。
+- 前端 Vitest / E2E 总结果：OpenAPI 59 schemas freshness、TypeScript 与 Vite build（4,238 modules）通过；Vitest 116/116 files、314/314 tests；Chromium E2E 41/41（36 基线 + 5 新增）。当前 Codex PowerShell 未发现 `bun` 可执行文件，因此使用项目已安装的等价本地入口 `tsc.exe` / `vite.exe` / `vitest.exe` / `playwright.exe` 执行相同脚本底层命令。
+- 其他门禁：`ruff check tests`、`git diff --check` 通过。
+- 备注（发现的真实业务缺陷，只记录）：未发现新的 Chat 业务缺陷；首次角色切换聚焦运行暴露的是测试定位器与 Ant Design 重复 label/点击目标问题，已仅在 E2E 中改用明确 wrapper 定位，没有修改业务代码。

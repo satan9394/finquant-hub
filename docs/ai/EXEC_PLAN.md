@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-010: Chat 深交互 E2E + 后端残余薄点攻坚（综合）
+## [DONE] BACKLOG-010: Chat 深交互 E2E + 后端残余薄点攻坚（综合）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-010.md`
 **范围**: ①主：Chat 深交互 E2E（≥5 新用例）——角色切换（断言 PUT /chat/sessions/{id} 请求体）、删除会话（DELETE）、历史会话恢复（GET messages 路由参数）、角色默认预选（role_preset=agents 首项）、多会话状态隔离；纯测试，发现缺陷只记录。②次：后端覆盖率 90.6%→≥92%——优先 analysis.py 61.7% / instruments.py 63.4% / alpha_service.py 70.6% / tools_definitions.py 74.5% / chip_distribution.py 73.8% / agents/credentials/models_crud 75-79%，确定性补测（MockTransport/monkeypatch，开/关代理一致）。
-**证据**: （执行后填写——Chat E2E 用例清单 + 覆盖率前后对比 + 双环境确定性 + build/test/e2e）
+**证据**: `chat-paths.spec.ts` 新增角色 PUT/body+提示、会话 DELETE+移除、历史会话 GET 路由+渲染、agents 首项默认 role_preset POST/body、A/B 会话路由与消息隔离 5 个深交互用例；Chromium 36→41 且 41/41。后端新增 24 个无网络确定性测试，coverage/no-cov 均 734/734，TOTAL 90.59%→92.05%；analysis 97.4%、instruments 99.3%、alpha_service 98.8%、tools_definitions 99.3%、chip_distribution 100%。显式代理清空与 7897 开启均 24/24；build（4,238 modules）、Vitest 116 files/314 tests、tests Ruff、diff check 通过。未改业务代码，未发现新的 Chat 业务缺陷。
 
 ---
 
