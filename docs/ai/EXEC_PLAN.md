@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-011: a-stock-data 数据能力接入——筹码/资金流/涨停/龙虎榜/估值历史
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-011.md`
+**范围**: 新建 `backend/app/services/a_stock_extra.py` 实现 5 个 A 股深度能力（纯 httpx 直连东财，参照 a-stock-data SKILL.md §3.4/§3.5/§3.9/§4.5/§4.6/§8.x 移植逻辑）：筹码分布（本地推演 OHLC+换手率）、资金流向（push2/push2his）、涨停池（push2ex）、龙虎榜（datacenter-web，空窗口不崩溃）、估值历史（**不引入 baostock**，东财不可直连则降级为快照+UNKNOWN 并说明）；统一节流（em_get 模式）；注册 ≥3 个 Agent 工具（get_chip_distribution/get_money_flow/get_dragon_tiger 等）；可选统一端点 `GET /api/market/extra/{capability}`；确定性测试（MockTransport），**零新依赖**（不引入 baostock/mootdx/pandas）。
+**证据**: （执行后填写——能力清单/测试数/覆盖率/双环境确定性/估值历史降级说明）
+
+---
+
 ## [DONE] BACKLOG-010: Chat 深交互 E2E + 后端残余薄点攻坚（综合）
 
 **优先级**: P1
