@@ -98,6 +98,76 @@ export type ChipDistributionResponse = Provenance & {
   items: ChipDistributionItem[];
 };
 
+export type MoneyFlowItem = {
+  time?: string;
+  date?: string;
+  main_net: number | null;
+  small_net: number | null;
+  medium_net: number | null;
+  large_net: number | null;
+  super_large_net: number | null;
+};
+
+export type MoneyFlowResponse = {
+  ticker: string;
+  period: 'minute' | '120d';
+  source: 'eastmoney.push2' | 'eastmoney.push2his';
+  as_of: string | null;
+  quality: 'DIRECT';
+  main_net: number | null;
+  large_net: number | null;
+  medium_net: number | null;
+  small_net: number | null;
+  items: MoneyFlowItem[];
+};
+
+export type DragonTigerSeat = {
+  name: string;
+  buy: number | null;
+  sell: number | null;
+  net: number | null;
+  unit: 'CNY_10K';
+};
+
+export type DragonTigerItem = {
+  code: string;
+  name: string;
+  date: string;
+  reason: string;
+  net: number | null;
+  unit: 'CNY_10K';
+  top5_buy: DragonTigerSeat[];
+  top5_sell: DragonTigerSeat[];
+};
+
+export type DragonTigerResponse = {
+  ticker: string;
+  date: string;
+  source: 'eastmoney.datacenter-web';
+  quality: 'DIRECT';
+  note?: string;
+  items: DragonTigerItem[];
+};
+
+export type LimitPoolItem = {
+  code: string;
+  name: string;
+  limit_up_count: number | null;
+  seal_amount: number | null;
+  break_times: number | null;
+  industry: string;
+  limit_stat: string;
+};
+
+export type LimitPoolResponse = {
+  date: string;
+  pool: 'limit_up' | 'limit_down';
+  source: 'eastmoney.push2ex';
+  quality: 'DIRECT' | 'UNKNOWN';
+  error?: string;
+  items: LimitPoolItem[];
+};
+
 export type InstrumentSearchResponse = Provenance & { items: Instrument[] };
 
 export type EvidenceItem = {

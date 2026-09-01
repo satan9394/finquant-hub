@@ -51,6 +51,7 @@ const ResearchWorkspace = lazy(() => import('./pages/ResearchWorkspace'));
 const StrategyLab = lazy(() => import('./pages/StrategyLab'));
 const Portfolio = lazy(() => import('./pages/Portfolio'));
 const Discover = lazy(() => import('./pages/Discover'));
+const LimitPool = lazy(() => import('./pages/LimitPool'));
 const McpMarket = lazy(() => import('./pages/McpMarket'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const ComparisonWorkspace = lazy(() => import('./pages/ComparisonWorkspace'));
@@ -76,7 +77,10 @@ const navigationGroupDefinitions = [
     key: 'discover',
     nameKey: 'nav.discover',
     icon: <CompassOutlined />,
-    children: [{ key: '/discover', path: '/discover', nameKey: 'nav.discover.home' }],
+    children: [
+      { key: '/discover', path: '/discover', nameKey: 'nav.discover.home' },
+      { key: '/discover/limit-pool', path: '/discover/limit-pool', nameKey: 'nav.discover.limitPool' },
+    ],
   },
   {
     key: 'strategy',
@@ -132,6 +136,7 @@ export function isSystemToolPath(pathname: string): boolean {
 
 export function getMenuKey(pathname: string): string {
   if (pathname.startsWith('/research') || pathname.startsWith('/analysis') || ['/chat', '/discussion', '/thesis', '/compare'].some((path) => pathname.startsWith(path))) return '/research';
+  if (pathname.startsWith('/discover/limit-pool')) return '/discover/limit-pool';
   if (pathname.startsWith('/discover') || pathname.startsWith('/screening') || pathname.startsWith('/alpha')) return '/discover';
   if (pathname.startsWith('/strategy-lab')) return '/strategy-lab/ma-crossover';
   if (pathname.startsWith('/portfolio')) return '/portfolio';
@@ -302,6 +307,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
         <Route path="/strategy-lab/ma-crossover" element={<StrategyLab />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/discover" element={<Discover />} />
+        <Route path="/discover/limit-pool" element={<LimitPool />} />
         <Route path="/screening" element={<Navigate to="/discover?mode=screening" replace />} />
         <Route path="/alpha" element={<Navigate to="/discover?mode=alpha" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

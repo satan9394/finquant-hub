@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-012: A 股深度能力前端接线——资金流向/龙虎榜/涨停池
+## [DONE] BACKLOG-012: A 股深度能力前端接线——资金流向/龙虎榜/涨停池
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-012.md`
 **范围**: BACKLOG-011 的 5 个后端能力仅注册为 Agent 工具、前端零展示。本任务把其中 3 个接上前端：①新增 3 个薄包装 REST 端点（服务层零改动）——`GET /api/instruments/{symbol}/money-flow`、`GET /api/instruments/{symbol}/dragon-tiger`、`GET /api/market/limit-pool`（独立新增，不动被 market_review 使用的既有 `/limit-up`）；②ResearchWorkspace 新增资金流向/龙虎榜两张证据卡片（复用筹码卡片范式：A 股守卫 `/^\d{6}$/` + allSettled + Empty 降级 + 证据链）；③新建 `/discover/limit-pool` 涨停池页面（日期 + 涨跌停切换 + AntD Table + UNKNOWN 提示 + 导航路由）；④估值历史明确不接（StockAnalysis valuation tab 已展示 PE/PB 且历史刻意 UNKNOWN）；⑤既有 `/chip-distribution` 端点（旧 akshare）与新旧筹码并存刻意保留，均禁止改动。零新依赖，双语 i18n parity 为 0，后端确定性测试双环境一致，前端 build/vitest/E2E 全门禁绿。
-**证据**: 待执行
+**证据**: 新增 `GET /api/instruments/{symbol}/money-flow`、`GET /api/instruments/{symbol}/dragon-tiger`、`GET /api/market/limit-pool` 三个 `AStockExtraService` 薄包装端点，直接透传 provenance/quality，非法参数为 400、上游失败为 502，非交易日空池保持 `UNKNOWN + 200`；服务层、旧 `/chip-distribution`、旧 `/limit-up` 均未改。ResearchWorkspace 以 6 位 A 股守卫 + 7 项 `Promise.allSettled` 接入资金流向和龙虎榜两张证据卡片、Empty 降级及 FACT 证据链；新增 `/discover/limit-pool` 日期/涨跌停切换/Table/UNKNOWN 页面与 Discover 导航。后端新增 20 个 MockTransport REST 测试，7897 代理开启与代理变量清空均 20/20；全量 780/780，覆盖率 92.22%→92.26%，Ruff 通过。前端生产构建 4,240 modules，Vitest 118/118 files、318/318 tests，Chromium E2E 43/43；zh/en 各 2,259 keys、差集 0。依赖与锁文件零变化；估值历史、BACKLOG-011 本地推演筹码和统一 extra 入口均按决策未接入。
 
 ---
 

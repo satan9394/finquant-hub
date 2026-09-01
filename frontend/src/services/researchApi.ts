@@ -4,8 +4,11 @@ import type {
   BacktestRun,
   BarsResponse,
   ChipDistributionResponse,
+  DragonTigerResponse,
   FundamentalsResponse,
   InstrumentSearchResponse,
+  LimitPoolResponse,
+  MoneyFlowResponse,
   ResearchDiscussionSummary,
   ResearchHistoryGroup,
   ResearchReportDetail,
@@ -66,6 +69,35 @@ export async function fetchInstrumentFundamentals(symbol: string): Promise<Funda
 
 export async function fetchChipDistribution(symbol: string): Promise<ChipDistributionResponse> {
   const response = await apiClient.get(`/instruments/${encodeURIComponent(symbol)}/chip-distribution`);
+  return response.data;
+}
+
+export async function fetchMoneyFlow(
+  symbol: string,
+  period: 'minute' | '120d' = 'minute',
+): Promise<MoneyFlowResponse> {
+  const response = await apiClient.get(`/instruments/${encodeURIComponent(symbol)}/money-flow`, {
+    params: { period },
+  });
+  return response.data;
+}
+
+export async function fetchDragonTiger(
+  symbol: string,
+  date: string,
+  lookBack = 30,
+): Promise<DragonTigerResponse> {
+  const response = await apiClient.get(`/instruments/${encodeURIComponent(symbol)}/dragon-tiger`, {
+    params: { date, look_back: lookBack },
+  });
+  return response.data;
+}
+
+export async function fetchLimitPool(
+  date: string,
+  pool: 'limit_up' | 'limit_down' = 'limit_up',
+): Promise<LimitPoolResponse> {
+  const response = await apiClient.get('/market/limit-pool', { params: { date, pool } });
   return response.data;
 }
 

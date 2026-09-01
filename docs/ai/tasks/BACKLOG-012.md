@@ -1,6 +1,6 @@
 # BACKLOG-012 — A 股深度能力前端接线：资金流向 / 龙虎榜 / 涨停池
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-08-31 ｜ 完成：2026-09-01 ｜ 执行者：Codex
 > 背景：BACKLOG-011 已在 `backend/app/services/a_stock_extra.py` 实现 5 个 A 股深度能力（筹码/资金流/涨停池/龙虎榜/估值历史），但**只注册为 Agent 工具，前端零展示**。本任务把其中 3 个能力接上前端：**资金流向**（ResearchWorkspace 新证据卡片）、**龙虎榜**（ResearchWorkspace 新证据卡片）、**涨停池**（新页面 `/discover/limit-pool`）。**估值历史明确不接**（见"记录决策"）。筹码分布前端已通过既有端点展示，**不重接**。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -133,10 +133,11 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（后端 router / 前端页面 / 组件 / 测试 / 文档）
-- 端点清单（3 个：方法、路径、参数、错误语义）
-- 新增卡片/页面清单（资金流向卡片、龙虎榜卡片、`/discover/limit-pool` 页面、导航项）
-- 测试数；全量套件结果；覆盖率前后
-- 开/关代理确定性验证结果
-- 依赖变化（应为零）
-- 记录决策确认（估值历史/筹码分布/统一入口三处均未实现，原因如上）
+- **修改文件清单**：后端为 `backend/app/routers/instruments.py`、`backend/app/routers/market.py`、`backend/tests/test_backlog012_rest.py`；前端为 `frontend/src/{App.tsx,i18n/{zh,en}.ts,pages/{ResearchWorkspace,LimitPool}.tsx,services/researchApi.ts,types/research.ts,utils/formatAStock.ts}`、`frontend/tests/{ResearchWorkspaceEvidence,formatAStock}.test.*`、`frontend/e2e/limit-pool.spec.ts`；文档为本卡、`docs/ai/EXEC_PLAN.md`、`docs/API_CONTRACT.md`、`docs/ARCHITECTURE.md`、`task/CHANGELOG.md`、`HANDOFF.md`（Harness 收尾日志）。
+- **端点清单**：`GET /api/instruments/{symbol}/money-flow?period=minute|120d`；`GET /api/instruments/{symbol}/dragon-tiger?date=YYYY-MM-DD&look_back=1..365`；`GET /api/market/limit-pool?date=YYYY-MM-DD&pool=limit_up|limit_down`（date 缺省为 Asia/Shanghai 当天）。三者均按 `AStockExtraService()` → `try/finally aclose()` 直接透传服务结果；非法值/非 A 股为 400，`AStockExtraError` 为 502；limit-pool 空 data 为 `quality=UNKNOWN` + HTTP 200。
+- **新增卡片/页面**：ResearchWorkspace 的加载管线从 5 项扩为 7 项，资金流向卡展示主力/超大单/大单/中单/小单净流入、截止时间和周期；龙虎榜卡展示日期、原因、净买入及买卖 TOP5；两者均有 FACT 证据链项、A 股守卫、独立错误文案和 Empty 降级。新增 lazy `/discover/limit-pool` 页面、Discover 子导航、上海时区默认日期、未来日期禁选、涨停/跌停切换、7 列 Table、loading/error/Empty/UNKNOWN 状态。
+- **后端测试与覆盖率**：新增 MockTransport REST 专项 20/20；全量无覆盖率套件 780/780；全量覆盖率套件 780/780，TOTAL 从 92.22% 提升到 92.26%；`backend` Ruff 通过。当前 OpenAPI 为 137 paths / 172 operations，三端点参数 schema 含 period/pool/date pattern 与 look_back 1..365 范围。
+- **前端测试**：`formatWan` 2 个 Vitest 用例覆盖 0、负数、null/NaN 与 `CNY_10K`；ResearchWorkspace 2 个用例覆盖 fetcher 成功渲染与失败 Empty 降级。最终生产构建通过（4,240 modules）；全量 Vitest 118/118 files、318/318 tests；Chromium E2E 43/43（含新页直接数据表格与 UNKNOWN 两例）；zh/en 各 2,259 keys、差集 0。两次全量压力运行各出现一个不同的既有 5 秒资源超时，两个失败文件均单独全绿；未修改其断言/超时/并发配置，第三次原命令全量全绿。
+- **双环境确定性**：新增后端专项在 HTTP/HTTPS/ALL/NO/SOCKS5 proxy 指向 7897 时 20/20，在大小写代理变量全部清空时同样 20/20；测试只使用注入的 `httpx.MockTransport`，不访问真实网络。
+- **依赖与边界**：Python/npm 依赖及锁文件零变化；未删除文件；`backend/app/services/a_stock_extra.py`、旧 `/chip-distribution`、旧 `/limit-up`、`market_review.py`、Agent 工具、schema、认证、`LOCAL_ONLY_MODE`、Playwright 配置、`reference/` 均未修改；Harness 收尾日志已追加到 `HANDOFF.md`；未 commit、未 push。
+- **记录决策确认**：估值历史仍只有当前 PE/PB 快照 + 历史 UNKNOWN，已有 valuation UI 无增量价值，故不接；旧 AkShare 真实筹码 UI 与 BACKLOG-011 本地推演筹码继续刻意并存，不重接；能力按 symbol/market 落入既有 router，不新增 `/api/market/extra/{capability}` 统一入口。

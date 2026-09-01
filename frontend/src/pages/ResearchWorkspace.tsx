@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Button, Card, Col, Collapse, Descriptions, Empty, Input, List, Row, Skeleton,
-  Space, Statistic, Tag, Typography, message,
+  Space, Statistic, Table, Tag, Typography, message,
 } from 'antd';
 import {
   ArrowRightOutlined, ExperimentOutlined, FileSearchOutlined, ReloadOutlined,
@@ -27,8 +27,10 @@ import { buildResearchTimeline } from '../features/researchTimeline';
 import {
   fetchInstrumentBars,
   fetchChipDistribution,
+  fetchDragonTiger,
   fetchInstrumentFundamentals,
   fetchInstrumentSnapshot,
+  fetchMoneyFlow,
   fetchResearchWorkspace,
   fetchResearchDiscussions,
   fetchResearchHistory,
@@ -39,12 +41,14 @@ import {
   searchInstruments,
 } from '../services/researchApi';
 import type {
-  BarsResponse, ChipDistributionResponse, EvidenceItem, FundamentalItem, FundamentalsResponse, Instrument,
+  BarsResponse, ChipDistributionResponse, DragonTigerResponse, DragonTigerSeat, EvidenceItem,
+  FundamentalItem, FundamentalsResponse, Instrument, MoneyFlowResponse,
   ResearchDiscussionSummary, ResearchHistoryGroup, ResearchReportDetail, ResearchThesisSummary,
   ResearchWorkspace as WorkspaceType, SnapshotResponse,
 } from '../types/research';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { Language } from '../i18n';
+import { formatWan, shanghaiToday } from '../utils/formatAStock';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -125,6 +129,8 @@ function provenanceEvidence(
   bars?: BarsResponse | null,
   fundamentals?: FundamentalsResponse | null,
   chips?: ChipDistributionResponse | null,
+  moneyFlow?: MoneyFlowResponse | null,
+  dragonTiger?: DragonTigerResponse | null,
 ): EvidenceItem[] {
   return [
     snapshot && {
@@ -155,6 +161,20 @@ function provenanceEvidence(
       provider: chips.provider,
       as_of: chips.as_of,
     },
+    moneyFlow && {
+      label: 'FACT' as const,
+      title: t('research.evidence.moneyFlow'),
+      detail: t('research.evidence.moneyFlowDetail', { period: t(`research.moneyFlow.period.${moneyFlow.period}`) }),
+      provider: moneyFlow.source,
+      as_of: moneyFlow.as_of,
+    },
+    dragonTiger && {
+      label: 'FACT' as const,
+      title: t('research.evidence.dragonTiger'),
+      detail: t('research.evidence.dragonTigerDetail', { count: dragonTiger.items.length }),
+      provider: dragonTiger.source,
+      as_of: dragonTiger.date,
+    },
   ].filter(Boolean) as EvidenceItem[];
 }
 
@@ -174,6 +194,8 @@ function ResearchWorkspaceCore() {
   const [bars, setBars] = useState<BarsResponse | null>(null);
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
   const [chips, setChips] = useState<ChipDistributionResponse | null>(null);
+  const [moneyFlow, setMoneyFlow] = useState<MoneyFlowResponse | null>(null);
+  const [dragonTiger, setDragonTiger] = useState<DragonTigerResponse | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -234,8 +256,17 @@ function ResearchWorkspaceCore() {
     setBars(null);
     setFundamentals(null);
     setChips(null);
-    const chipRequest: Promise<ChipDistributionResponse | null> = /^\d{6}$/.test(currentSymbol)
+    setMoneyFlow(null);
+    setDragonTiger(null);
+    const isAShare = /^\d{6}$/.test(currentSymbol);
+    const chipRequest: Promise<ChipDistributionResponse | null> = isAShare
       ? fetchChipDistribution(currentSymbol)
+      : Promise.resolve(null);
+    const moneyFlowRequest: Promise<MoneyFlowResponse | null> = isAShare
+      ? fetchMoneyFlow(currentSymbol)
+      : Promise.resolve(null);
+    const dragonTigerRequest: Promise<DragonTigerResponse | null> = isAShare
+      ? fetchDragonTiger(currentSymbol, shanghaiToday())
       : Promise.resolve(null);
     const outcomes = await Promise.allSettled([
       fetchInstrumentSnapshot(currentSymbol),
@@ -243,6 +274,8 @@ function ResearchWorkspaceCore() {
       fetchInstrumentFundamentals(currentSymbol),
       fetchResearchWorkspace(currentSymbol),
       chipRequest,
+      moneyFlowRequest,
+      dragonTigerRequest,
     ]);
     const nextErrors: string[] = [];
     if (outcomes[0].status === 'fulfilled') setSnapshot(outcomes[0].value);
@@ -260,6 +293,10 @@ function ResearchWorkspaceCore() {
     }
     if (outcomes[4].status === 'fulfilled') setChips(outcomes[4].value);
     else nextErrors.push(t('research.error.chips', { error: outcomes[4].reason?.message ?? t('research.error.loadFailed') }));
+    if (outcomes[5].status === 'fulfilled') setMoneyFlow(outcomes[5].value);
+    else nextErrors.push(t('research.error.moneyFlow', { error: outcomes[5].reason?.message ?? t('research.error.loadFailed') }));
+    if (outcomes[6].status === 'fulfilled') setDragonTiger(outcomes[6].value);
+    else nextErrors.push(t('research.error.dragonTiger', { error: outcomes[6].reason?.message ?? t('research.error.loadFailed') }));
     setErrors(nextErrors);
     setLoading(false);
   }, [currentSymbol, t]);
@@ -299,8 +336,8 @@ function ResearchWorkspaceCore() {
   useEffect(() => { void loadContinuity(); }, [loadContinuity]);
 
   const evidence = useMemo(
-    () => provenanceEvidence(t, snapshot, bars, fundamentals, chips),
-    [t, snapshot, bars, fundamentals, chips],
+    () => provenanceEvidence(t, snapshot, bars, fundamentals, chips, moneyFlow, dragonTiger),
+    [t, snapshot, bars, fundamentals, chips, moneyFlow, dragonTiger],
   );
   const fundamentalsError = errors.find((error) => error.startsWith(t('research.error.fundamentalsPrefix')));
   const timelineEntries = useMemo(
@@ -442,6 +479,7 @@ function ResearchWorkspaceCore() {
   const subjectName = snapshot?.instrument.name;
   const subjectDiscussions = discussions.filter((item) => matchesResearchSubject(item.topic, currentSymbol, subjectName));
   const subjectTheses = theses.filter((item) => sameTicker(item.ticker, currentSymbol));
+  const latestMoneyFlow = moneyFlow?.items[moneyFlow.items.length - 1];
   return (
     <main className="product-page" data-testid="instrument-research-page">
       <TaskPageHeader
@@ -540,25 +578,83 @@ function ResearchWorkspaceCore() {
               <FundamentalMetricsPanel fundamentals={fundamentals} error={fundamentalsError} />
 
               {/^\d{6}$/.test(currentSymbol) && (
-                <Card title={t('research.chips')} className="surface-card" style={{ marginTop: 18 }}>
-                  {chips ? (
-                    <>
-                      <Row gutter={[12, 12]}>
-                        <Col xs={12} md={6}><Statistic title={t('research.chips.profitRatio')} value={chips.latest.profit_ratio * 100} precision={2} suffix="%" /></Col>
-                        <Col xs={12} md={6}><Statistic title={t('research.chips.averageCost')} value={chips.latest.average_cost} precision={2} suffix=" CNY" /></Col>
-                        <Col xs={12} md={6}><Statistic title={t('research.chips.cost90')} value={`${chips.latest.cost_90.low}–${chips.latest.cost_90.high}`} /></Col>
-                        <Col xs={12} md={6}><Statistic title={t('research.chips.cost70')} value={`${chips.latest.cost_70.low}–${chips.latest.cost_70.high}`} /></Col>
-                      </Row>
-                      <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
-                        <Descriptions.Item label={t('research.chips.concentration90')}>{(chips.latest.cost_90.concentration * 100).toFixed(2)}%</Descriptions.Item>
-                        <Descriptions.Item label={t('research.chips.concentration70')}>{(chips.latest.cost_70.concentration * 100).toFixed(2)}%</Descriptions.Item>
-                        <Descriptions.Item label={t('research.chips.peak')}><Tag>UNKNOWN</Tag> {t('research.chips.peakUnknown')}</Descriptions.Item>
-                        <Descriptions.Item label={t('research.chips.method')}>{t('research.chips.methodValue')}</Descriptions.Item>
-                        <Descriptions.Item label={t('research.chips.source')}>{t('research.chips.sourceValue', { provider: chips.provider ?? 'UNKNOWN', source: chips.source ?? 'UNKNOWN', asOf: chips.as_of ?? 'UNKNOWN' })}</Descriptions.Item>
-                      </Descriptions>
-                    </>
-                  ) : <Empty description={t('research.chipsEmpty')} />}
-                </Card>
+                <>
+                  <Card title={t('research.chips')} className="surface-card" style={{ marginTop: 18 }}>
+                    {chips ? (
+                      <>
+                        <Row gutter={[12, 12]}>
+                          <Col xs={12} md={6}><Statistic title={t('research.chips.profitRatio')} value={chips.latest.profit_ratio * 100} precision={2} suffix="%" /></Col>
+                          <Col xs={12} md={6}><Statistic title={t('research.chips.averageCost')} value={chips.latest.average_cost} precision={2} suffix=" CNY" /></Col>
+                          <Col xs={12} md={6}><Statistic title={t('research.chips.cost90')} value={`${chips.latest.cost_90.low}–${chips.latest.cost_90.high}`} /></Col>
+                          <Col xs={12} md={6}><Statistic title={t('research.chips.cost70')} value={`${chips.latest.cost_70.low}–${chips.latest.cost_70.high}`} /></Col>
+                        </Row>
+                        <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
+                          <Descriptions.Item label={t('research.chips.concentration90')}>{(chips.latest.cost_90.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                          <Descriptions.Item label={t('research.chips.concentration70')}>{(chips.latest.cost_70.concentration * 100).toFixed(2)}%</Descriptions.Item>
+                          <Descriptions.Item label={t('research.chips.peak')}><Tag>UNKNOWN</Tag> {t('research.chips.peakUnknown')}</Descriptions.Item>
+                          <Descriptions.Item label={t('research.chips.method')}>{t('research.chips.methodValue')}</Descriptions.Item>
+                          <Descriptions.Item label={t('research.chips.source')}>{t('research.chips.sourceValue', { provider: chips.provider ?? 'UNKNOWN', source: chips.source ?? 'UNKNOWN', asOf: chips.as_of ?? 'UNKNOWN' })}</Descriptions.Item>
+                        </Descriptions>
+                      </>
+                    ) : <Empty description={t('research.chipsEmpty')} />}
+                  </Card>
+
+                  <Card title={t('research.moneyFlow.title')} className="surface-card" style={{ marginTop: 18 }} data-testid="money-flow-card">
+                    {moneyFlow?.items.length ? (
+                      <>
+                        <Row gutter={[12, 12]}>
+                          {[
+                            [t('research.moneyFlow.mainNet'), moneyFlow.main_net],
+                            [t('research.moneyFlow.superLargeNet'), latestMoneyFlow?.super_large_net],
+                            [t('research.moneyFlow.largeNet'), latestMoneyFlow?.large_net],
+                            [t('research.moneyFlow.mediumNet'), latestMoneyFlow?.medium_net],
+                            [t('research.moneyFlow.smallNet'), latestMoneyFlow?.small_net],
+                          ].map(([label, value]) => (
+                            <Col xs={12} md={8} key={String(label)}>
+                              <Statistic title={label} value={formatWan(value as number | null | undefined)} />
+                            </Col>
+                          ))}
+                        </Row>
+                        <Descriptions column={{ xs: 1, sm: 3 }} size="small" style={{ marginTop: 16 }}>
+                          <Descriptions.Item label={t('research.moneyFlow.asOf')}>{moneyFlow.as_of ?? t('research.unknown')}</Descriptions.Item>
+                          <Descriptions.Item label={t('research.moneyFlow.period')}>{t(`research.moneyFlow.period.${moneyFlow.period}`)}</Descriptions.Item>
+                          <Descriptions.Item label={t('research.moneyFlow.source')}>{moneyFlow.source} · {moneyFlow.quality}</Descriptions.Item>
+                        </Descriptions>
+                      </>
+                    ) : <Empty description={t('research.moneyFlow.empty')} />}
+                  </Card>
+
+                  <Card title={t('research.dragonTiger.title')} className="surface-card" style={{ marginTop: 18 }} data-testid="dragon-tiger-card">
+                    {dragonTiger?.items.length ? (() => {
+                      const record = dragonTiger.items[0];
+                      const columns = [
+                        { title: t('research.dragonTiger.seat'), dataIndex: 'name', key: 'name' },
+                        { title: t('research.dragonTiger.buy'), dataIndex: 'buy', key: 'buy', render: (value: number | null) => formatWan(value, 'CNY_10K') },
+                        { title: t('research.dragonTiger.sell'), dataIndex: 'sell', key: 'sell', render: (value: number | null) => formatWan(value, 'CNY_10K') },
+                        { title: t('research.dragonTiger.net'), dataIndex: 'net', key: 'net', render: (value: number | null) => formatWan(value, 'CNY_10K') },
+                      ];
+                      return (
+                        <>
+                          <Descriptions column={{ xs: 1, sm: 3 }} size="small">
+                            <Descriptions.Item label={t('research.dragonTiger.date')}>{record.date}</Descriptions.Item>
+                            <Descriptions.Item label={t('research.dragonTiger.reason')}>{record.reason}</Descriptions.Item>
+                            <Descriptions.Item label={t('research.dragonTiger.net')}>{formatWan(record.net, 'CNY_10K')}</Descriptions.Item>
+                          </Descriptions>
+                          <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
+                            <Col xs={24} lg={12}>
+                              <Title level={5}>{t('research.dragonTiger.topBuy')}</Title>
+                              <Table<DragonTigerSeat> size="small" pagination={false} columns={columns} dataSource={record.top5_buy} rowKey={(seat) => `buy-${seat.name}-${seat.buy}`} scroll={{ x: 'max-content' }} />
+                            </Col>
+                            <Col xs={24} lg={12}>
+                              <Title level={5}>{t('research.dragonTiger.topSell')}</Title>
+                              <Table<DragonTigerSeat> size="small" pagination={false} columns={columns} dataSource={record.top5_sell} rowKey={(seat) => `sell-${seat.name}-${seat.sell}`} scroll={{ x: 'max-content' }} />
+                            </Col>
+                          </Row>
+                        </>
+                      );
+                    })() : <Empty description={dragonTiger?.note ?? t('research.dragonTiger.empty')} />}
+                  </Card>
+                </>
               )}
 
             </Col>

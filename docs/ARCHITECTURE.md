@@ -10,7 +10,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 ┌─────────────────────────────────────────────────────────┐
 │                       浏览器层                           │
 │  React 18 + Ant Design 5 + lightweight-charts           │
-│  17 路由页面 | axios 统一代理 | React.lazy 代码分割         │
+│  18 路由页面 | axios 统一代理 | React.lazy 代码分割         │
 │  单 api.ts 实例 (/api/*)                               │
 ├─────────────────────────────────────────────────────────┤
 │                    Vite 开发代理 (5173 → 8000)            │
@@ -86,6 +86,7 @@ for r in (credentials.router, models_crud.router, agents.router, ...):
 - 无统一前缀验证，路由前缀在各自的 Router 定义中（如 `prefix="/api/chat"`）
 - 所有路由函数直接调用 `database.query_one/query_all/execute`，没有独立的 Data Access Layer
 - 共享依赖通过 `request.app.state.market` 获取（`MarketDataService` 单例）
+- `instruments.py` 另含 2 个 `AStockExtraService` 薄包装端点（资金流向、龙虎榜），`market.py` 含 1 个独立涨跌停池薄包装端点；三者只负责参数/错误映射和 `aclose()`，直接透传既有服务结果，未改变服务层、旧 `/chip-distribution` 或旧 `/limit-up` 行为。
 
 ### 2.2 服务层分层模式
 
@@ -379,7 +380,7 @@ main.py (lifespan + router registration)
   │   │   ├── scoring.py (纯 numpy)
   │   │   └── signals.py (纯 numpy)
   │   ├── research.py      → database, research_orch, report_export, report_audit
-  │   ├── market.py        → market_data, indicators
+  │   ├── market.py        → market_data, indicators, a_stock_extra（涨跌停池薄包装）
   │   │   └── market_data.py (htttpx: Tencent/Sina/EastMoney/Yahoo)
   │   ├── portfolio.py     → database, market_data
   │   │   └── portfolio.py (service)
@@ -388,7 +389,7 @@ main.py (lifespan + router registration)
   │   ├── backtest.py      → database, market_data (v1, 同步)
   │   ├── backtests.py     → database, instruments (v2, 异步)
   │   │   └── instruments.py → market_data
-  │   ├── instruments.py   → database, instruments (service), market_data
+  │   ├── instruments.py   → database, instruments (service), market_data, a_stock_extra（资金流/龙虎榜薄包装）
   │   ├── screening.py     → market_data, stock_screener (两阶段)
   │   ├── wq.py            → alpha_service, alpha_simulator, alpha_brain
   │   ├── swarm.py         → swarm_orch, research_reports

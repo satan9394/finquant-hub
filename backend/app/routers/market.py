@@ -1,5 +1,6 @@
 """行情数据代理：搜索 / 实时报价 / K 线 / 技术指标 / 交易日历。"""
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from typing import Any, Literal, cast
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..services import indicators
+from ..services.a_stock_extra import AStockExtraError, AStockExtraService
 from ..services.llm_client import LLMError
 from ..services.market_data import MarketDataService, MarketError
 from ..services.market_overview import MarketOverviewService
@@ -130,6 +132,27 @@ async def limit_up_pool(request: Request, trading_date: date = Query(alias="date
         return await _overview(request).limit_up(trading_date)
     except MarketError as e:
         raise HTTPException(502, str(e)) from e
+
+
+@router.get("/limit-pool")
+async def limit_pool(
+    trading_date: str | None = Query(
+        default=None,
+        alias="date",
+        json_schema_extra={"pattern": r"^\d{4}-\d{2}-\d{2}$"},
+    ),
+    pool: str = Query(default="limit_up", json_schema_extra={"pattern": "^(limit_up|limit_down)$"}),
+) -> dict[str, Any]:
+    svc = AStockExtraService()
+    try:
+        trade_date = trading_date or datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+        return await svc.limit_pool(trade_date, pool)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await svc.aclose()
 
 
 @router.get("/sources")

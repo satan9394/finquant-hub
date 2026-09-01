@@ -149,6 +149,7 @@
 | `/api/market/pulse?limit=&threshold_percent=&ths_limit=` | GET | 批量市场雷达：全 A 广度、日异动、行业/概念、板块/个股资金、周异动、热度；同花顺逐股资金以命中率和部分失败显式返回 | 新增 |
 | `/api/market/themes?keyword=&sort_by=&limit=&stocks_per_theme=&ths_limit=` | GET | 关键词主题分类：分页扫描完整行业/概念目录，显式扩展相关词，批量读取板块成分股并以同花顺逐股资金补充 | 新增 |
 | `/api/market/limit-up?date=` | GET | 指定交易日涨停池、封板与连板统计 | 新增 |
+| `/api/market/limit-pool?date=&pool=` | GET | 东方财富涨停/跌停池薄包装；`date` 默认上海时区当天，非交易日/未更新返回 `quality=UNKNOWN` + HTTP 200，上游或结构失败为 502 | 新增 |
 | `/api/market/sources` | GET | 查询行情/K 线源优先级与逐源 CircuitBreaker 健康状态 | 新增 |
 | `/api/market/sources` | PATCH | 校验、应用并持久化行情/K 线源顺序 | 新增 |
 | `/api/market/prefetch` | POST | 有界并发批量预取，可按 ticker 保留错误并跨源补齐缺失字段 | 新增 |
@@ -267,6 +268,8 @@
 | `/api/instruments/{symbol}/bars?period=&count=` | GET | K 线数据（含 indicators 和 provenance） | 新增 |
 | `/api/instruments/{symbol}/fundamentals` | GET | 基本面数据（逐项保留 provider/source、报告日、period type、币种、TTM/质量标记；全源失败为 502） | 新增 |
 | `/api/instruments/{symbol}/chip-distribution?adjustment=` | GET | A 股筹码分布估算（AkShare 基于东方财富 K 线/换手率按 120 日衰减模型计算；含 methodology/quality_flags；筹码峰位缺失时为 null） | 新增 |
+| `/api/instruments/{symbol}/money-flow?period=` | GET | A 股分钟或 120 日资金流向薄包装；直接透传 `source/quality/as_of` 与元金额，非法代码/周期为 400，上游失败为 502 | 新增 |
+| `/api/instruments/{symbol}/dragon-tiger?date=&look_back=` | GET | A 股龙虎榜及买卖 TOP5 席位薄包装；空回看窗口返回 `items=[]` + note，非法参数为 400，上游失败为 502 | 新增 |
 | `/api/instruments/{symbol}/workspace` | GET | 获取研究工作区（不存在则返回空模板） | 新增 |
 | `/api/instruments/{symbol}/workspace` | PUT | 保存/合并研究工作区（UPSERT） | 新增 |
 | `/api/instruments/workspaces` | GET | 列出所有已保存研究工作区 | 新增 |
@@ -416,14 +419,14 @@
 | 5 | `/api/agents` | agents.py | 4 | 0 |
 | 6 | `/api/chat` | chat.py | 6 | 0 |
 | 7 | `/api/discussion` | discussion.py | 4 | 0 |
-| 8 | `/api/market` | market.py | 4 | 14 |
+| 8 | `/api/market` | market.py | 4 | 15 |
 | 9 | `/api/dashboard` | dashboard.py | 1 | 2 |
 | 10 | `/api/analysis` | analysis.py | 3 | 0 |
 | 11 | `/api/portfolio` | portfolio.py | 10 | 9 |
 | 12 | `/api/backtest` | backtest.py | 3 | 0 |
 | 13 | `/api/research` | research.py | 0 | 11 |
 | 14 | `/api/backtests` | backtests.py | 0 | 10 |
-| 15 | `/api/instruments` | instruments.py | 0 | 8 |
+| 15 | `/api/instruments` | instruments.py | 0 | 10 |
 | 16 | `/api/screening` | screening.py | 0 | 1 |
 | 17 | `/api/wq` | wq.py | 0 | 10 |
 | 18 | `/api/swarm` | swarm.py | 0 | 4 |
@@ -433,6 +436,6 @@
 | 22 | `/api/settings` | settings.py | 0 | 12 |
 | 23 | `/api/usage` | usage.py | 0 | 1 |
 | 24 | `/api/thesis` | thesis.py | 0 | 14 |
-| | **合计** | | **42** | **122** |
+| | **合计** | | **42** | **125** |
 
-合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 133 个 `/api/*` 路径、168 个 HTTP 操作。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 137 个 `/api/*` 路径、172 个 HTTP 操作。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。

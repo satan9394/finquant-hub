@@ -11,6 +11,7 @@ from .. import database
 from ..services.chip_distribution import ChipDistributionUnavailable, fetch_chip_distribution
 from ..services.instruments import InstrumentService, external_symbol
 from ..services.market_data import MarketDataService, MarketError
+from ..services.a_stock_extra import AStockExtraError, AStockExtraService
 from .auth import CurrentUser, authenticated_context
 
 
@@ -102,6 +103,41 @@ async def get_chip_distribution(
         raise HTTPException(400, str(exc)) from exc
     except ChipDistributionUnavailable as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+@router.get("/{symbol}/money-flow")
+async def get_money_flow(
+    symbol: str,
+    _user: CurrentUser,
+    period: str = Query(default="minute", json_schema_extra={"pattern": "^(minute|120d)$"}),
+) -> dict[str, Any]:
+    svc = AStockExtraService()
+    try:
+        return await svc.money_flow(symbol, period)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await svc.aclose()
+
+
+@router.get("/{symbol}/dragon-tiger")
+async def get_dragon_tiger(
+    symbol: str,
+    _user: CurrentUser,
+    trade_date: str = Query(alias="date", json_schema_extra={"pattern": r"^\d{4}-\d{2}-\d{2}$"}),
+    look_back: int = Query(default=30, json_schema_extra={"minimum": 1, "maximum": 365}),
+) -> dict[str, Any]:
+    svc = AStockExtraService()
+    try:
+        return await svc.dragon_tiger(symbol, trade_date, look_back)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await svc.aclose()
 
 
 @router.get("/{symbol}/workspace")
