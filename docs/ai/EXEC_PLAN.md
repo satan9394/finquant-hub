@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-013: 资金流向走势图——证据卡片从快照升级为时间序列
+## [DONE] BACKLOG-013: 资金流向走势图——证据卡片从快照升级为时间序列
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-013.md`
 **范围**: 纯前端任务（后端零改动、零新依赖）。BACKLOG-012 的资金流向卡片只显示最新五档净流入快照，但服务端 `money_flow` 的 `items` 已有分钟与 120 日完整序列未绘图。本任务：①新建纯函数 `frontend/src/utils/moneyFlowChart.ts`（`moneyFlowTimeToEpoch` 固定 UTC+8 解析 `"YYYY-MM-DD HH:MM"`→epoch 秒、`moneyFlowToAreaData` 映射 items→AreaChartData，无效点丢弃不补造）；②新建 `MoneyFlowChart.tsx` 组件，复用现有 `useLightweightCharts` 的 `setAreaData/switchToArea`（hook 零改动），`theme="light"` 沿用 StockChart 先例（实际色板由 `readChartTokens` CSS 变量自动适配亮暗）；③ResearchWorkspace 资金流向卡片内新增走势图 + 分钟/120 日 `Segmented` 切换（切换只重取资金流，不动其余 allSettled 结果）；④纯函数 ≥4 用例、组件 ≥2 用例、卡片扩展 ≥1 用例、E2E ≤2 轻量用例（断言图表容器与 period 请求，canvas 内容不断言）；⑤i18n 双语 parity 0。零后端改动、零新依赖、无删除。
-**证据**: 待执行
+**证据**: 新增固定 UTC+8 严格解析与 Area 数据映射纯函数、`MoneyFlowChart`（默认 260px、有效数据才创建图表、空序列诚实占位），ResearchWorkspace 资金流卡片接入分钟/120 日 Segmented；切换只重取资金流，其他六项 workspace 请求不重跑，旧序列在 loading overlay 下保留，失败时恢复旧周期选择避免误标。新增纯函数 5、组件 2、workspace 隔离/失败回滚 2、Chromium E2E 1 个用例。生产 build 4,242 modules；全量 Vitest 120/120 files、327/327 tests；Chromium E2E 44/44；zh/en 各 2,262 keys、重复 0、差集 0；`git diff --check` 通过。后端、hook、Playwright 配置、依赖/锁文件、`reference/` 零改动，删除 0；未 commit、未 push。
 
 ---
 

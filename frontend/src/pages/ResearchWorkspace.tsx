@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Alert, Button, Card, Col, Collapse, Descriptions, Empty, Input, List, Row, Skeleton,
-  Space, Statistic, Table, Tag, Typography, message,
+  Alert, Button, Card, Col, Collapse, Descriptions, Empty, Input, List, Row, Segmented,
+  Skeleton, Space, Spin, Statistic, Table, Tag, Typography, message,
 } from 'antd';
 import {
   ArrowRightOutlined, ExperimentOutlined, FileSearchOutlined, ReloadOutlined,
@@ -13,6 +13,7 @@ import SwarmStatusCard from '../components/SwarmStatusCard';
 import TaskPageHeader from '../components/TaskPageHeader';
 import ResultLayer from '../components/ResultLayer';
 import EvidenceChip from '../components/EvidenceChip';
+import MoneyFlowChart from '../components/MoneyFlowChart';
 import ResearchContinuity from '../components/research/ResearchContinuity';
 import ResearchTimeline from '../components/research/ResearchTimeline';
 import ResearchIntentPicker from '../components/research/ResearchIntentPicker';
@@ -49,6 +50,7 @@ import type {
 import { useLanguage } from '../i18n/LanguageContext';
 import type { Language } from '../i18n';
 import { formatWan, shanghaiToday } from '../utils/formatAStock';
+import type { MoneyFlowPeriod } from '../utils/moneyFlowChart';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -195,6 +197,9 @@ function ResearchWorkspaceCore() {
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
   const [chips, setChips] = useState<ChipDistributionResponse | null>(null);
   const [moneyFlow, setMoneyFlow] = useState<MoneyFlowResponse | null>(null);
+  const [moneyFlowPeriod, setMoneyFlowPeriod] = useState<MoneyFlowPeriod>('minute');
+  const [moneyFlowLoading, setMoneyFlowLoading] = useState(false);
+  const moneyFlowPeriodRef = useRef<MoneyFlowPeriod>('minute');
   const [dragonTiger, setDragonTiger] = useState<DragonTigerResponse | null>(null);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
@@ -263,7 +268,7 @@ function ResearchWorkspaceCore() {
       ? fetchChipDistribution(currentSymbol)
       : Promise.resolve(null);
     const moneyFlowRequest: Promise<MoneyFlowResponse | null> = isAShare
-      ? fetchMoneyFlow(currentSymbol)
+      ? fetchMoneyFlow(currentSymbol, moneyFlowPeriodRef.current)
       : Promise.resolve(null);
     const dragonTigerRequest: Promise<DragonTigerResponse | null> = isAShare
       ? fetchDragonTiger(currentSymbol, shanghaiToday())
@@ -302,6 +307,29 @@ function ResearchWorkspaceCore() {
   }, [currentSymbol, t]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+
+  const changeMoneyFlowPeriod = useCallback(async (period: MoneyFlowPeriod) => {
+    const previousPeriod = moneyFlowPeriodRef.current;
+    moneyFlowPeriodRef.current = period;
+    setMoneyFlowPeriod(period);
+    setMoneyFlowLoading(true);
+    const errorPrefix = t('research.error.moneyFlow', { error: '' });
+    try {
+      const response = await fetchMoneyFlow(currentSymbol, period);
+      setMoneyFlow(response);
+      setErrors((current) => current.filter((error) => !error.startsWith(errorPrefix)));
+    } catch (error) {
+      moneyFlowPeriodRef.current = previousPeriod;
+      setMoneyFlowPeriod(previousPeriod);
+      const detail = error instanceof Error ? error.message : t('research.error.loadFailed');
+      setErrors((current) => [
+        ...current.filter((item) => !item.startsWith(errorPrefix)),
+        t('research.error.moneyFlow', { error: detail }),
+      ]);
+    } finally {
+      setMoneyFlowLoading(false);
+    }
+  }, [currentSymbol, t]);
 
   const loadContinuity = useCallback(async () => {
     if (!currentSymbol) return;
@@ -600,28 +628,50 @@ function ResearchWorkspaceCore() {
                   </Card>
 
                   <Card title={t('research.moneyFlow.title')} className="surface-card" style={{ marginTop: 18 }} data-testid="money-flow-card">
-                    {moneyFlow?.items.length ? (
-                      <>
-                        <Row gutter={[12, 12]}>
-                          {[
-                            [t('research.moneyFlow.mainNet'), moneyFlow.main_net],
-                            [t('research.moneyFlow.superLargeNet'), latestMoneyFlow?.super_large_net],
-                            [t('research.moneyFlow.largeNet'), latestMoneyFlow?.large_net],
-                            [t('research.moneyFlow.mediumNet'), latestMoneyFlow?.medium_net],
-                            [t('research.moneyFlow.smallNet'), latestMoneyFlow?.small_net],
-                          ].map(([label, value]) => (
-                            <Col xs={12} md={8} key={String(label)}>
-                              <Statistic title={label} value={formatWan(value as number | null | undefined)} />
-                            </Col>
-                          ))}
-                        </Row>
-                        <Descriptions column={{ xs: 1, sm: 3 }} size="small" style={{ marginTop: 16 }}>
-                          <Descriptions.Item label={t('research.moneyFlow.asOf')}>{moneyFlow.as_of ?? t('research.unknown')}</Descriptions.Item>
-                          <Descriptions.Item label={t('research.moneyFlow.period')}>{t(`research.moneyFlow.period.${moneyFlow.period}`)}</Descriptions.Item>
-                          <Descriptions.Item label={t('research.moneyFlow.source')}>{moneyFlow.source} · {moneyFlow.quality}</Descriptions.Item>
-                        </Descriptions>
-                      </>
-                    ) : <Empty description={t('research.moneyFlow.empty')} />}
+                    <Spin spinning={moneyFlowLoading}>
+                      {moneyFlow ? (
+                        <>
+                          {moneyFlow.items.length ? (
+                            <>
+                              <Row gutter={[12, 12]}>
+                                {[
+                                  [t('research.moneyFlow.mainNet'), moneyFlow.main_net],
+                                  [t('research.moneyFlow.superLargeNet'), latestMoneyFlow?.super_large_net],
+                                  [t('research.moneyFlow.largeNet'), latestMoneyFlow?.large_net],
+                                  [t('research.moneyFlow.mediumNet'), latestMoneyFlow?.medium_net],
+                                  [t('research.moneyFlow.smallNet'), latestMoneyFlow?.small_net],
+                                ].map(([label, value]) => (
+                                  <Col xs={12} md={8} key={String(label)}>
+                                    <Statistic title={label} value={formatWan(value as number | null | undefined)} />
+                                  </Col>
+                                ))}
+                              </Row>
+                              <Descriptions column={{ xs: 1, sm: 3 }} size="small" style={{ marginTop: 16 }}>
+                                <Descriptions.Item label={t('research.moneyFlow.asOf')}>{moneyFlow.as_of ?? t('research.unknown')}</Descriptions.Item>
+                                <Descriptions.Item label={t('research.moneyFlow.period')}>{t(`research.moneyFlow.period.${moneyFlow.period}`)}</Descriptions.Item>
+                                <Descriptions.Item label={t('research.moneyFlow.source')}>{moneyFlow.source} · {moneyFlow.quality}</Descriptions.Item>
+                              </Descriptions>
+                            </>
+                          ) : <Empty description={t('research.moneyFlow.empty')} />}
+                          <div style={{ marginTop: 16 }}>
+                            <Space wrap style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
+                              <Text strong>{t('research.moneyFlow.chart')}</Text>
+                              <Segmented
+                                aria-label={t('research.moneyFlow.periodSwitch')}
+                                disabled={moneyFlowLoading}
+                                value={moneyFlowPeriod}
+                                options={[
+                                  { label: t('research.moneyFlow.period.minute'), value: 'minute' },
+                                  { label: t('research.moneyFlow.period.120d'), value: '120d' },
+                                ]}
+                                onChange={(value) => { void changeMoneyFlowPeriod(value as MoneyFlowPeriod); }}
+                              />
+                            </Space>
+                            <MoneyFlowChart items={moneyFlow.items} period={moneyFlow.period} />
+                          </div>
+                        </>
+                      ) : <Empty description={t('research.moneyFlow.empty')} />}
+                    </Spin>
                   </Card>
 
                   <Card title={t('research.dragonTiger.title')} className="surface-card" style={{ marginTop: 18 }} data-testid="dragon-tiger-card">

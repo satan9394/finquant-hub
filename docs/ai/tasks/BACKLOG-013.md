@@ -1,6 +1,6 @@
 # BACKLOG-013 — 资金流向走势图：证据卡片从快照升级为时间序列
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-01 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-01 ｜ 完成：2026-09-01 ｜ 执行者：Codex
 > 背景：BACKLOG-012 已把资金流向接上 ResearchWorkspace（`/api/instruments/{symbol}/money-flow` 端点 + 资金流向证据卡片）。当前卡片只显示**最新五档净流入快照**（主力/超大单/大单/中单/小单），而服务端 `money_flow` 返回的 `items` 里已有完整分钟序列（push2 klt=1 全天分时）与 120 日序列（push2his daykline），前端未绘图——数据在，证据没用起来。本任务把资金流向卡片从"最新快照"升级为"快照 + 时间序列走势图"，并在卡片内提供 **分钟 / 120 日**周期切换。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -101,8 +101,8 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（组件/纯函数/页面/i18n/测试/文档）
-- 纯函数与组件清单（函数签名、组件 props、渲染行为）
-- 测试数；全量套件结果（build/Vitest/E2E 前后对比）
-- 依赖变化（应为零）；后端零改动确认
-- 记录决策确认（图表用 Area 序列、主题沿用 light + CSS 变量自适应、无效点丢弃不补造）
+- **修改文件清单**：新增 `frontend/src/utils/moneyFlowChart.ts`、`frontend/src/components/MoneyFlowChart.tsx`、`frontend/tests/moneyFlowChart.test.ts`、`frontend/tests/MoneyFlowChart.test.tsx`、`frontend/e2e/money-flow.spec.ts`；修改 `frontend/src/pages/ResearchWorkspace.tsx`、`frontend/src/i18n/zh.ts`、`frontend/src/i18n/en.ts`、`frontend/tests/ResearchWorkspaceEvidence.test.tsx`；同步本卡、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+- **纯函数与组件**：`moneyFlowTimeToEpoch(time: string): number | null` 用固定 UTC+8 严格解析分钟时间；`moneyFlowToAreaData(items, period): AreaChartData[]` 以新数组映射 `main_net`，分钟输出 epoch 秒、120 日保留原始日期。`MoneyFlowChart({ items, period, height = 260 })` 仅在有效映射非空时创建 `data-testid="money-flow-chart"` 容器并调用共享 hook 的 `switchToArea`；空序列显示双语诚实占位。ResearchWorkspace 默认分钟，切换时仅调用 `fetchMoneyFlow(currentSymbol, period)`，其他六项 workspace 请求不重跑；切换期间用 `Spin` 保留旧序列，响应完成后原子替换。
+- **测试与全量门禁**：新增纯函数 5 个用例、组件 2 个用例、ResearchWorkspace 周期隔离与失败回滚 2 个用例、Chromium E2E 1 个用例。专项 Vitest 3 files / 11 tests 通过；生产 build 通过，4,240 → 4,242 modules；全量 Vitest 118 files / 318 tests → 120 files / 327 tests 全绿；Chromium E2E 43 → 44 tests 全绿（配置保持 workers:2 / retries:1）；`git diff --check` 通过。zh/en 各 2,262 keys，重复 0、差集 0。
+- **边界审计**：`backend/`、`frontend/src/hooks/useLightweightCharts.ts`、`frontend/playwright.config.ts`、所有 package/lock 文件、`reference/` 均零改动；依赖变化 0；删除 0；无端点变化，因此未修改 `docs/API_CONTRACT.md`。未 commit、未 push。
+- **记录决策**：走势图使用现有 lightweight-charts Area 序列；主题沿用 `theme: 'light'`，真实亮暗配色继续由 hook 内 `readChartTokens()` 的 CSS 变量自适应；无效时间、无效日期与 null/NaN/±Infinity 金额全部丢弃，不估算、不插值、不补造。
