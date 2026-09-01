@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-014: 榜单交互闭环——涨停池点击穿透 + 龙虎榜日期切换
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-014.md`
+**范围**: 纯前端任务（后端零改动、零新依赖）。把 BACKLOG-012 上线的两个静态榜单变成可交互入口：①LimitPool 页 `code` 列渲染为 `<Link to={`/research/${encodeURIComponent(code)}`}>`（沿用 ResearchContinuity 的 Link 先例，Link 天然键盘可达），穿透到个股研究工作区；②ResearchWorkspace 龙虎榜卡片加 DatePicker（禁未来，默认今天上海时区），复用 BACKLOG-013 的 `changeMoneyFlowPeriod` 模式实现 `changeDragonTigerDate`——只重取龙虎榜（ref 记当前值、Spin 保留旧数据、失败回滚旧日期 + 错误去重），服务端 `date` 为窗口终点语义（返回 [date-30d, date] 内最近上榜记录），卡片 hint 文案说明 + `record.date` 显示实际上榜日；③新增 LimitPool 组件测试 ≥2、ResearchWorkspaceEvidence 扩展 ≥2（含失败回滚）、E2E +2（limit-pool 穿透导航、dragon-tiger 日期请求）；④i18n 双语 parity 0；⑤无记录用服务端 `note` Empty 不补造。零后端改动、零新依赖、无删除。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-013: 资金流向走势图——证据卡片从快照升级为时间序列
 
 **优先级**: P1
