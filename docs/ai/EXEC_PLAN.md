@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-013: 资金流向走势图——证据卡片从快照升级为时间序列
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-013.md`
+**范围**: 纯前端任务（后端零改动、零新依赖）。BACKLOG-012 的资金流向卡片只显示最新五档净流入快照，但服务端 `money_flow` 的 `items` 已有分钟与 120 日完整序列未绘图。本任务：①新建纯函数 `frontend/src/utils/moneyFlowChart.ts`（`moneyFlowTimeToEpoch` 固定 UTC+8 解析 `"YYYY-MM-DD HH:MM"`→epoch 秒、`moneyFlowToAreaData` 映射 items→AreaChartData，无效点丢弃不补造）；②新建 `MoneyFlowChart.tsx` 组件，复用现有 `useLightweightCharts` 的 `setAreaData/switchToArea`（hook 零改动），`theme="light"` 沿用 StockChart 先例（实际色板由 `readChartTokens` CSS 变量自动适配亮暗）；③ResearchWorkspace 资金流向卡片内新增走势图 + 分钟/120 日 `Segmented` 切换（切换只重取资金流，不动其余 allSettled 结果）；④纯函数 ≥4 用例、组件 ≥2 用例、卡片扩展 ≥1 用例、E2E ≤2 轻量用例（断言图表容器与 period 请求，canvas 内容不断言）；⑤i18n 双语 parity 0。零后端改动、零新依赖、无删除。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-012: A 股深度能力前端接线——资金流向/龙虎榜/涨停池
 
 **优先级**: P1
