@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-021: 回收 v1 回测（路由下线 + 引擎回收 + 契约/测试同步）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-021.md`
+**范围**: SCOPE_FREEZE §3.3 P2 明确规划但未完成的回收项。v1 回测（`routers/backtest.py` + `backtest/engine.py`，`/api/backtest` 3 路由，旧收盘价向量化）前端零调用，v2（`backtests.py` + ma_crossover，A 股规则）已完整接管且 Agent 工具用 v2。本任务：①`main.py` L138 移除 `backtest.router` 注册（保留 v2 backtests）；②回收 `routers/backtest.py`、`backtest/engine.py`、`tests/test_backtest_engine.py`（**进回收站，禁 rm**）；③`test_backlog007_router_branches.py` 移除两个 v1 测试函数、`test_router_contracts.py` 移除 v1 契约行；④OpenAPI 核对（`/api/backtest` 3 路径消失、`/api/backtests` 9 路径完整）；⑤`docs/API_CONTRACT.md` §9 标注回收、ARCHITECTURE 更新、CHANGELOG 带日期标题。**保留**：`backtest_runs` 表（schema 不删）、`metrics.py`（alpha_simulator 依赖）、v2 全套、Agent 工具、共享测试。全量 pytest 全绿、覆盖率不降、ruff；零新依赖、无 rm、不删表。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-020: 筹码分布历史序列走势图
 
 **优先级**: P1
