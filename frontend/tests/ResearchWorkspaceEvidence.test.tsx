@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LanguageProvider } from '../src/i18n/LanguageContext';
@@ -70,10 +70,22 @@ function selectDragonTigerDate(date: string) {
   fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13 });
 }
 
+function dragonTigerHistory(): DragonTigerResponse {
+  const response = dragonTigerResponse();
+  return {
+    ...response,
+    items: [response.items[0], {
+      code: '600519', name: '贵州茅台', date: '2026-08-19', reason: '历史上榜原因',
+      net: -90, unit: 'CNY_10K', top5_buy: [], top5_sell: [],
+    }],
+  };
+}
+
 function renderWorkspace() {
   return render(
     <LanguageProvider>
       <MemoryRouter initialEntries={['/research/600519']}>
+        <Link to="/research/000001">切换到平安银行</Link>
         <Routes><Route path="/research/:symbol" element={<ResearchWorkspace />} /></Routes>
       </MemoryRouter>
     </LanguageProvider>,
@@ -129,8 +141,130 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     expect(within(moneyFlowCard).getAllByText('分钟')).toHaveLength(2);
     expect(within(moneyFlowCard).getByTestId('money-flow-chart')).toBeTruthy();
     const dragonTigerCard = screen.getByTestId('dragon-tiger-card');
-    expect(within(dragonTigerCard).getByText('日涨幅偏离值达7%')).toBeTruthy();
+    expect(within(within(dragonTigerCard).getByTestId('dragon-tiger-detail')).getByText('日涨幅偏离值达7%')).toBeTruthy();
     expect(within(dragonTigerCard).getByText('机构专用')).toBeTruthy();
+  });
+
+  it('lists all dragon-tiger records and selects the latest record with its original seats by default', async () => {
+    const response = dragonTigerHistory();
+    response.items[0].top5_sell = [{ name: '沪股通专用', buy: 100, sell: 250, net: -150, unit: 'CNY_10K' }];
+    api.fetchDragonTiger.mockResolvedValue(response);
+    renderWorkspace();
+
+    const card = await screen.findByTestId('dragon-tiger-card');
+    const list = within(card).getByLabelText('选择龙虎榜上榜记录');
+    expect(within(list).getAllByRole('button')).toHaveLength(2);
+    expect(within(list).getByRole('button', { name: '2026-08-28 日涨幅偏离值达7% 120.00 万元', pressed: true })).toBeTruthy();
+    expect(within(list).getByRole('button', { name: '2026-08-19 历史上榜原因 -90.00 万元', pressed: false })).toBeTruthy();
+    const detail = within(card).getByTestId('dragon-tiger-detail');
+    for (const text of ['600519', '贵州茅台', '2026-08-28', '日涨幅偏离值达7%', '120.00 万元']) {
+      expect(within(detail).getByText(text)).toBeTruthy();
+    }
+    expect(within(card).getByText('机构专用')).toBeTruthy();
+    expect(within(card).getByText('沪股通专用')).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-seats')).getAllByRole('table')).toHaveLength(2);
+  });
+
+  it('switches listing details locally, shows honest missing seats and restores the latest seats', async () => {
+    api.fetchDragonTiger.mockResolvedValue(dragonTigerHistory());
+    renderWorkspace();
+    const card = await screen.findByTestId('dragon-tiger-card');
+    const calls = api.fetchDragonTiger.mock.calls.length;
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-19 历史上榜原因/ }));
+
+    const detail = within(card).getByTestId('dragon-tiger-detail');
+    for (const text of ['2026-08-19', '历史上榜原因', '-90.00 万元']) {
+      expect(within(detail).getByText(text)).toBeTruthy();
+    }
+    expect(within(detail).queryByText('日涨幅偏离值达7%')).toBeNull();
+    expect(within(card).getByRole('button', { name: /2026-08-19/, pressed: true })).toBeTruthy();
+    expect(within(card).getByText('该次上榜无买卖席位明细（东财仅提供最近一次席位 TOP5）')).toBeTruthy();
+    expect(within(card).queryByTestId('dragon-tiger-seats')).toBeNull();
+    expect(within(card).queryByText('机构专用')).toBeNull();
+    expect(api.fetchDragonTiger).toHaveBeenCalledTimes(calls);
+
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-28/ }));
+    expect(within(card).getByText('机构专用')).toBeTruthy();
+    expect(within(card).queryByText('该次上榜无买卖席位明细（东财仅提供最近一次席位 TOP5）')).toBeNull();
+    expect(api.fetchDragonTiger).toHaveBeenCalledTimes(calls);
+  });
+
+  it('renders actual historical seats if provided instead of forcing a latest-only placeholder', async () => {
+    const response = dragonTigerHistory();
+    response.items[1].top5_sell = [{ name: '历史卖出席位', buy: null, sell: 60, net: null, unit: 'CNY_10K' }];
+    api.fetchDragonTiger.mockResolvedValue(response);
+    renderWorkspace();
+    const card = await screen.findByTestId('dragon-tiger-card');
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-19/ }));
+
+    expect(within(card).getByText('历史卖出席位')).toBeTruthy();
+    expect(within(card).getByText('60.00 万元')).toBeTruthy();
+    expect(within(card).queryByText('机构专用')).toBeNull();
+    expect(within(card).queryByText('该次上榜无买卖席位明细（东财仅提供最近一次席位 TOP5）')).toBeNull();
+  });
+
+  it('retains historical selection while the date loads and resets only on success, including shorter windows', async () => {
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerHistory());
+    let resolveRequest!: (value: DragonTigerResponse) => void;
+    api.fetchDragonTiger.mockImplementationOnce(() => new Promise<DragonTigerResponse>((resolve) => {
+      resolveRequest = resolve;
+    }));
+    renderWorkspace();
+    const card = await screen.findByTestId('dragon-tiger-card');
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-19/ }));
+    selectDragonTigerDate('2026-08-20');
+    await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('600519', '2026-08-20'));
+    expect(within(card).getByRole('button', { name: /2026-08-19/, pressed: true })).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('历史上榜原因')).toBeTruthy();
+
+    await act(async () => resolveRequest(dragonTigerResponse('2026-08-18', '新窗口最近上榜')));
+    expect(within(card).getByRole('button', { name: /2026-08-18/, pressed: true })).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('新窗口最近上榜')).toBeTruthy();
+    expect(within(card).getByText('机构专用')).toBeTruthy();
+  });
+
+  it('keeps historical selection after a failed date and resets after a successful workspace retry', async () => {
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerHistory());
+    api.fetchDragonTiger.mockRejectedValueOnce(new Error('历史龙虎榜不可用'));
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerHistory());
+    renderWorkspace();
+    let card = await screen.findByTestId('dragon-tiger-card');
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-19/ }));
+    selectDragonTigerDate('2026-08-20');
+    await screen.findByText('龙虎榜：历史龙虎榜不可用');
+    expect(within(card).getByRole('button', { name: /2026-08-19/, pressed: true })).toBeTruthy();
+    expect((within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement).value).toBe(shanghaiToday());
+
+    fireEvent.click(screen.getByRole('button', { name: /重试/ }));
+    card = await screen.findByTestId('dragon-tiger-card');
+    expect(within(card).getByRole('button', { name: /2026-08-28/, pressed: true })).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('日涨幅偏离值达7%')).toBeTruthy();
+    expect(api.fetchDragonTiger).toHaveBeenCalledTimes(3);
+    expect(api.fetchInstrumentSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('resets selection on a real symbol navigation when the same workspace component is reused', async () => {
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerHistory());
+    const response = dragonTigerResponse('2026-08-27', '平安银行最近上榜');
+    response.ticker = '000001';
+    response.items[0] = { ...response.items[0], code: '000001', name: '平安银行' };
+    api.fetchDragonTiger.mockResolvedValueOnce(response);
+    api.fetchInstrumentSnapshot.mockResolvedValueOnce(snapshot).mockResolvedValueOnce({
+      ...snapshot, instrument: { ...snapshot.instrument, symbol: '000001', name: '平安银行' },
+    });
+    renderWorkspace();
+    let card = await screen.findByTestId('dragon-tiger-card');
+    fireEvent.click(within(card).getByRole('button', { name: /2026-08-19/ }));
+    fireEvent.click(screen.getByRole('link', { name: '切换到平安银行' }));
+
+    await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('000001', shanghaiToday()));
+    card = await screen.findByTestId('dragon-tiger-card');
+    expect(within(card).getByRole('button', { name: /2026-08-27/, pressed: true })).toBeTruthy();
+    const detail = within(card).getByTestId('dragon-tiger-detail');
+    for (const text of ['000001', '平安银行', '平安银行最近上榜']) {
+      expect(within(detail).getByText(text)).toBeTruthy();
+    }
+    expect(within(card).queryByText('历史上榜原因')).toBeNull();
   });
 
   it('keeps both cards visible with honest Empty fallbacks when fetchers fail', async () => {
@@ -211,12 +345,12 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     expect(input.value).toBe('2026-08-20');
     expect(input.disabled).toBe(true);
     expect(card.querySelector('.ant-spin-spinning')).toBeTruthy();
-    expect(within(card).getByText('日涨幅偏离值达7%')).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('日涨幅偏离值达7%')).toBeTruthy();
 
     await act(async () => resolveRequest(dragonTigerResponse('2026-08-19', '历史上榜原因')));
 
-    expect(within(card).getByText('历史上榜原因')).toBeTruthy();
-    expect(within(card).getByText('2026-08-19')).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('历史上榜原因')).toBeTruthy();
+    expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('2026-08-19')).toBeTruthy();
     expect(within(card).getByText('显示截至所选日期的最近上榜记录')).toBeTruthy();
     expect(within(card).queryByText('日涨幅偏离值达7%')).toBeNull();
     expect(input.value).toBe('2026-08-20');
@@ -238,7 +372,7 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     const card = await screen.findByTestId('dragon-tiger-card');
     const input = within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement;
     selectDragonTigerDate('2026-08-20');
-    await within(card).findByText('历史上榜原因');
+    await within(within(card).getByTestId('dragon-tiger-detail')).findByText('历史上榜原因');
     const previousDate = input.value;
     const snapshotCalls = api.fetchInstrumentSnapshot.mock.calls.length;
     for (const date of ['2026-08-21', '2026-08-22']) {
@@ -246,8 +380,8 @@ describe('ResearchWorkspace A-share evidence cards', () => {
       await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('600519', date));
       await waitFor(() => expect(input.value).toBe(previousDate));
       expect(screen.getAllByText('龙虎榜：历史龙虎榜不可用')).toHaveLength(1);
-      expect(within(card).getByText('历史上榜原因')).toBeTruthy();
-      expect(within(card).getByText('2026-08-19')).toBeTruthy();
+      expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('历史上榜原因')).toBeTruthy();
+      expect(within(within(card).getByTestId('dragon-tiger-detail')).getByText('2026-08-19')).toBeTruthy();
       expect(input.disabled).toBe(false);
     }
 

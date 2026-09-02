@@ -202,6 +202,7 @@ function ResearchWorkspaceCore() {
   const [moneyFlowLoading, setMoneyFlowLoading] = useState(false);
   const moneyFlowPeriodRef = useRef<MoneyFlowPeriod>('minute');
   const [dragonTiger, setDragonTiger] = useState<DragonTigerResponse | null>(null);
+  const [selectedDragonTigerIndex, setSelectedDragonTigerIndex] = useState<number>(0);
   const [dragonTigerDate, setDragonTigerDate] = useState<string>(() => shanghaiToday());
   const dragonTigerDateRef = useRef(dragonTigerDate);
   const [dragonTigerLoading, setDragonTigerLoading] = useState(false);
@@ -304,8 +305,10 @@ function ResearchWorkspaceCore() {
     else nextErrors.push(t('research.error.chips', { error: outcomes[4].reason?.message ?? t('research.error.loadFailed') }));
     if (outcomes[5].status === 'fulfilled') setMoneyFlow(outcomes[5].value);
     else nextErrors.push(t('research.error.moneyFlow', { error: outcomes[5].reason?.message ?? t('research.error.loadFailed') }));
-    if (outcomes[6].status === 'fulfilled') setDragonTiger(outcomes[6].value);
-    else nextErrors.push(t('research.error.dragonTiger', { error: outcomes[6].reason?.message ?? t('research.error.loadFailed') }));
+    if (outcomes[6].status === 'fulfilled') {
+      setDragonTiger(outcomes[6].value);
+      setSelectedDragonTigerIndex(0);
+    } else nextErrors.push(t('research.error.dragonTiger', { error: outcomes[6].reason?.message ?? t('research.error.loadFailed') }));
     setErrors(nextErrors);
     setLoading(false);
   }, [currentSymbol, t]);
@@ -344,6 +347,7 @@ function ResearchWorkspaceCore() {
     try {
       const response = await fetchDragonTiger(currentSymbol, date);
       setDragonTiger(response);
+      setSelectedDragonTigerIndex(0);
       setErrors((current) => current.filter((error) => !error.startsWith(errorPrefix)));
     } catch (error) {
       dragonTigerDateRef.current = previousDate;
@@ -715,7 +719,7 @@ function ResearchWorkspaceCore() {
                         <Text type="secondary">{t('research.dragonTiger.dateHint')}</Text>
                       </Space>
                       {dragonTiger?.items.length ? (() => {
-                        const record = dragonTiger.items[0];
+                        const record = dragonTiger.items[selectedDragonTigerIndex];
                         const columns = [
                           { title: t('research.dragonTiger.seat'), dataIndex: 'name', key: 'name' },
                           { title: t('research.dragonTiger.buy'), dataIndex: 'buy', key: 'buy', render: (value: number | null) => formatWan(value, 'CNY_10K') },
@@ -724,12 +728,38 @@ function ResearchWorkspaceCore() {
                         ];
                         return (
                           <>
-                            <Descriptions column={{ xs: 1, sm: 3 }} size="small">
+                            <div role="group" aria-label={t('research.dragonTiger.selectRecord')}>
+                              <List
+                                header={<Text strong>{t('research.dragonTiger.historyTitle')}</Text>}
+                                dataSource={dragonTiger.items}
+                                renderItem={(item, index) => (
+                                  <List.Item>
+                                    <Button
+                                      block
+                                      type={selectedDragonTigerIndex === index ? 'primary' : 'default'}
+                                      aria-label={`${item.date} ${item.reason} ${formatWan(item.net, 'CNY_10K')}`}
+                                      aria-pressed={selectedDragonTigerIndex === index}
+                                      onClick={() => setSelectedDragonTigerIndex(index)}
+                                      style={{ height: 'auto', textAlign: 'left' }}
+                                    >
+                                      <span style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 8, width: '100%' }}>
+                                        <span>{item.date}</span>
+                                        <span title={item.reason} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.reason}</span>
+                                        <span>{formatWan(item.net, 'CNY_10K')}</span>
+                                      </span>
+                                    </Button>
+                                  </List.Item>
+                                )}
+                              />
+                            </div>
+                            <Descriptions column={{ xs: 1, sm: 3 }} size="small" data-testid="dragon-tiger-detail">
+                              <Descriptions.Item label={t('research.dragonTiger.code')}>{record.code}</Descriptions.Item>
+                              <Descriptions.Item label={t('research.dragonTiger.name')}>{record.name}</Descriptions.Item>
                               <Descriptions.Item label={t('research.dragonTiger.date')}>{record.date}</Descriptions.Item>
                               <Descriptions.Item label={t('research.dragonTiger.reason')}>{record.reason}</Descriptions.Item>
                               <Descriptions.Item label={t('research.dragonTiger.net')}>{formatWan(record.net, 'CNY_10K')}</Descriptions.Item>
                             </Descriptions>
-                            <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
+                            {record.top5_buy.length || record.top5_sell.length ? <Row gutter={[12, 12]} style={{ marginTop: 16 }} data-testid="dragon-tiger-seats">
                               <Col xs={24} lg={12}>
                                 <Title level={5}>{t('research.dragonTiger.topBuy')}</Title>
                                 <Table<DragonTigerSeat> size="small" pagination={false} columns={columns} dataSource={record.top5_buy} rowKey={(seat) => `buy-${seat.name}-${seat.buy}`} scroll={{ x: 'max-content' }} />
@@ -738,7 +768,7 @@ function ResearchWorkspaceCore() {
                                 <Title level={5}>{t('research.dragonTiger.topSell')}</Title>
                                 <Table<DragonTigerSeat> size="small" pagination={false} columns={columns} dataSource={record.top5_sell} rowKey={(seat) => `sell-${seat.name}-${seat.sell}`} scroll={{ x: 'max-content' }} />
                               </Col>
-                            </Row>
+                            </Row> : <Empty description={t('research.dragonTiger.noSeats')} />}
                           </>
                         );
                       })() : <Empty description={dragonTiger?.note ?? t('research.dragonTiger.empty')} />}

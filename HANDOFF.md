@@ -207,3 +207,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-01 维护者独立复核 BACKLOG-013 通过：审阅 moneyFlowChart 纯函数/MoneyFlowChart 组件/ResearchWorkspace 周期切换（只重取资金流+失败回滚）/测试/E2E/文档边界，后端、chart hook、playwright 配置、依赖零改动，无删除 | 验证: build 4,242 modules；Vitest 120/327；E2E 44/44；zh/en parity 2262/2262 差集0；git diff --check 通过；已提交
 
 - 2026-09-02 维护者独立复核 BACKLOG-014 通过：审阅 LimitPool 穿透 Link/ResearchWorkspace 龙虎榜日期切换（复用 changeMoneyFlowPeriod 模式，只重取+失败回滚）/测试（真实 MemoryRouter 导航、pending 保留、错误去重）/E2E，后端、chart hook、playwright 配置、既有 E2E 断言零改动，无删除 | 验证: build 4,242 modules；Vitest 121/331；E2E 46/46；zh/en parity 2265/2265 差集0；git diff --check 通过；已提交
+
+- 2026-09-02 维护者独立复核 BACKLOG-015 通过：审阅 ResearchWorkspace 龙虎榜历史上榜记录列表（selectedDragonTigerIndex 选中切换不重请求、历史条目席位占位、切日期/代码/重载重置选中）/测试（多记录、本地切换、占位、若历史有席位则渲染、失败保留选中）/E2E（含键盘可达），后端、chart hook、playwright 配置、既有 E2E 断言零改动，无删除 | 验证: build 4,242 modules；Vitest 121/337；E2E 47/47；zh/en parity 2270/2270 差集0；git diff --check 通过；已提交

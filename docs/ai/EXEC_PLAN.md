@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-015: 龙虎榜历史上榜记录列表
+## [DONE] BACKLOG-015: 龙虎榜历史上榜记录列表
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-015.md`
 **范围**: 纯前端任务（后端零改动、零新依赖）。当前 ResearchWorkspace 龙虎榜卡片只渲染 `items[0]`（窗口内最近一次上榜），但服务端返回整个 `items` 数组（窗口内多次上榜）。本任务升级为历史记录列表：①新增本地 state `selectedDragonTigerIndex`（默认 0），渲染全部上榜记录（上榜日/原因/净买额）供点击选中，主体渲染当前选中 item——选中切换**不重新请求**，纯前端 state；②仅 `items[0]` 由服务端附带席位 TOP5，历史条目 `top5_buy/sell` 为空数组时用占位说明文案（不补造）；③`loadWorkspace` 与 `changeDragonTigerDate` 成功后重置选中到 0；④`items[0]` 席位展示逻辑不回归；⑤扩展 ResearchWorkspaceEvidence ≥3 用例（多记录渲染/选中切换且不重请求/席位占位/重置）+ E2E dragon-tiger +1 用例；⑥i18n 双语 parity 0，切日期/代码重置选中。零后端改动、零新依赖、无删除。
-**证据**: 待执行
+**证据**: ResearchWorkspace 用 List + Button 展示窗口内全部上榜记录，`selectedDragonTigerIndex` 默认 0，选中高亮/可访问名称/键盘激活；详情使用当前条目的 code/name/date/reason/net，双席位数组均空时诚实占位，历史真实席位可自然展示，选择不重取数据。仅龙虎榜加载/日期请求成功后重置，pending/失败保留旧选中及原日期回滚。新增 6 项组件测试（专项 12/12）与 1 项 E2E；2026-09-02 build → 全量 Vitest → 全量 E2E 通过：4,242 modules、59 OpenAPI schemas fresh、121/121 files / 337/337 tests（933.95s）、Chromium 47/47（58.9s，workers:2/retries:1，无重试）。首轮新增 E2E 的 StrictMode 初始请求数假设已修正为切换前后计数严格相等，原 46 项均通过；既有龙虎榜 E2E 仅 4 个详情 locator 收窄，断言语义与请求条件不变。zh/en 各 2,270 keys、重复/差集 0；diff check 和 8 文件白名单通过，后端/chart hook/Playwright 配置/依赖零改动、无删除，HEAD 保持 891416e，未 commit/push。完整证据见任务卡。
 
 ---
 
