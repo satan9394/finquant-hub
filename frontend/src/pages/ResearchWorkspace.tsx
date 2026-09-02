@@ -14,6 +14,7 @@ import SwarmStatusCard from '../components/SwarmStatusCard';
 import TaskPageHeader from '../components/TaskPageHeader';
 import ResultLayer from '../components/ResultLayer';
 import EvidenceChip from '../components/EvidenceChip';
+import ChipHistoryChart from '../components/ChipHistoryChart';
 import MoneyFlowChart from '../components/MoneyFlowChart';
 import ResearchContinuity from '../components/research/ResearchContinuity';
 import ResearchTimeline from '../components/research/ResearchTimeline';
@@ -52,6 +53,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import type { Language } from '../i18n';
 import { formatWan, shanghaiToday } from '../utils/formatAStock';
 import type { MoneyFlowPeriod } from '../utils/moneyFlowChart';
+import type { ChipSeriesField } from '../utils/chipChart';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -197,6 +199,7 @@ function ResearchWorkspaceCore() {
   const [bars, setBars] = useState<BarsResponse | null>(null);
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null);
   const [chips, setChips] = useState<ChipDistributionResponse | null>(null);
+  const [chipSeriesField, setChipSeriesField] = useState<ChipSeriesField>('profit_ratio');
   const [moneyFlow, setMoneyFlow] = useState<MoneyFlowResponse | null>(null);
   const [moneyFlowPeriod, setMoneyFlowPeriod] = useState<MoneyFlowPeriod>('minute');
   const [moneyFlowLoading, setMoneyFlowLoading] = useState(false);
@@ -638,7 +641,7 @@ function ResearchWorkspaceCore() {
 
               {/^\d{6}$/.test(currentSymbol) && (
                 <>
-                  <Card title={t('research.chips')} className="surface-card" style={{ marginTop: 18 }}>
+                  <Card title={t('research.chips')} className="surface-card" style={{ marginTop: 18 }} data-testid="chip-card">
                     {chips ? (
                       <>
                         <Row gutter={[12, 12]}>
@@ -654,6 +657,23 @@ function ResearchWorkspaceCore() {
                           <Descriptions.Item label={t('research.chips.method')}>{t('research.chips.methodValue')}</Descriptions.Item>
                           <Descriptions.Item label={t('research.chips.source')}>{t('research.chips.sourceValue', { provider: chips.provider ?? 'UNKNOWN', source: chips.source ?? 'UNKNOWN', asOf: chips.as_of ?? 'UNKNOWN' })}</Descriptions.Item>
                         </Descriptions>
+                        {chips.items.length ? (
+                          <section style={{ marginTop: 16 }} aria-label={t('research.chips.chart')}>
+                            <Space wrap style={{ marginBottom: 12 }}>
+                              <Text strong>{t('research.chips.chart')}</Text>
+                              <Segmented<ChipSeriesField>
+                                aria-label={t('research.chips.seriesSwitch')}
+                                value={chipSeriesField}
+                                onChange={setChipSeriesField}
+                                options={[
+                                  { label: t('research.chips.series.profitRatio'), value: 'profit_ratio' },
+                                  { label: t('research.chips.series.averageCost'), value: 'average_cost' },
+                                ]}
+                              />
+                            </Space>
+                            <ChipHistoryChart items={chips.items} field={chipSeriesField} />
+                          </section>
+                        ) : <Empty description={t('research.chips.chartEmpty')} />}
                       </>
                     ) : <Empty description={t('research.chipsEmpty')} />}
                   </Card>

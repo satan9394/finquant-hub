@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 import ResearchWorkspace from '../src/pages/ResearchWorkspace';
-import type { DragonTigerResponse } from '../src/types/research';
+import type { ChipDistributionResponse, DragonTigerResponse } from '../src/types/research';
 import { shanghaiToday } from '../src/utils/formatAStock';
 
 const api = vi.hoisted(() => ({
@@ -32,6 +32,11 @@ vi.mock('../src/components/SwarmStatusCard', () => ({ default: () => null }));
 vi.mock('../src/components/research/ResearchContinuity', () => ({ default: () => null }));
 vi.mock('../src/components/research/ResearchIntentPicker', () => ({ default: () => null }));
 vi.mock('../src/components/research/FundamentalMetricsPanel', () => ({ default: () => null }));
+vi.mock('../src/components/ChipHistoryChart', () => ({
+  default: ({ items, field }: { items: unknown[]; field: string }) => (
+    <div data-testid="chip-history-chart" data-field={field} data-count={items.length} />
+  ),
+}));
 vi.mock('../src/components/MoneyFlowChart', () => ({
   default: ({ items, period }: { items: unknown[]; period: string }) => (
     items.length ? <div data-testid="money-flow-chart" data-period={period} /> : <div>暂无资金流序列；未用估算值替代</div>
@@ -60,6 +65,19 @@ function dragonTigerResponse(date = '2026-08-28', reason = '日涨幅偏离值�
       top5_buy: [{ name: '机构专用', buy: 300, sell: 100, net: 200, unit: 'CNY_10K' }],
       top5_sell: [],
     }],
+  };
+}
+
+function chipResponse(): ChipDistributionResponse {
+  const latest = {
+    date: '2026-08-31', profit_ratio: 0.625, average_cost: 1480.25,
+    cost_90: { low: 1400, high: 1600, concentration: 0.1 },
+    cost_70: { low: 1450, high: 1550, concentration: 0.05 }, chip_peak: null,
+  };
+  return {
+    ...snapshot, symbol: '600519', source: 'stock_cyq_em',
+    methodology: 'akshare_cyq_calculator_120_day_turnover_decay', latest,
+    items: [{ ...latest, date: '2026-08-28', profit_ratio: 0.6 }, latest],
   };
 }
 
@@ -113,6 +131,47 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     api.fetchResearchHistory.mockResolvedValue([]);
     api.fetchResearchDiscussions.mockResolvedValue([]);
     api.fetchResearchTheses.mockResolvedValue([]);
+  });
+
+  it('keeps chip snapshots and switches the historical field locally without refetching workspace data', async () => {
+    api.fetchChipDistribution.mockResolvedValue(chipResponse());
+    renderWorkspace();
+
+    const card = await screen.findByTestId('chip-card');
+    const chart = within(card).getByTestId('chip-history-chart');
+    expect(chart.getAttribute('data-field')).toBe('profit_ratio');
+    expect(chart.getAttribute('data-count')).toBe('2');
+    expect(Array.from(card.querySelectorAll('.ant-statistic-content'), (node) => node.textContent)).toEqual([
+      '62.50%', '1,480.25 CNY', '1400–1600', '1450–1550',
+    ]);
+    for (const text of ['10.00%', '5.00%', 'UNKNOWN']) {
+      expect(within(card).getByText(text)).toBeTruthy();
+    }
+    expect(within(card).getByText('提供方未公开该字段')).toBeTruthy();
+    expect(api.fetchChipDistribution).toHaveBeenCalledWith('600519');
+    expect(api.fetchChipDistribution).toHaveBeenCalledTimes(1);
+    const fetchers = [
+      api.fetchChipDistribution, api.fetchInstrumentSnapshot, api.fetchInstrumentBars,
+      api.fetchInstrumentFundamentals, api.fetchResearchWorkspace, api.fetchMoneyFlow,
+      api.fetchDragonTiger, api.fetchResearchHistory, api.fetchResearchDiscussions, api.fetchResearchTheses,
+    ];
+    const calls = fetchers.map((fetcher) => fetcher.mock.calls.length);
+    const control = within(card).getByLabelText('筹码历史指标切换');
+    fireEvent.click(within(control).getByRole('radio', { name: '平均成本' }));
+    await waitFor(() => expect(chart.getAttribute('data-field')).toBe('average_cost'));
+    fireEvent.click(within(control).getByRole('radio', { name: '获利比例' }));
+    await waitFor(() => expect(chart.getAttribute('data-field')).toBe('profit_ratio'));
+    expect(fetchers.map((fetcher) => fetcher.mock.calls.length)).toEqual(calls);
+  });
+
+  it('retains the chip snapshot and honest Empty state when there are no historical items', async () => {
+    api.fetchChipDistribution.mockResolvedValue({ ...chipResponse(), items: [] });
+    renderWorkspace();
+    const card = await screen.findByTestId('chip-card');
+    expect(card.querySelector('.ant-statistic-content')?.textContent).toBe('62.50%');
+    expect(within(card).getByText('暂无筹码历史序列；未用估算值替代')).toBeTruthy();
+    expect(within(card).queryByTestId('chip-history-chart')).toBeNull();
+    expect(within(card).queryByLabelText('筹码历史指标切换')).toBeNull();
   });
 
   it('renders successful money-flow and dragon-tiger fetch results', async () => {

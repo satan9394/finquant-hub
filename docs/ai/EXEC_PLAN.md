@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-020: 筹码分布历史序列走势图
+## [DONE] BACKLOG-020: 筹码分布历史序列走势图
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-020.md`
 **范围**: 纯前端任务（后端零改动、零新依赖），A 股证据主线对称补全。筹码卡片（ResearchWorkspace）目前只看 `chips.latest` 快照，但服务端 `items` 已有全历史（`ChipDistributionItem[]`）。本任务：①新建纯函数 `chipChart.ts`（`chipToAreaData(items, field:'profit_ratio'|'average_cost')`，date 直接作时间，无效点丢弃不补造）；②新建 `ChipHistoryChart.tsx`（复用 useLightweightCharts 的 switchToArea，theme="light"，空序列 Empty 占位，`data-testid="chip-history-chart"`；**独立组件不抽象不改 MoneyFlowChart**）；③ResearchWorkspace 筹码卡片快照下方接入走势图 + 获利比例/平均成本 `Segmented` 字段切换（**纯前端 state 不重请求**，数据已在 items）；④纯函数 ≥3 用例、组件 ≥2 用例、卡片扩展 ≥1 用例、E2E +1；⑤i18n 双语 parity 0，profit_ratio 前端转百分比；⑥既有筹码快照/MoneyFlowChart/资金流不回归。零后端改动、零新依赖、无删除。
-**证据**: 待执行
+**证据**: 2026-09-02 完成 `chipToAreaData` 纯函数、独立 `ChipHistoryChart` 与筹码卡片本地字段切换；纯函数保留原始比例，展示层转百分比，空/无效序列不建图、不补造，快照/来源/UNKNOWN 峰位保留。新增纯函数 4、组件 4、工作区 2 项 Vitest 和 1 项 E2E；专项 3/3 files、22/22 tests。全量 build 4,244 modules（基线 4,242），59 OpenAPI schemas fresh；Vitest 123/123 files、347/347 tests（基线 121/337，913.50s）；E2E 48/48（基线 47，49.1s，workers:2/retries:1，最终无重试）。zh/en 2,275 keys 各自相同、差集/重复 0；diff check 通过。仅 12 个白名单文件；后端、共享 hook、MoneyFlowChart/moneyFlowChart、资金流/龙虎榜、既有 E2E 断言、依赖/锁文件零改动，无删除；HEAD 保持 f0f6f5d，未 commit/push。详细首轮测试修正与最终证据见任务卡。
 
 ---
 

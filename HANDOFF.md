@@ -215,3 +215,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-02 维护者独立复核 BACKLOG-017+018 通过：start.bat（固定 8000、venv/bun 引导、build 过期检测、env 模板复制不覆盖不读密钥、中文提示、端口占用检查）与 docs/QUICKSTART.md（三步上手、无 key 能力表、FAQ、数据隐私）质量高，README 链接接入；纯脚本+文档零源码改动，后端 801/801 不受影响，无删除 | 验证: backend 801/801；git diff --check 通过；已提交
 
 - 2026-09-02 维护者独立复核 BACKLOG-019 通过：审阅 SPA fallback 静态优先（favicon.svg 修复 content-type）+ resolve/is_relative_to 路径穿越防护 404/test_main_static 追加 7 项（favicon/robots/4 种越界/SPA 不回归）/README+QUICKSTART 端口口径收敛（8000 唯一使用入口，5173 仅开发/Docker），start.bat、frontend、Docker 零改动，无删除 | 验证: backend 808/808 + cov 92.28% + ruff；双环境 28/28；git diff --check 通过；已提交
+
+- 2026-09-02 维护者独立复核 BACKLOG-020 通过：审阅 chipToAreaData 纯函数（无效点过滤+入参不可变）/ChipHistoryChart（profit_ratio 展示层转百分比、空序列占位不建图）/筹码卡片接入（Segmented 切换不重请求、chip-card 标记）/测试（纯函数4+组件4+工作区2）/E2E（切换后请求数严格相等），后端、MoneyFlowChart、hook、playwright 配置零改动，无删除 | 验证: build 4,244 modules；Vitest 123/347；E2E 48/48；zh/en parity 2275/2275 差集0；git diff --check 通过；已提交
