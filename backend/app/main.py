@@ -159,6 +159,11 @@ if config.SERVE_FRONTEND:
         async def frontend_fallback(full_path: str) -> FileResponse:
             if full_path == "api" or full_path.startswith("api/"):
                 raise HTTPException(status_code=404)
+            candidate = (frontend_dist / full_path).resolve()
+            if not candidate.is_relative_to(frontend_dist.resolve()):
+                raise HTTPException(status_code=404)
+            if full_path and candidate.is_file():
+                return FileResponse(candidate)
             return FileResponse(frontend_dist / "index.html")
 
 

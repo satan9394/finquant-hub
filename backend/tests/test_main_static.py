@@ -148,3 +148,45 @@ def test_hosting_preserves_openapi_contract(dist, make_app):
     assert enabled.json() == disabled.json()
     assert "/api/health" in enabled.json()["paths"]
     assert "/{full_path}" not in enabled.json()["paths"]
+
+
+def test_root_favicon_is_served_as_svg(dist, make_app):
+    content = '<svg xmlns="http://www.w3.org/2000/svg"><title>FinQuant</title></svg>'
+    (dist / "favicon.svg").write_text(content, encoding="utf-8")
+    response = make_app().get("/favicon.svg")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.text == content
+
+
+def test_other_root_static_file_is_served(dist, make_app):
+    content = "User-agent: *\nDisallow: /api/\n"
+    (dist / "robots.txt").write_text(content, encoding="utf-8", newline="\n")
+    response = make_app().get("/robots.txt")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.text == content
+
+
+@pytest.mark.parametrize("path", [
+    "/%2e%2e/%2e%2e/backend/private.txt",
+    "/%2e%2e%2f%2e%2e%2fbackend/private.txt",
+    "/%2e%2e/%2e%2e/backend/missing.txt",
+    "/%2e%2e/dist-other/private.txt",
+])
+def test_fallback_rejects_paths_outside_dist(path, tmp_path, dist, make_app):
+    for directory in (tmp_path / "backend", dist.parent / "dist-other"):
+        directory.mkdir()
+        (directory / "private.txt").write_text("outside dist fixture", encoding="utf-8")
+    response = make_app().get(path)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_spa_route_with_root_static_files_still_returns_index(dist, make_app):
+    (dist / "favicon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+    (dist / "robots.txt").write_text("User-agent: *\n", encoding="utf-8")
+    response = make_app().get("/research/600519")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.text == INDEX

@@ -4,13 +4,15 @@
 
 > 当前交付目标：GitHub 获取、个人电脑本地安装和自用。运行时包含 23 个 APIRouter、133 个 `/api/*` 路径和 168 个 HTTP 操作。
 
-## 安装与启动（两种路径）
+## 安装与启动
+
+**日常使用：Windows 双击 [start.bat](start.bat) → [http://127.0.0.1:8000](http://127.0.0.1:8000)，8000 为唯一使用入口。** 5173 仅用于下方可选 Docker 路径 A 或开发者路径 B；通过 start.bat 使用时，无需打开 5173。
 
 不熟悉命令行？先看 [非技术用户快速上手](docs/QUICKSTART.md)，按“下载 → 双击 → 打开页面”开始。
 
-### 路径 A：本地 Docker（推荐）
+### 路径 A：本地 Docker（可选容器化路径）
 
-本地模式前后端全部运行在 Docker 中，浏览器端口仅绑定 `127.0.0.1`。应用使用一个内部本地所有者，不显示登录页、不发送验证码，也不创建浏览器会话；`user_id` 仍作为本地数据归属键保留。这是当前面向使用者的推荐安装路径，也是开源可复现的构建路径。
+本地模式前后端全部运行在 Docker 中，浏览器端口仅绑定 `127.0.0.1`。应用使用一个内部本地所有者，不显示登录页、不发送验证码，也不创建浏览器会话；`user_id` 仍作为本地数据归属键保留。这是可选的容器化安装路径，也是开源可复现的构建路径。
 
 前置条件：Docker Desktop，或 Docker Engine + Docker Compose v2。克隆仓库并进入项目根目录后运行：
 
@@ -35,7 +37,7 @@ bash ./scripts/local.sh logs
 bash ./scripts/local.sh down
 ```
 
-启动成功后打开 `http://127.0.0.1:5173`；如果在 `.env.local` 修改了 `LOCAL_PORT`，使用对应端口。`doctor` 是只读检查，会报告关键文件、Docker CLI/daemon、Compose v2、配置格式、端口占用和 Compose 解析状态。`up` 在检查失败时不会启动服务，已有 `.env.local` 也绝不覆盖。
+仅此 Docker 路径启动成功后打开 `http://127.0.0.1:5173`；如果在 `.env.local` 修改了 `LOCAL_PORT`，使用对应端口。`doctor` 是只读检查，会报告关键文件、Docker CLI/daemon、Compose v2、配置格式、端口占用和 Compose 解析状态。`up` 在检查失败时不会启动服务，已有 `.env.local` 也绝不覆盖。
 
 没有模型 API key 时系统仍可启动，非 AI 的本地功能不因此被禁用；模型驱动的聊天、讨论和研究能力需要在 `.env.local` 配置兼容的 `DEEPSEEK_API_KEY`（以及需要时的 `DEEPSEEK_BASE_URL`、`DEFAULT_MODEL`）。首页会把模型状态标为 `UNCONFIGURED` 或 `CONFIGURED_UNVERIFIED`：配置存在不代表真实连通，只有在模型管理中显式测试才能验证当次上游。行情等外部数据能力始终保留 `RUNTIME_CHECK_REQUIRED`，需要网络和对应上游可用；拿不到数据时应保留 UNKNOWN、PARTIAL 或 UPSTREAM_ERROR，不会补造数值。
 
@@ -45,7 +47,7 @@ bash ./scripts/local.sh down
 
 ### 路径 B：本地开发（无 Docker，裸机运行）
 
-不装 Docker 时也可直接运行前后端。前置：Python 3.12 venv、Node 20+ / Bun 1.3+。数据库使用仓库内 `backend/data/finquant.db`（首次启动自动建库迁移）。
+开发者可分别运行后端与 Vite 开发服务。前置：Python 3.12 venv、Node 20+ / Bun 1.3+。数据库使用仓库内 `backend/data/finquant.db`（首次启动自动建库迁移）。日常使用请按上方 start.bat 的 8000 入口启动。
 
 ```powershell
 # 后端（默认 127.0.0.1:8000）
@@ -58,7 +60,7 @@ bun install
 bun run dev
 ```
 
-打开 `http://localhost:5173` 即进入本地模式（与路径 A 相同的 LOCAL_ONLY 内部所有者语义）。若 5173 被占用，按项目约定先查 `netstat -ano | findstr 5173` 杀掉占用者，不擅自换端口。本路径用于日常开发，发布验收以路径 A 为准。
+开发调试时打开 `http://localhost:5173` 即进入本地模式（与路径 A 相同的 LOCAL_ONLY 内部所有者语义）。若 5173 被占用，按项目约定先查 `netstat -ano | findstr 5173` 杀掉占用者，不擅自换端口。本路径仅用于开发，容器化发布验收以路径 A 为准。
 
 已有 `frontend/dist` 构建产物时，可在后端进程环境或 `backend/.env` 设置 `SERVE_FRONTEND=1`（或 `true`），使用单个 uvicorn 进程托管前端；默认关闭，dist 缺失时警告并跳过，Docker 仍由 nginx 托管。
 

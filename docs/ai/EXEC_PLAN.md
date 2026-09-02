@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-019: 单进程托管缺陷修复——根级静态文件（favicon）+ 使用入口端口收敛
+## [DONE] BACKLOG-019: 单进程托管缺陷修复——根级静态文件（favicon）+ 使用入口端口收敛
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-019.md`
 **范围**: 修复 BACKLOG-016 单进程托管缺陷 + 端口口径收敛。①`main.py` 的 SPA fallback 改为**静态优先**：`frontend_dist/full_path` 为文件则 `FileResponse`（正确 content-type），否则回退 index.html；保留 `/api` 404 拦截；加 `resolve()`+`is_relative_to` 路径穿越防护（越界 404）；修复 `/favicon.svg`（dist 根，不在 assets）被当 HTML 返回导致标签页无 logo 的问题。②`test_main_static.py` 追加 ≥4 用例（favicon 返回 image/svg+xml、根级静态文件、穿越 404、SPA 路由不回归），沿用 tmp_path 假 dist fixture。③端口口径收敛：README/QUICKSTART 明确 **8000 为唯一使用入口**（start.bat/单进程），5173 仅开发/ Docker 路径，消除两入口混淆（用户反馈"5713/8000 来回"实为 5173 误记，代码无 5713）；start.bat 固定 8000 不动。④全量后端 pytest + 覆盖率不降 + ruff；ARCHITECTURE/CHANGELOG 同步。零新依赖、不改 Docker/frontend、无删除。
-**证据**: 待执行
+**证据**: main.py 仅 frontend_fallback 增加 5 行：保留 API 404，resolve()+is_relative_to() 拒绝越界，dist 内静态文件优先、其余回退 index.html；OpenAPI/认证不变。原 21 项静态测试完整保留，追加 7 实例（favicon/robots、4 种穿越、SPA），专项 28/28；全量无覆盖率与带覆盖率均 808/808，总覆盖率 92.28%（基线 92.28%，持平），main.py 91.60%，新增行与分支全覆盖；Ruff、git diff --check、21 个本地文档链接/锚点检查通过。README/QUICKSTART/ARCHITECTURE 明确日常 start.bat 使用入口固定 8000、5173 仅开发/可选 Docker；CHANGELOG 已同步。仅 8 个允许文件，零依赖、start.bat/Docker/frontend 未动、无删除、未 commit/push；详见卡片完成证据。
 
 ---
 

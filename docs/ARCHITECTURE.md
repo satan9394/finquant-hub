@@ -74,7 +74,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 
 `auth.router` 独立注册；其余 22 个业务路由器通过一个 for 循环扁平注册，并统一附加 `authenticated_context`。业务路由无嵌套挂载、无前缀冲突检测、无自动发现机制。每个路由器各自定义 `prefix` 和 `tags`。
 
-`main.py` 另支持显式 `SERVE_FRONTEND=1`/`true` 的单进程静态托管（默认关闭）：从入口文件定位仓库 `frontend/dist`，缺失则警告并跳过；全部 API（含 `/api/health`）注册后挂载存在的 `/assets`，最后为非 `/api`、非 `/api/*` 的 GET 路径返回 `index.html`，SPA fallback 不进入 OpenAPI。Docker 路径仍由 nginx 托管，认证与 CSR 模式不变。
+`main.py` 另支持显式 `SERVE_FRONTEND=1`/`true` 的单进程静态托管（默认关闭）：从入口文件定位仓库 `frontend/dist`，缺失则警告并跳过；全部 API（含 `/api/health`）注册后挂载存在的 `/assets`，最后的 GET fallback 保留 `/api` 与 `/api/*` 的 404 拦截，先用 `resolve()` + `is_relative_to()` 拒绝 dist 外路径（404），再优先返回 dist 内实际静态文件（含根级 `favicon.svg`，保留正确 content-type），其余路径回退 `index.html`；SPA fallback 不进入 OpenAPI。Windows start.bat 单进程使用入口固定为 8000，5173 仅用于开发或可选 Docker 路径；Docker 仍由 nginx 托管，认证与 CSR 模式不变。
 
 ```python
 # 核心逻辑（实际代码）

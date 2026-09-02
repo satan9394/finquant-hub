@@ -213,3 +213,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-02 维护者独立复核 BACKLOG-016 通过：审阅 SERVE_FRONTEND 开关（默认关闭）/main.py 静态托管 + SPA fallback（dist 缺失跳过、/api 保护、include_in_schema=False）/test_main_static.py 21 项（隔离加载、tmp_path 假 dist、路径穿越防护、OpenAPI 不变），Docker/nginx、frontend、routers/database/auth 零改动，无删除 | 验证: backend 801/801 + cov 92.28%（main.py 91.0%）+ ruff；双环境 21/21；git diff --check 通过；已提交
 
 - 2026-09-02 维护者独立复核 BACKLOG-017+018 通过：start.bat（固定 8000、venv/bun 引导、build 过期检测、env 模板复制不覆盖不读密钥、中文提示、端口占用检查）与 docs/QUICKSTART.md（三步上手、无 key 能力表、FAQ、数据隐私）质量高，README 链接接入；纯脚本+文档零源码改动，后端 801/801 不受影响，无删除 | 验证: backend 801/801；git diff --check 通过；已提交
+
+- 2026-09-02 维护者独立复核 BACKLOG-019 通过：审阅 SPA fallback 静态优先（favicon.svg 修复 content-type）+ resolve/is_relative_to 路径穿越防护 404/test_main_static 追加 7 项（favicon/robots/4 种越界/SPA 不回归）/README+QUICKSTART 端口口径收敛（8000 唯一使用入口，5173 仅开发/Docker），start.bat、frontend、Docker 零改动，无删除 | 验证: backend 808/808 + cov 92.28% + ruff；双环境 28/28；git diff --check 通过；已提交
