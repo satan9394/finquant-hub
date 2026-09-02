@@ -4,6 +4,24 @@
 
 ---
 
+## [READY] BACKLOG-017: 一键启动脚本——Windows start.bat 单进程本地运行
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-017.md`
+**范围**: 方向 2（本地快速部署）第 2 卡，依赖 016。根目录新建 `start.bat`（双击即启动）：定位 bun（where→固定路径回退→提示安装）→ 检测/引导 `backend\.venv`（缺失自动创建+装依赖）→ 检测 `frontend\dist`（缺失或过期则 `bun run build`）→ 缺失 `backend\.env` 时复制 `.env.example`（不写密钥）→ `set SERVE_FRONTEND=1` 后 `uvicorn app.main:app --host 127.0.0.1 --port 8000` 单进程启动 → 打开 `http://127.0.0.1:8000`；中文注释、`chcp 65001` 防乱码、关键错误 `pause` 保留信息。README 补一段"Windows 一键启动"；脚本类验证以冒烟分支输出为主（`cmd /c start.bat`），源码测试应仍 801/801 不受影响。零新依赖、无删除、不回显密钥、不改源码。
+**证据**: 待执行
+
+---
+
+## [READY] BACKLOG-018: 非技术用户快速上手文档
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-018.md`
+**范围**: 方向 2（本地快速部署）第 3 卡，依赖 016/017。新建 `docs/QUICKSTART.md`（面向中文非技术用户）：三步上手（下载→双击 start.bat 或等价命令→浏览器打开 127.0.0.1:8000）、首次可选配置（backend\.env 填 DEEPSEEK_API_KEY；说明无 key 能用/不能用的功能）、FAQ（端口占用/无 key/数据 UNKNOWN 是正常降级/bun/python 未装/如何更新/数据存哪）、数据与隐私（本地 SQLite 不上传、无公网部署）；README 顶部加链接；命令/端口/路径与 016/017 产物一致性核对。纯文档，零新依赖、无删除、源码零改动。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-016: 生产单进程托管——FastAPI 直接服务前端产物
 
 **优先级**: P1
