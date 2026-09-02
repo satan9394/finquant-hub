@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-019: 单进程托管缺陷修复——根级静态文件（favicon）+ 使用入口端口收敛
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-019.md`
+**范围**: 修复 BACKLOG-016 单进程托管缺陷 + 端口口径收敛。①`main.py` 的 SPA fallback 改为**静态优先**：`frontend_dist/full_path` 为文件则 `FileResponse`（正确 content-type），否则回退 index.html；保留 `/api` 404 拦截；加 `resolve()`+`is_relative_to` 路径穿越防护（越界 404）；修复 `/favicon.svg`（dist 根，不在 assets）被当 HTML 返回导致标签页无 logo 的问题。②`test_main_static.py` 追加 ≥4 用例（favicon 返回 image/svg+xml、根级静态文件、穿越 404、SPA 路由不回归），沿用 tmp_path 假 dist fixture。③端口口径收敛：README/QUICKSTART 明确 **8000 为唯一使用入口**（start.bat/单进程），5173 仅开发/ Docker 路径，消除两入口混淆（用户反馈"5713/8000 来回"实为 5173 误记，代码无 5713）；start.bat 固定 8000 不动。④全量后端 pytest + 覆盖率不降 + ruff；ARCHITECTURE/CHANGELOG 同步。零新依赖、不改 Docker/frontend、无删除。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-017: 一键启动脚本——Windows start.bat 单进程本地运行
 
 **优先级**: P1
