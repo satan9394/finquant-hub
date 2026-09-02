@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-014: 榜单交互闭环——涨停池点击穿透 + 龙虎榜日期切换
+## [DONE] BACKLOG-014: 榜单交互闭环——涨停池点击穿透 + 龙虎榜日期切换
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-014.md`
 **范围**: 纯前端任务（后端零改动、零新依赖）。把 BACKLOG-012 上线的两个静态榜单变成可交互入口：①LimitPool 页 `code` 列渲染为 `<Link to={`/research/${encodeURIComponent(code)}`}>`（沿用 ResearchContinuity 的 Link 先例，Link 天然键盘可达），穿透到个股研究工作区；②ResearchWorkspace 龙虎榜卡片加 DatePicker（禁未来，默认今天上海时区），复用 BACKLOG-013 的 `changeMoneyFlowPeriod` 模式实现 `changeDragonTigerDate`——只重取龙虎榜（ref 记当前值、Spin 保留旧数据、失败回滚旧日期 + 错误去重），服务端 `date` 为窗口终点语义（返回 [date-30d, date] 内最近上榜记录），卡片 hint 文案说明 + `record.date` 显示实际上榜日；③新增 LimitPool 组件测试 ≥2、ResearchWorkspaceEvidence 扩展 ≥2（含失败回滚）、E2E +2（limit-pool 穿透导航、dragon-tiger 日期请求）；④i18n 双语 parity 0；⑤无记录用服务端 `note` Empty 不补造。零后端改动、零新依赖、无删除。
-**证据**: 待执行
+**证据**: LimitPool `code` 原生 Link + `encodeURIComponent` 穿透 `/research/{code}`，列标题 tooltip；ResearchWorkspace 新增上海当天默认的 DatePicker（禁未来/有 aria-label）与 `changeDragonTigerDate`，只重取龙虎榜，Spin 保留旧记录、失败回滚旧日期与错误去重，hint 区分窗口截止日和实际上榜日，空窗口保留服务端 note。新增组件用例 4 项、E2E 2 项；2026-09-01 按 build → test → test:e2e 全量通过：4,242 modules、Vitest 121/121 files / 331/331 tests（929.06s）、E2E 46/46（58.7s，workers:2/retries:1，无重试）。zh/en 各 2,265 keys、重复/差集 0；diff check 与白名单检查通过。后端/chart hook/Playwright 配置/既有 E2E 断言/依赖零改动、无删除、未 commit/push；完整证据见任务卡。
 
 ---
 

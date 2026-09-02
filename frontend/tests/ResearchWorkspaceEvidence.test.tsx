@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 import ResearchWorkspace from '../src/pages/ResearchWorkspace';
+import type { DragonTigerResponse } from '../src/types/research';
+import { shanghaiToday } from '../src/utils/formatAStock';
 
 const api = vi.hoisted(() => ({
   fetchChipDistribution: vi.fn(),
@@ -50,6 +52,24 @@ const snapshot = {
   currency: 'CNY', adjustment: null, frequency: null, quality_flags: [],
 };
 
+function dragonTigerResponse(date = '2026-08-28', reason = '日涨幅偏离值达7%'): DragonTigerResponse {
+  return {
+    ticker: '600519', date, source: 'eastmoney.datacenter-web', quality: 'DIRECT',
+    items: [{
+      code: '600519', name: '贵州茅台', date, reason, net: 120, unit: 'CNY_10K',
+      top5_buy: [{ name: '机构专用', buy: 300, sell: 100, net: 200, unit: 'CNY_10K' }],
+      top5_sell: [],
+    }],
+  };
+}
+
+function selectDragonTigerDate(date: string) {
+  const input = screen.getByRole('textbox', { name: '选择龙虎榜窗口截止日期' });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: date } });
+  fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 13 });
+}
+
 function renderWorkspace() {
   return render(
     <LanguageProvider>
@@ -74,6 +94,7 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     });
     api.fetchResearchWorkspace.mockResolvedValue({ symbol: '600519', notes: '', evidence: [], saved: false });
     api.fetchChipDistribution.mockResolvedValue(null);
+    api.fetchMoneyFlow.mockResolvedValue(null);
     api.fetchDragonTiger.mockResolvedValue({
       ticker: '600519', date: '2026-08-31', source: 'eastmoney.datacenter-web', quality: 'DIRECT', items: [],
     });
@@ -164,5 +185,78 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     expect(await screen.findByText('资金流向：120 日资金接口不可用')).toBeTruthy();
     expect(within(card).getByTestId('money-flow-chart').getAttribute('data-period')).toBe('minute');
     expect((within(card).getByRole('radio', { name: '分钟' }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('refetches only dragon-tiger data, retains it while loading and distinguishes the listing date', async () => {
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerResponse());
+    let resolveRequest!: (value: DragonTigerResponse) => void;
+    api.fetchDragonTiger.mockImplementationOnce(() => new Promise<DragonTigerResponse>((resolve) => {
+      resolveRequest = resolve;
+    }));
+    renderWorkspace();
+
+    const card = await screen.findByTestId('dragon-tiger-card');
+    const input = within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement;
+    expect(input.value).toBe(shanghaiToday());
+    expect(api.fetchDragonTiger).toHaveBeenCalledWith('600519', shanghaiToday());
+    const otherFetchers = [
+      api.fetchInstrumentSnapshot, api.fetchInstrumentBars, api.fetchInstrumentFundamentals,
+      api.fetchResearchWorkspace, api.fetchMoneyFlow, api.fetchChipDistribution,
+      api.fetchResearchHistory, api.fetchResearchDiscussions, api.fetchResearchTheses,
+    ];
+    const previousCalls = otherFetchers.map((fetcher) => fetcher.mock.calls.length);
+    selectDragonTigerDate('2026-08-20');
+
+    await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('600519', '2026-08-20'));
+    expect(input.value).toBe('2026-08-20');
+    expect(input.disabled).toBe(true);
+    expect(card.querySelector('.ant-spin-spinning')).toBeTruthy();
+    expect(within(card).getByText('日涨幅偏离值达7%')).toBeTruthy();
+
+    await act(async () => resolveRequest(dragonTigerResponse('2026-08-19', '历史上榜原因')));
+
+    expect(within(card).getByText('历史上榜原因')).toBeTruthy();
+    expect(within(card).getByText('2026-08-19')).toBeTruthy();
+    expect(within(card).getByText('显示截至所选日期的最近上榜记录')).toBeTruthy();
+    expect(within(card).queryByText('日涨幅偏离值达7%')).toBeNull();
+    expect(input.value).toBe('2026-08-20');
+    expect(input.disabled).toBe(false);
+    expect(otherFetchers.map((fetcher) => fetcher.mock.calls.length)).toEqual(previousCalls);
+  });
+
+  it('rolls back failed dates without losing rows, deduplicates errors and recovers to an honest empty window', async () => {
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerResponse());
+    api.fetchDragonTiger.mockResolvedValueOnce(dragonTigerResponse('2026-08-19', '历史上榜原因'));
+    api.fetchDragonTiger.mockRejectedValueOnce(new Error('历史龙虎榜不可用'));
+    api.fetchDragonTiger.mockRejectedValueOnce(new Error('历史龙虎榜不可用'));
+    api.fetchDragonTiger.mockResolvedValueOnce({
+      ...dragonTigerResponse(), items: [], note: '所选回看窗口内未上榜',
+    });
+    api.fetchMoneyFlow.mockRejectedValue(new Error('资金接口不可用'));
+    renderWorkspace();
+
+    const card = await screen.findByTestId('dragon-tiger-card');
+    const input = within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement;
+    selectDragonTigerDate('2026-08-20');
+    await within(card).findByText('历史上榜原因');
+    const previousDate = input.value;
+    const snapshotCalls = api.fetchInstrumentSnapshot.mock.calls.length;
+    for (const date of ['2026-08-21', '2026-08-22']) {
+      selectDragonTigerDate(date);
+      await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('600519', date));
+      await waitFor(() => expect(input.value).toBe(previousDate));
+      expect(screen.getAllByText('龙虎榜：历史龙虎榜不可用')).toHaveLength(1);
+      expect(within(card).getByText('历史上榜原因')).toBeTruthy();
+      expect(within(card).getByText('2026-08-19')).toBeTruthy();
+      expect(input.disabled).toBe(false);
+    }
+
+    selectDragonTigerDate('2026-08-23');
+    expect(await within(card).findByText('所选回看窗口内未上榜')).toBeTruthy();
+    expect(input.value).toBe('2026-08-23');
+    expect(screen.queryByText('龙虎榜：历史龙虎榜不可用')).toBeNull();
+    expect(screen.getByText('资金流向：资金接口不可用')).toBeTruthy();
+    expect(within(card).queryByText('历史上榜原因')).toBeNull();
+    expect(api.fetchInstrumentSnapshot).toHaveBeenCalledTimes(snapshotCalls);
   });
 });

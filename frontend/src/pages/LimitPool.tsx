@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert, Button, Card, DatePicker, Empty, Segmented, Space, Table, Typography } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 
@@ -35,7 +36,12 @@ export default function LimitPool() {
   useEffect(() => { void loadPool(); }, [loadPool]);
 
   const columns = [
-    { title: t('limitPool.column.code'), dataIndex: 'code', key: 'code' },
+    {
+      title: <span title={t('limitPool.openResearch')}>{t('limitPool.column.code')}</span>,
+      dataIndex: 'code',
+      key: 'code',
+      render: (code: string) => <Link to={`/research/${encodeURIComponent(code)}`}>{code}</Link>,
+    },
     { title: t('limitPool.column.name'), dataIndex: 'name', key: 'name' },
     {
       title: t('limitPool.column.limitUpCount'),

@@ -1,6 +1,6 @@
 # BACKLOG-014 — 榜单交互闭环：涨停池点击穿透 + 龙虎榜日期切换
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-01 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-01 ｜ 执行者：Codex
 > 背景：BACKLOG-012 上线了涨停池页面（`/discover/limit-pool`，AntD Table）与 ResearchWorkspace 龙虎榜证据卡片，BACKLOG-013 给资金流卡片加了走势图 + 分钟/120 日切换。目前两个榜单都还是"静态展示"：涨停池行不能点进个股研究工作区；龙虎榜固定只查今天窗口（`fetchDragonTiger(currentSymbol, shanghaiToday())`），不能查历史日期。本任务把榜单变成**可交互入口**：①涨停池 `code` 列渲染为可点击链接穿透到 `/research/{code}`；②龙虎榜卡片加日期选择（复用 BACKLOG-013 周期切换的"只重取该数据 + 失败回滚"模式）。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -88,8 +88,10 @@ cd .. && git diff --check
 
 ## 完成证据（执行后填写）
 
-- 修改文件清单（页面/i18n/测试/文档）
-- 功能清单（穿透 Link 的列与路由、日期切换的状态/回滚/加载语义）
-- 测试数；全量套件结果（build/Vitest/E2E 前后对比）
-- 依赖变化（应为零）；后端零改动确认
-- 记录决策确认（date 为窗口终点语义与 hint 文案、失败回滚不误标、无记录用 note Empty 不补造）
+- **修改文件清单**：页面 `frontend/src/pages/LimitPool.tsx`、`frontend/src/pages/ResearchWorkspace.tsx`；i18n `frontend/src/i18n/zh.ts`、`frontend/src/i18n/en.ts`；新增 `frontend/tests/LimitPool.test.tsx`、扩展 `frontend/tests/ResearchWorkspaceEvidence.test.tsx`；追加 `frontend/e2e/limit-pool.spec.ts`、新增 `frontend/e2e/dragon-tiger.spec.ts`；文档为本卡、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+- **穿透功能**：`code` 列使用原生 React Router `Link` 和 `encodeURIComponent(code)`，目标 `/research/{code}`；代码列标题提供 `limitPool.openResearch` tooltip。保留默认链接样式与原生键盘聚焦/回车行为，无整行点击或其他页面改动。
+- **日期切换功能**：`dragonTigerDate` 默认上海当天，`dragonTigerDateRef` 保存当前窗口截止日期，首次/整页加载也读取此 ref。`changeDragonTigerDate` 仅请求 `fetchDragonTiger(currentSymbol, date)`；`Spin` 保留旧数据，加载期间禁用 DatePicker。成功替换记录并只清除龙虎榜错误；失败回滚 ref 与选择日期，保留旧记录，按龙虎榜错误前缀去重，其他数据错误保留。DatePicker 禁未来、不可清空、有双语可访问名称，仅在 A 股卡片内出现。
+- **测试范围**：LimitPool 新增 2 项（表格代码/名称/封单额/tooltip、真实 MemoryRouter 点击导航）；ResearchWorkspace 新增 2 项（真实 DatePicker 切换、挂起请求期间保留旧记录与 Spin、九个其他 fetcher 调用数不变；历史日期成功后连续失败回滚/错误去重/随后空窗口恢复）。E2E 追加/新增共 2 项（点击代码确认 URL；完整 GET mock，输入日期并按回车，校验请求方法/路径/date/look_back 与卡片记录更新）。既有两个涨停池 E2E 用例逐字前缀检查未变。
+- **全量门禁（2026-09-01）**：基线取自 `cdc53be` 卡片与 BACKLOG-013 已记录证据，本次未另跑修改前套件。按顺序执行 `bun run build` → `bun run test` → `bun run test:e2e`，全部 exit 0：build 4,242 → 4,242 modules，OpenAPI 59 schemas 新鲜度检查通过；Vitest 120 files / 327 tests → **121/121 files、331/331 tests**（929.06s），包含 LimitPool 2/2 与 ResearchWorkspaceEvidence 6/6；Chromium E2E 44 → **46/46**（58.7s），workers=2、retries=1，全部首次通过、无重试。E2E 使用 package.json 实际脚本 `test:e2e`（卡片正文简称 `e2e`）。`git diff --check` 与白名单/禁止文件/删除检查通过。
+- **双语与边界**：zh/en 2,262 → 2,265 keys，各新增 3 个 key，重复 0、差集 0。`backend/` 全部、chart hook、Playwright 配置、其他页面/组件、既有 E2E 断言、依赖和 lock 文件、`reference/` 均未修改；依赖变化 0、删除 0。无端点/架构变化，不改 API/架构文档。`HANDOFF.md` 不在本卡白名单内，未运行会改写它的 handoff-log；未 commit、未 push。
+- **记录决策**：`date` 是回看窗口终点，hint 为“显示截至所选日期的最近上榜记录”，实际上榜日仍独立显示 `record.date`。失败后所选截止日恢复到旧记录对应的请求日期，避免误标；成功但 `items=[]` 时继续显示服务端 `note`，缺省才使用既有 Empty 文案，不补造记录。测试中的行情与上榜记录均为确定性 mock，不作为真实市场数据证据。

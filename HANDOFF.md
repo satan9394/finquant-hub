@@ -205,3 +205,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-01 维护者独立复核 BACKLOG-012 通过：审阅 3 个薄包装端点/两张证据卡片/LimitPool 页/测试/文档边界，禁止文件（a_stock_extra、旧 chip/limit-up、依赖、playwright 配置）未触碰，无删除 | 验证: backend 780/780 + cov 92.25% + ruff；双环境 20/20；frontend build 4,240 modules + Vitest 118/318 + E2E 43/43；zh/en parity 0；git diff --check 通过
 
 - 2026-09-01 维护者独立复核 BACKLOG-013 通过：审阅 moneyFlowChart 纯函数/MoneyFlowChart 组件/ResearchWorkspace 周期切换（只重取资金流+失败回滚）/测试/E2E/文档边界，后端、chart hook、playwright 配置、依赖零改动，无删除 | 验证: build 4,242 modules；Vitest 120/327；E2E 44/44；zh/en parity 2262/2262 差集0；git diff --check 通过；已提交
+
+- 2026-09-02 维护者独立复核 BACKLOG-014 通过：审阅 LimitPool 穿透 Link/ResearchWorkspace 龙虎榜日期切换（复用 changeMoneyFlowPeriod 模式，只重取+失败回滚）/测试（真实 MemoryRouter 导航、pending 保留、错误去重）/E2E，后端、chart hook、playwright 配置、既有 E2E 断言零改动，无删除 | 验证: build 4,242 modules；Vitest 121/331；E2E 46/46；zh/en parity 2265/2265 差集0；git diff --check 通过；已提交

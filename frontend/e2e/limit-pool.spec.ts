@@ -42,3 +42,22 @@ test('limit-pool presents UNKNOWN non-trading-day evidence without crashing', as
   await expect(page.getByText('东财未返回池数据（可能为非交易日或盘后尚未更新）')).toBeVisible();
   await expect(page.getByText('当前池暂无可用记录')).toBeVisible();
 });
+
+test('limit-pool code link opens the stock research workspace', async ({ page }) => {
+  await mockApi(page, {
+    'GET /api/market/limit-pool': {
+      date: '20260831', pool: 'limit_up', source: 'eastmoney.push2ex', quality: 'DIRECT',
+      items: [{
+        code: '600519', name: '贵州茅台', limit_up_count: 2, seal_amount: 12_345_678,
+        break_times: 1, industry: '白酒', limit_stat: '3天2板',
+      }],
+    },
+  });
+
+  await page.goto('/discover/limit-pool');
+
+  const link = page.getByRole('link', { name: '600519', exact: true });
+  await expect(link).toHaveAttribute('href', '/research/600519');
+  await link.click();
+  await expect(page).toHaveURL(/\/research\/600519$/);
+});
