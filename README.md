@@ -6,6 +6,8 @@
 
 ## 安装与启动（两种路径）
 
+不熟悉命令行？先看 [非技术用户快速上手](docs/QUICKSTART.md)，按“下载 → 双击 → 打开页面”开始。
+
 ### 路径 A：本地 Docker（推荐）
 
 本地模式前后端全部运行在 Docker 中，浏览器端口仅绑定 `127.0.0.1`。应用使用一个内部本地所有者，不显示登录页、不发送验证码，也不创建浏览器会话；`user_id` 仍作为本地数据归属键保留。这是当前面向使用者的推荐安装路径，也是开源可复现的构建路径。
@@ -59,6 +61,10 @@ bun run dev
 打开 `http://localhost:5173` 即进入本地模式（与路径 A 相同的 LOCAL_ONLY 内部所有者语义）。若 5173 被占用，按项目约定先查 `netstat -ano | findstr 5173` 杀掉占用者，不擅自换端口。本路径用于日常开发，发布验收以路径 A 为准。
 
 已有 `frontend/dist` 构建产物时，可在后端进程环境或 `backend/.env` 设置 `SERVE_FRONTEND=1`（或 `true`），使用单个 uvicorn 进程托管前端；默认关闭，dist 缺失时警告并跳过，Docker 仍由 nginx 托管。
+
+#### Windows 一键启动
+
+先安装 Python 3.12（勾选加入 PATH）与 Bun，然后在项目根目录双击 [start.bat](start.bat)：缺少环境时自动创建 Python venv、安装项目已有依赖，需要时构建前端（否则复用 dist），以 `SERVE_FRONTEND=1`、`LOCAL_ONLY_MODE=1` 单进程启动并打开 `http://127.0.0.1:8000`。首次使用 AI 功能前，用记事本在自动创建的 `backend\.env` 填写 `DEEPSEEK_API_KEY`，保存后重启；不填有效 key 也能启动非 AI 功能，行情仍需网络与上游可用。保持启动窗口打开，按 Ctrl+C 停止；8000 被占用会提示并退出。
 
 ## 功能总览
 

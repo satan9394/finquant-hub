@@ -1,6 +1,6 @@
 # BACKLOG-018 — 非技术用户快速上手文档
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
 > 背景：方向 2（本地快速部署）第 3 卡，依赖 BACKLOG-016（单进程托管）与 BACKLOG-017（start.bat）。项目 README 面向开发者（venv/bun/Docker 命令），缺少给**不懂技术的使用者**的 3 分钟上手路径。本任务在 README 或独立 `docs/QUICKSTART.md` 补一份面向非技术用户的快速上手，把"下载 → 启动 → 配置 → 使用"讲成傻瓜步骤。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -73,9 +73,12 @@ Test-Path docs/QUICKSTART.md
 Select-String -Path README.md -Pattern 'QUICKSTART'
 ```
 
-## 完成证据（执行后填写）
+## 完成证据（2026-09-02）
 
-- `docs/QUICKSTART.md` 章节清单与面向非技术用户的措辞要点
-- README 链接确认
-- 一致性核对结果（命令/端口/路径与 016/017 产物一致）
-- 依赖变化（应为零）；无删除；源码零改动
+- **顺序与产物**：017 的任务卡/EXEC_PLAN 已先标记 DONE 并记录验证，然后才创建 `docs/QUICKSTART.md`。README 安装与启动标题下（第 9 行）增加“非技术用户快速上手”链接，保留路径 A/B 的原有语义。
+- **章节**：准备工具 → 三步上手（下载解压、双击、浏览器与首次使用）→ 可选 AI 配置 → macOS/Linux 与可选 Docker → FAQ → 数据与隐私。FAQ 覆盖 8000/5173 占用、无 key/AI 报错、数据 UNKNOWN/PARTIAL/UPSTREAM_ERROR、Bun/Python/构建问题、旧页面、更新备份、数据位置。用 Code/Download ZIP、资源管理器、记事本和中文导航点选解释操作；必要命令标明窗口与目录，可直接复制，不承诺首次下载构建在三分钟内完成。
+- **功能与隐私真实性**：对照当前 App 导航、ResearchWorkspace 和 zh 字典，列出非 AI 行情/指标/A 股筹码/资金流/龙虎榜/涨跌停池及需有效 key 的聊天/讨论/AI 研究。筹码注明推算、数据可缺失；本机 SQLite 不自动上传给维护者，但行情请求和 AI 问题/上下文会发送上游，未作“完全离线/绝不外传”承诺。模板占位不等于有效 key；网页加密凭据缺持久 MASTER_KEY 的重启限制也注明。
+- **命令与路径核对（10/10）**：README 链接、016 SERVE_FRONTEND 挂载、017 LOCAL_ONLY_MODE、uvicorn loopback 8000、Docker 5173/.env.local、已有依赖与 build 命令、dist/package 时间与源码更新限制、backend/.env/数据库位置、诚实数据状态、017 产物只读均通过。macOS/Linux 使用现有 `bash ./scripts/local.sh up/down`，明确这是 Docker 路径而非 8000 单进程；用户数据卷与裸机 data 文件夹不混用。Windows 更新流程先停止/备份、另目录解压、只迁移数据配置；Git 路径使用 fast-forward 并主动重新安装已有依赖/构建，不删除旧文件或强制重置。
+- **链接与来源**：README + QUICKSTART 共 20 个本地 Markdown 文件链接均可解析，目标文档可读；README 中文锚点与原有标题核对。2026-09-02 已读取 Python 官方 3.12.10 发布页与 Bun 官方安装文档，核对 Windows installer、Windows 10 1809 门槛、PowerShell 安装命令与 PATH 指引；文档就近附官方链接，并明确 3.12.10 不是最新安全发布。没有安装工具或执行下载命令。
+- **018 阶段只读边界**：`start.bat` 在 017 完成时和 018 核对时的 SHA256 都为 `2788E5E2BE322F687901E4DD593FA92B5791ACC4813515486600213BA0B9D5B8`。后端、前端、scripts、Docker 与依赖/锁文件 tracked diff 为空；本卡纯文档、零新依赖、无删除、无密钥写入/回显、无公网部署内容。未重复运行源码测试，也未将 017 的 801/801 冒充为本卡重新执行的测试。
+- **收尾同步**：EXEC_PLAN 标记 018 DONE，CHANGELOG 追加 `## 2026-09-02` 标题条目；`git diff --check` 与允许范围核对通过。HANDOFF 不在两卡 allowlist，保持不动；无 commit/push。

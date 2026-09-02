@@ -1,6 +1,6 @@
 # BACKLOG-017 — 一键启动脚本：Windows start.bat（单进程本地运行）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
 > 背景：方向 2（本地快速部署）第 2 卡，依赖已完成的 BACKLOG-016（`SERVE_FRONTEND=1` 单进程托管）。当前裸机路径 B 要手动开两个终端（uvicorn + vite dev），对非技术用户门槛高。本任务提供**根目录 `start.bat` 双击即启动**：自动检测/引导环境 → 构建前端（或复用已有 dist）→ 以单进程启动 `uvicorn`（`SERVE_FRONTEND=1`）→ 打开浏览器。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -78,9 +78,13 @@ cd backend && .\.venv\Scripts\python.exe -m pytest ..\backend\tests -q --no-cov 
 git diff --check
 ```
 
-## 完成证据（执行后填写）
+## 完成证据（2026-09-02）
 
-- `start.bat` 的分支逻辑清单（bun 定位/venv 引导/build 触发/env 复制/启动/开浏览器）
-- 冒烟验证结果（各分支实际输出或受限说明）
-- 源码测试确认（801/801 不受影响）；依赖变化（应为零）；无删除
-- README/CHANGELOG 同步确认
+- **产物**：根目录 `start.bat`，UTF-8 无 BOM、CRLF、`chcp 65001`，从 `%~dp0` 定位项目并恢复原目录；README 路径 B 下增加“Windows 一键启动”。
+- **分支**：`where bun` 优先，回退卡片指定的本机位置，无 Bun 提示官网；8000 监听占用即提示检查并退出；缺少项目 Python 时用 `py -3.12` 或 PATH 中的 Python 3.12 创建 venv，再安装已有 requirements；缺少 index 或 package.json 更新时构建，缺 node_modules 时先 `bun install --frozen-lockfile`，否则复用 dist。所有关键失败均中文提示、pause、exit 1。
+- **配置与启动**：只在缺失时原样复制 `backend/.env.example`，不读取已有 `.env`、不覆盖配置、不填入或回显真实密钥。进程内设置 `SERVE_FRONTEND=1` 与 `LOCAL_ONLY_MODE=1`，固定 loopback 8000，默认浏览器打开后由前台 uvicorn 托管；Ctrl+C 停止。显式设置本地模式是因为现有 backend 模板没有此项，避免新安装进入邮箱登录。
+- **真实启动冒烟**：在项目外 `C:\Users\SATANC~1\AppData\Local\Temp\FinQuant smoke 中文 77699916\live` 复制 tracked app、现有 dist 和公开 env 模板，junction 复用现有 venv，独立生成临时数据库；未复制用户 `.env`/数据库。运行 `cmd /d /c start.bat`，实际命中 Bun 固定路径回退、已有 venv、复用 dist、缺失 env 复制；无 AI key，uvicorn PID 9212 完成 lifespan，浏览器自动请求首页和资源。`/`、`/research/600519`、JS 资产、`/api/health`、`/api/auth/me` 均 200，health 为 ok，`/api/nope` 为 JSON 404。模板与生成 env 的 SHA256 相等（只比对哈希，不输出内容）。Ctrl+C 后服务停止、8000 释放；浏览器 SSE 在停止时记录一条响应中断日志，应用 shutdown 已完成。
+- **分支冒烟**：在 8000 临时监听时直接执行工作区 `cmd /d /c start.bat`，输出“8000 端口已被占用”，exit 1，不杀进程。在上述临时目录的 branches 副本用 PATH 优先的 `bun.cmd` 替身验证：缺失 dist 调用安装/构建、已有 node_modules 跳过安装、新鲜 dist 复用、package.json 更新触发重建、安装失败/构建失败/模板缺失均中文提示并 pause。missing venv 副本用失败的 `py.cmd` 替身验证创建失败指引；首次发现 batch shim 会终止父脚本，已补 `call` 并复测出现完整中文恢复步骤和 exit 1。
+- **受限说明**：当前机器已有 Python 环境、Bun 和前端构建。没有进行空白机器的全量依赖下载，也没有重新构建工作区前端；替身只证明分支与命令调用，不代表真实全新安装成功。无 Bun 最终失败分支静态核对，未移动/隐藏已安装工具。脚本按卡片仅比较 package.json/index 时间，源码更新后应主动重建（`ponytail:` 注释说明）。没有新增自动化测试套件；临时材料保留，未删除文件。
+- **源码回归**：`cd backend` 后运行 `.venv\Scripts\python.exe -B -m pytest ..\backend\tests -q --no-cov -p no:cacheprovider`，`PYTHONDONTWRITEBYTECODE=1`，**801 passed，65.55s，exit 0**。未运行不必要的 frontend 构建/测试，不将历史结果当本次证据。
+- **同步与范围**：EXEC_PLAN 标记 DONE、README 和带 `## 2026-09-02` 标题的 CHANGELOG 已同步；`git diff --check` 通过，backend/frontend/Docker/scripts 的 tracked diff 为空。依赖清单与锁文件零改动、无新增依赖、无删除、无源码改动、未 commit/push。HANDOFF 不在卡片 allowlist，按本次严格边界保持不动。

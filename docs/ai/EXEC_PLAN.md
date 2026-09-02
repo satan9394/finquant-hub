@@ -4,21 +4,21 @@
 
 ---
 
-## [READY] BACKLOG-017: 一键启动脚本——Windows start.bat 单进程本地运行
+## [DONE] BACKLOG-017: 一键启动脚本——Windows start.bat 单进程本地运行
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-017.md`
 **范围**: 方向 2（本地快速部署）第 2 卡，依赖 016。根目录新建 `start.bat`（双击即启动）：定位 bun（where→固定路径回退→提示安装）→ 检测/引导 `backend\.venv`（缺失自动创建+装依赖）→ 检测 `frontend\dist`（缺失或过期则 `bun run build`）→ 缺失 `backend\.env` 时复制 `.env.example`（不写密钥）→ `set SERVE_FRONTEND=1` 后 `uvicorn app.main:app --host 127.0.0.1 --port 8000` 单进程启动 → 打开 `http://127.0.0.1:8000`；中文注释、`chcp 65001` 防乱码、关键错误 `pause` 保留信息。README 补一段"Windows 一键启动"；脚本类验证以冒烟分支输出为主（`cmd /c start.bat`），源码测试应仍 801/801 不受影响。零新依赖、无删除、不回显密钥、不改源码。
-**证据**: 待执行
+**证据**: 根目录 start.bat 与 README 一键入口完成；Bun PATH/固定路径回退、venv 引导、dist 缺失/过期构建、缺失前端依赖按锁文件安装、env 模板非覆盖复制、loopback 8000 单进程与本地模式均已实现。2026-09-02 隔离源码/现有 dist/独立数据库真实启动：首页、SPA、JS、health、本地身份 200，未知 API JSON 404，浏览器自动打开，Ctrl+C 后释放端口。占用分支直接 cmd 实测；构建/安装/venv 失败等用临时替身验证，未声称全新机器安装或真实前端重建。后端 801/801（65.55s），diff check 通过；零源码/依赖/锁文件/Docker 改动、无删除、未 commit/push。完整证据与限制见任务卡。
 
 ---
 
-## [READY] BACKLOG-018: 非技术用户快速上手文档
+## [DONE] BACKLOG-018: 非技术用户快速上手文档
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-018.md`
 **范围**: 方向 2（本地快速部署）第 3 卡，依赖 016/017。新建 `docs/QUICKSTART.md`（面向中文非技术用户）：三步上手（下载→双击 start.bat 或等价命令→浏览器打开 127.0.0.1:8000）、首次可选配置（backend\.env 填 DEEPSEEK_API_KEY；说明无 key 能用/不能用的功能）、FAQ（端口占用/无 key/数据 UNKNOWN 是正常降级/bun/python 未装/如何更新/数据存哪）、数据与隐私（本地 SQLite 不上传、无公网部署）；README 顶部加链接；命令/端口/路径与 016/017 产物一致性核对。纯文档，零新依赖、无删除、源码零改动。
-**证据**: 待执行
+**证据**: 在 017 完成后新建 docs/QUICKSTART.md，README 顶部安装处增加链接。覆盖工具安装、下载/双击/浏览器三步、中文导航初用、可选 AI 配置、macOS/Linux Docker、七项 FAQ、更新备份和隐私；明确 Windows 8000/backend/.env 与 Docker 5173/.env.local/数据卷差异，源码更新须主动 build，数据库本地保存但 AI/行情仍联网。2026-09-02 十项一致性核对与 20 个本地文件链接检查通过，Python/Bun 官方步骤已核对；start.bat 在 018 前后 SHA256 一致，diff check 与 allowlist 通过。纯文档、零依赖/源码/Docker 改动、无删除、未 commit/push；完整证据见任务卡。
 
 ---
 
