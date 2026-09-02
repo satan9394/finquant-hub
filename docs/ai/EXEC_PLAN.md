@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-016: 生产单进程托管——FastAPI 直接服务前端产物
+## [DONE] BACKLOG-016: 生产单进程托管——FastAPI 直接服务前端产物
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-016.md`
 **范围**: 方向 2（本地快速部署）第 1 卡，薄改动后端入口。当前前端产物只能由 Docker nginx（路径 A）或裸机 dev 双终端（路径 B）托管，`main.py` 不挂载静态产物。本任务：①`backend/app/config.py` 新增 `SERVE_FRONTEND`（bool 默认 False，环境变量开关）；②`main.py` 在 router 全部挂载后、`SERVE_FRONTEND=1` 且 `frontend/dist` 存在时，挂载 `/assets` 静态 + SPA fallback（`/{full_path:path}` 非 `/api/*` 返回 index.html，`/api/*` 显式 404 防吞 API），dist 缺失警告并跳过；③新增 `test_main_static.py`（monkeypatch + tmp_path 假 dist，不依赖真实 build）≥6 用例（index/fallback/assets/health/不存在 api 404/默认不挂载）；④全量后端 pytest + 覆盖率不降 + ruff；⑤`docs/ARCHITECTURE.md` 补一句，CHANGELOG 带日期标题。默认关闭不破坏 Docker（nginx 路径）与既有 780 测试；零新依赖、无删除。
-**证据**: 待执行
+**证据**: `SERVE_FRONTEND` 复用 `_env_flag`（默认 False，`1`/`true` 启用）；`main.py` 从入口文件定位 dist，缺失 warning 并跳过，全部 router 与 `/api/health` 后挂 assets 和 SPA fallback；显式保护 `/api` 与 `/api/*`，fallback 不进入 OpenAPI。新增 21 项确定性测试（tmp_path、独立模块导入、monkeypatch、TestClient，无真实网络/build），专项 21/21；2026-09-02 全量无覆盖率 801/801（85.00s）、覆盖率全量 801/801（138.46s）。修改前实测 780/780、92.25%（卡片历史 92.26%）→ 92.28%，main.py 89.1%→91.0%；Ruff、diff check 与 8 文件允许范围检查通过。架构文档、README 开关说明和带日期 CHANGELOG 已同步；前端、Docker/nginx、routers/database/auth、依赖与既有测试断言均未动，无删除；HEAD 保持 fdea1d2，未 commit/push。完整证据见任务卡。
 
 ---
 

@@ -3,11 +3,13 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import config, database
 from .middleware.security import SecurityMiddleware
@@ -142,6 +144,22 @@ for r in (credentials.router, models_crud.router, agents.router, chat.router, di
 async def health() -> dict[str, str]:
     row = await database.query_one("PRAGMA journal_mode")
     return {"status": "ok", "version": config.APP_VERSION, "db": (row or {}).get("journal_mode", "?")}
+
+
+if config.SERVE_FRONTEND:
+    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if not frontend_dist.is_dir():
+        LOGGER.warning("SERVE_FRONTEND=1 但未找到 frontend/dist，跳过静态托管")
+    else:
+        if (frontend_dist / "assets").is_dir():
+            app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="static-assets")
+
+        # ponytail: 仅静态产物与 SPA 路由，不加入 OpenAPI API 契约。
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def frontend_fallback(full_path: str) -> FileResponse:
+            if full_path == "api" or full_path.startswith("api/"):
+                raise HTTPException(status_code=404)
+            return FileResponse(frontend_dist / "index.html")
 
 
 if __name__ == "__main__":

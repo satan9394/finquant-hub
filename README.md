@@ -58,6 +58,8 @@ bun run dev
 
 打开 `http://localhost:5173` 即进入本地模式（与路径 A 相同的 LOCAL_ONLY 内部所有者语义）。若 5173 被占用，按项目约定先查 `netstat -ano | findstr 5173` 杀掉占用者，不擅自换端口。本路径用于日常开发，发布验收以路径 A 为准。
 
+已有 `frontend/dist` 构建产物时，可在后端进程环境或 `backend/.env` 设置 `SERVE_FRONTEND=1`（或 `true`），使用单个 uvicorn 进程托管前端；默认关闭，dist 缺失时警告并跳过，Docker 仍由 nginx 托管。
+
 ## 功能总览
 
 | 模块 | 说明 |

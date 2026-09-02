@@ -209,3 +209,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-02 维护者独立复核 BACKLOG-014 通过：审阅 LimitPool 穿透 Link/ResearchWorkspace 龙虎榜日期切换（复用 changeMoneyFlowPeriod 模式，只重取+失败回滚）/测试（真实 MemoryRouter 导航、pending 保留、错误去重）/E2E，后端、chart hook、playwright 配置、既有 E2E 断言零改动，无删除 | 验证: build 4,242 modules；Vitest 121/331；E2E 46/46；zh/en parity 2265/2265 差集0；git diff --check 通过；已提交
 
 - 2026-09-02 维护者独立复核 BACKLOG-015 通过：审阅 ResearchWorkspace 龙虎榜历史上榜记录列表（selectedDragonTigerIndex 选中切换不重请求、历史条目席位占位、切日期/代码/重载重置选中）/测试（多记录、本地切换、占位、若历史有席位则渲染、失败保留选中）/E2E（含键盘可达），后端、chart hook、playwright 配置、既有 E2E 断言零改动，无删除 | 验证: build 4,242 modules；Vitest 121/337；E2E 47/47；zh/en parity 2270/2270 差集0；git diff --check 通过；已提交
+
+- 2026-09-02 维护者独立复核 BACKLOG-016 通过：审阅 SERVE_FRONTEND 开关（默认关闭）/main.py 静态托管 + SPA fallback（dist 缺失跳过、/api 保护、include_in_schema=False）/test_main_static.py 21 项（隔离加载、tmp_path 假 dist、路径穿越防护、OpenAPI 不变），Docker/nginx、frontend、routers/database/auth 零改动，无删除 | 验证: backend 801/801 + cov 92.28%（main.py 91.0%）+ ruff；双环境 21/21；git diff --check 通过；已提交

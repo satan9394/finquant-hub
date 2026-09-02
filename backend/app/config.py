@@ -28,6 +28,7 @@ NEWS_PROXY_URL = os.getenv("NEWS_PROXY_URL", "").strip()
 DB_PATH = BASE_DIR / "data" / "finquant.db"
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
+SERVE_FRONTEND: bool = _env_flag("SERVE_FRONTEND")
 SCHEDULER_ENABLED = _env_flag("SCHEDULER_ENABLED")
 SCHEDULER_CONCURRENCY = _bounded_int("SCHEDULER_CONCURRENCY", 2, 1, 20)
 SCHEDULER_MAX_TARGETS = _bounded_int("SCHEDULER_MAX_TARGETS", 20, 1, 1000)

@@ -1,6 +1,6 @@
 # BACKLOG-016 — 生产单进程托管：FastAPI 直接服务前端产物
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
 > 背景：方向 2（本地快速部署）第一张卡。当前前端产物（`frontend/dist`，vite build）只能由 Docker 的 nginx（路径 A）或裸机 dev 双终端（路径 B：vite dev + uvicorn）托管；`backend/app/main.py` **不挂载静态产物**，因此"无 Docker、生产模式、单进程"无法实现。本任务让 FastAPI 在**显式启用时**直接托管 `frontend/dist`（含 SPA fallback），实现"一个 uvicorn 进程起完整应用"，为 BACKLOG-017 一键启动铺路。
 >
 > **开工前必读（维护者调研结论，勿跳过）**：
@@ -89,10 +89,27 @@ cd backend
 cd .. && git diff --check
 ```
 
-## 完成证据（执行后填写）
+## 完成证据（2026-09-02）
 
-- 修改文件清单（config/main/tests/文档）
-- 开关与挂载语义（SERVE_FRONTEND、dist 解析、assets + fallback 顺序、/api 保护）
-- 测试数；全量套件结果；覆盖率前后
-- 依赖变化（应为零）；Docker/nginx 路径未动确认
-- 记录决策确认（默认关闭不破坏 Docker/测试；dist 缺失跳过不抛错；/api 不被 fallback 吞掉）
+- **修改文件（8 个）**：入口配置 `backend/app/config.py`、入口 `backend/app/main.py`；新增 `backend/tests/test_main_static.py`；文档 `docs/ai/tasks/BACKLOG-016.md`、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`、`docs/ARCHITECTURE.md`、`README.md`。既有测试文件无需修改。
+- **开关**：`SERVE_FRONTEND: bool = _env_flag("SERVE_FRONTEND")` 复用现有解析器；未设、`0`、`false` 均关闭，`1`、`true` 启用。默认即使存在 dist，也不注册 assets/fallback。
+- **路径与顺序**：仅开关启用时用 `Path(__file__).resolve().parents[2] / "frontend" / "dist"` 定位；目录缺失记录约定 warning 并跳过。全部业务 router → 内联 `/api/health` → 存在的 `/assets` → GET SPA fallback；assets 目录缺失时仍可返回 index。请求路径不用于拼接磁盘文件路径；资产目录边界由现有 `StaticFiles` 处理。
+- **API 保护**：`/api`、`/api/`、`/api/nope` 返回 JSON 404；`/api/health` 仍调用原查询并返回 JSON 200；未登录的 `/api/models` 仍返回 401。`/apiary` 属于非 API 路径，可正常 fallback。fallback 使用 `include_in_schema=False`，开关前后完整 OpenAPI JSON 相等。
+- **确定性测试**：21 项，覆盖环境开关 5 项、首页/SPA/查询参数/相似前缀 4 项、CSS/JS 类型与内容 2 项、缺失资产/目录越界 2 项、health 1 项、API 404 边界 3 项、认证 1 项、dist 缺失 1 项、assets 缺失 1 项、OpenAPI 一致性 1 项。`tmp_path` 生成假 dist，monkeypatch 配置与独立入口模块的 `__file__`，并切至无关 cwd 验证路径解析；不 reload 全局 `app.main`，不运行 lifespan，health 用 `AsyncMock`，无真实网络、数据库或真实 build 依赖。
+
+验证命令均见上节，使用现有 `backend/.venv`，结果如下（exit 0）：
+
+| 门禁 | 实测结果 |
+| --- | --- |
+| 修改前全量 + 覆盖率 | 780 passed，99.64s；92.25% |
+| 新增专项 `--no-cov` | 21 passed，11.92s |
+| 修改后全量 `--no-cov` | 801 passed，85.00s（既有 780 + 新增 21） |
+| 修改后全量 `--cov=app` | 801 passed，138.46s；92.28% |
+| Ruff `check .` | All checks passed |
+| `git diff --check`、文件范围检查 | 通过；仅上述 8 文件，无删除，暂存区为空 |
+
+- **覆盖率核对**：卡片历史记录 92.26%，本轮修改前在 `fdea1d2` 实测为 92.25%；修改后 92.28%，高于两者。`app/main.py` 89.1% → 91.0%，新增托管代码行与分支均覆盖；未降低覆盖率门槛或修改覆盖率配置。
+- **首轮测试修正**：新增测试最初 5 项在路由结构检查处失败，原因是当前 FastAPI 的 `_IncludedRouter` 没有 `.path`；改为兼容该对象的路径读取后专项及两次全量全部通过。HTTP 行为断言均保留，既有测试断言未改。
+- **边界确认**：Python/npm 依赖与锁文件变化为零；`Dockerfile`、`docker-compose*.yml`、`docker/`、`frontend/`、routers/database/services/agent/认证/schema、`reference/` 均未修改；没有删除文件。未运行前端 build（保持前端禁止修改边界），未启动或改动 Docker/nginx。`HANDOFF.md` 与 `scripts/handoff-log.py` 不在卡片允许清单，故不运行会写入 HANDOFF 的收尾脚本，以本卡和 CHANGELOG 留存交接证据。
+- **决策确认**：默认关闭维持 Docker/nginx 和既有 API 测试路径；dist 缺失只警告不抛错；API 前缀显式排除；保持 CSR、零依赖。静态入口不改变 API 契约，无需修改允许清单外的 API 文档。
+- **交付状态**：卡片及 EXEC_PLAN 已标记 `[DONE]`，CHANGELOG 带日期标题；风险低。HEAD 保持 `fdea1d2`，未 commit、未 push；本卡无待办，不自动开始 BACKLOG-017/018。
