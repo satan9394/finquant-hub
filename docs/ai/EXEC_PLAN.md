@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-016: 生产单进程托管——FastAPI 直接服务前端产物
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-016.md`
+**范围**: 方向 2（本地快速部署）第 1 卡，薄改动后端入口。当前前端产物只能由 Docker nginx（路径 A）或裸机 dev 双终端（路径 B）托管，`main.py` 不挂载静态产物。本任务：①`backend/app/config.py` 新增 `SERVE_FRONTEND`（bool 默认 False，环境变量开关）；②`main.py` 在 router 全部挂载后、`SERVE_FRONTEND=1` 且 `frontend/dist` 存在时，挂载 `/assets` 静态 + SPA fallback（`/{full_path:path}` 非 `/api/*` 返回 index.html，`/api/*` 显式 404 防吞 API），dist 缺失警告并跳过；③新增 `test_main_static.py`（monkeypatch + tmp_path 假 dist，不依赖真实 build）≥6 用例（index/fallback/assets/health/不存在 api 404/默认不挂载）；④全量后端 pytest + 覆盖率不降 + ruff；⑤`docs/ARCHITECTURE.md` 补一句，CHANGELOG 带日期标题。默认关闭不破坏 Docker（nginx 路径）与既有 780 测试；零新依赖、无删除。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-015: 龙虎榜历史上榜记录列表
 
 **优先级**: P1
