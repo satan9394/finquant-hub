@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-022: 前端死组件回收 + bundle 瘦身（echarts 移出主包）
+## [DONE] BACKLOG-022: 前端死组件回收 + bundle 瘦身（echarts 移出主包）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-022.md`
-**范围**: 纯前端瘦身任务（后端零改动、零依赖变化）。维护者确认 3 个真死组件：`BacktestResultCard`（BACKLOG-021 后无人用）、`MarketMoversPanel`+`MarketThemesPanel`（互为引用但无页面 import）——它们是仅有的急切 `import echarts-for-react` 文件，导致 echarts 6.1.0 全量进主包（1119KB）。本任务：①再验证零引用（src+e2e）后回收 6 文件（3 组件+3 同名测试）进回收站（SHA256 核验，禁 rm）；②build 前后对比 bundle 字节数（预期主包 1119KB 明显下降、echarts 成懒加载 chunk；若未降不扩大改动面）；③全量 build/Vitest（124/354 减 3 文件）/E2E（50）全绿；④`docs/ARCHITECTURE.md` 仅当引用死组件才更新；⑤记录决策：pro-components 疑似死依赖 + pro-layout 疑似传递依赖，本轮不动依赖留待授权。零后端改动、零依赖变化、无 rm、无删除其他文件。
-**证据**: 待执行
+**范围**: 纯前端死资产回收与 bundle 测量（后端零改动、零依赖变化）。再次核验 `BacktestResultCard`、`MarketMoversPanel`、`MarketThemesPanel` 及导出符号无外部引用，回收三个组件及三个同名测试；记录主包/vendor/ECharts 的实际字节数，不因预期收益未出现而扩大范围。LazyEChart 及三个使用者、依赖、配置、其余组件和测试保留不动。同步卡片、CHANGELOG 与架构文档原有的死组件保留说明；依赖卫生留待授权。
+**证据**: 2026-09-03 完成。AST/宽匹配确认 src+e2e+tests 集合外引用 0，六个文件经 SendToRecycleBin 回收，原路径/字节数/SHA256 与回收载荷 6/6 匹配。前后 build 均 4,243 modules / 58 schemas fresh；入口主包 index-8ilTy0GW.js 368,423→368,423 bytes，vendor-antd 1,564,909→1,564,909，ECharts 懒加载 index-dM8hBGUF.js 1,145,864→1,145,864；33 个 JS chunk 名称/字节/SHA256 全同，总量 3,629,057→3,629,057，差值 0。校准原卡把既有 ECharts 懒加载 chunk 当主包的前提，按目标 2 记录实测，不扩大范围。最终全量 Vitest 121/121 files、346/346 tests（124/354−3/8；1153.09s）；首轮唯一 5000ms 超时经原参数专项 2/2 与完整复测通过，测试/超时/配置均未改。随后 Chromium E2E 50/50（1.0m，原 workers:2/retries:1，无重试）。diff check 与范围/哈希审计通过：仅 6 回收 + 4 文档，3,970 原文件不变，包括全部 253 后端文件与所有禁止项；HEAD 29cbba7、暂存区空，未 commit/push。完整回收清单、33-chunk 表、原始日志与依赖决策见卡片。
 
 ---
 

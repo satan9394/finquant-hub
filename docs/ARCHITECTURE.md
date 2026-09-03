@@ -198,7 +198,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；全应用 OpenAPI 为 135 路径、169 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
 
-Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，原 `BacktestResultCard` 与解析工具文件保留。
+Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，解析工具文件保留；无外部引用的 `BacktestResultCard` 及其同名测试已在 BACKLOG-022 回收至回收站。
 
 | 维度 | v2 (backtests.py) |
 |------|-------------------|
