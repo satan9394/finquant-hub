@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-022: 前端死组件回收 + bundle 瘦身（echarts 移出主包）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-022.md`
+**范围**: 纯前端瘦身任务（后端零改动、零依赖变化）。维护者确认 3 个真死组件：`BacktestResultCard`（BACKLOG-021 后无人用）、`MarketMoversPanel`+`MarketThemesPanel`（互为引用但无页面 import）——它们是仅有的急切 `import echarts-for-react` 文件，导致 echarts 6.1.0 全量进主包（1119KB）。本任务：①再验证零引用（src+e2e）后回收 6 文件（3 组件+3 同名测试）进回收站（SHA256 核验，禁 rm）；②build 前后对比 bundle 字节数（预期主包 1119KB 明显下降、echarts 成懒加载 chunk；若未降不扩大改动面）；③全量 build/Vitest（124/354 减 3 文件）/E2E（50）全绿；④`docs/ARCHITECTURE.md` 仅当引用死组件才更新；⑤记录决策：pro-components 疑似死依赖 + pro-layout 疑似传递依赖，本轮不动依赖留待授权。零后端改动、零依赖变化、无 rm、无删除其他文件。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-021: 回收 v1 回测（路由下线 + 引擎回收 + Chat 入口重定向 + 契约/测试同步）
 
 **优先级**: P1
