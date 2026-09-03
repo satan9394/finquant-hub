@@ -5,12 +5,11 @@ from app import config, database
 from app.main import app
 
 
-# Phase 8 started from a 14-router plan; auth is public, while 22 business routers require a session.
+# Phase 8 started from a 14-router plan; auth is public, while 21 business routers require a session.
 ROUTER_SENTINELS = {
     "agents": ("/api/agents", "get"),
     "alerts": ("/api/alerts/signal-types", "get"),
     "analysis": ("/api/analysis/stock", "post"),
-    "backtest": ("/api/backtest/runs", "get"),
     "backtests": ("/api/backtests", "get"),
     "chat": ("/api/chat/sessions", "get"),
     "credentials": ("/api/me/credentials", "get"),
@@ -35,7 +34,7 @@ ROUTER_SENTINELS = {
 def test_every_current_router_has_a_public_operation_in_openapi():
     paths = app.openapi()["paths"]
 
-    assert len(ROUTER_SENTINELS) == 22
+    assert len(ROUTER_SENTINELS) == 21
     for module, (path, method) in ROUTER_SENTINELS.items():
         assert path in paths, f"{module} router is not mounted"
         assert method in paths[path], f"{module} router is missing {method.upper()} {path}"
@@ -70,3 +69,52 @@ async def test_every_business_router_rejects_missing_session(tmp_path, monkeypat
                     assert response.status_code == 401, f"{module} router is public"
         finally:
             await database.close_db()
+
+
+@pytest.mark.asyncio
+async def test_retired_backtest_keeps_legacy_data_and_shared_alpha_simulation(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "retired-backtest.db")
+    monkeypatch.setattr(config, "LOCAL_ONLY_MODE", True)
+    monkeypatch.setattr(config, "SCHEDULER_ENABLED", False)
+    async with app.router.lifespan_context(app):
+        user = await database.query_one("SELECT id FROM users ORDER BY id LIMIT 1")
+        run_id = await database.execute(
+            "INSERT INTO backtest_runs (ticker, strategy_type, result, user_id) VALUES (?, ?, ?, ?)",
+            ("sh600519", "ma_cross", "{}", user["id"]),
+        )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for method, path in (
+                ("POST", "/api/backtest/runs"),
+                ("GET", "/api/backtest/runs"),
+                ("GET", f"/api/backtest/runs/{run_id}"),
+            ):
+                assert (await client.request(method, path)).status_code == 404
+            v2 = await client.get("/api/backtests")
+            assert v2.status_code == 200
+            assert v2.json()["items"] == []
+
+            # The live Alpha route still needs shared metrics after the v1 engine is retired.
+            # Equal factors/returns give zero long-short return, not a fabricated IC or Sharpe.
+            response = await client.post("/api/wq/simulate/local", json={
+                "observations": [
+                    {"date": day, "symbol": symbol, "factor": 1, "forward_return": 0.2}
+                    for day in ("2026-01-05", "2026-01-06")
+                    for symbol in ("A", "B", "C", "D", "E")
+                ],
+            })
+            assert response.status_code == 200
+            result = response.json()
+            assert result["period_returns"] == [0, 0]
+            assert [point["value"] for point in result["equity_curve"]] == [1, 1, 1]
+            assert result["metrics"]["total_return"] == 0
+            assert result["metrics"]["sharpe_ratio"] is None
+            assert result["metrics"]["beta"] is None
+            assert result["factor_analysis"]["mean_ic"] is None
+            assert result["factor_analysis"]["mean_rank_ic"] is None
+            assert result["factor_analysis"]["excluded_periods"] == [
+                {"date": day, "assets": 5, "reason": "zero_variance"}
+                for day in ("2026-01-05", "2026-01-06")
+            ]
+            assert await database.query_one(
+                "SELECT ticker, strategy_type, result FROM backtest_runs WHERE id = ?", (run_id,),
+            ) == {"ticker": "sh600519", "strategy_type": "ma_cross", "result": "{}"}

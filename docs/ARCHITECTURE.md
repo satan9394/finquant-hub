@@ -15,11 +15,11 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 ├─────────────────────────────────────────────────────────┤
 │                    Vite 开发代理 (5173 → 8000)            │
 ├─────────────────────────────────────────────────────────┤
-│                     路由层 (23 个 APIRouter)              │
+│                     路由层 (22 个 APIRouter)              │
 │  /api/auth  /api/me/credentials  /api/models  /api/agents│
 │  /api/chat  /api/discussion  /api/market  /api/dashboard │
 │  /api/analysis  /api/portfolio  /api/wq  /api/research   │
-│  /api/screening  /api/backtest(s)  /api/instruments     │
+│  /api/screening  /api/backtests  /api/instruments       │
 │  /api/swarm /api/notifications /api/alerts /api/mcp      │
 │  /api/settings  /api/usage  /api/thesis                  │
 │  auth 独立注册，其余路由统一附加认证依赖；无自动发现       │
@@ -42,7 +42,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 │  │  indicators.py  (7 指标 numpy 实现)              │   │
 │  ├──────────────────────────────────────────────────┤   │
 │  │  portfolio.py  /  alpha_service.py               │   │
-│  │  backtest/engine.py  (3 策略向量化回测)           │   │
+│  │  backtest/ma_crossover.py + portfolio.py (v2)     │   │
 │  └──────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────┤
 │              Agent 工具层 (13 工具, function_calling)   │
@@ -192,21 +192,25 @@ model_router.get_client(model_id) → (LLMClient, config)
   └── 通过 DB 模型配置表管理（用户界面可 CRUD）
 ```
 
-### 2.7 双版本回测 API
+### 2.7 回测 API（仅 v2）
 
-**实现位置**：`backend/app/routers/backtest.py`（v1）+ `backtests.py`（v2）
+**实现位置**：`backend/app/routers/backtests.py` + `backend/app/backtest/ma_crossover.py`，组合回测复用 `backtest/portfolio.py`。
 
-| 维度 | v1 (backtest.py) | v2 (backtests.py) |
-|------|------------------|-------------------|
-| 执行方式 | 同步请求-响应 | BackgroundTasks 异步 |
-| 状态管理 | 无 | 状态机队列→loading→running→calculating→completed |
-| 数据库 | database.py 统一初始化 backtest_runs | database.py 统一初始化 quant_backtests |
-| K 线来源 | 内联 Tencent 调用 | InstrumentService 统一接口 |
-| 策略 | 3 种（ma_cross/rsi_reversal/bollinger） | MA Cross 为主，支持多标的组合 |
-| 市场执行约束 | 旧版收盘价向量化，不建模 T+1/涨跌停 | A 股 T+1/涨跌停/禁做空，可显式关闭或覆盖涨跌幅 |
-| 结果校验 | 基础绩效 | Bootstrap/Monte Carlo/Walk-forward + 组合风险 X 光 |
+BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；全应用 OpenAPI 为 135 路径、169 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
 
-**关键意义**：v2 不仅把长计算移到异步状态机，还承担真实市场执行约束与稳健性验证。v1 保留为兼容入口，不应作为 A 股可成交性结论依据。涨跌停价从板块规则与前收盘推导，ST、上市初期例外需显式传入 `price_limit_ratio`；复权行情可能扭曲历史涨跌停推断，结果会公开该假设。
+Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，原 `BacktestResultCard` 与解析工具文件保留。
+
+| 维度 | v2 (backtests.py) |
+|------|-------------------|
+| 执行方式 | BackgroundTasks 异步 |
+| 状态管理 | 状态机队列→loading→running→calculating→completed |
+| 数据库 | database.py 统一初始化 quant_backtests |
+| K 线来源 | InstrumentService 统一接口 |
+| 策略 | MA Cross 为主，支持多标的组合 |
+| 市场执行约束 | A 股 T+1/涨跌停/禁做空，可显式关闭或覆盖涨跌幅 |
+| 结果校验 | Bootstrap/Monte Carlo/Walk-forward + 组合风险 X 光 |
+
+**关键意义**：v2 不仅把长计算移到异步状态机，还承担真实市场执行约束与稳健性验证。涨跌停价从板块规则与前收盘推导，ST、上市初期例外需显式传入 `price_limit_ratio`；复权行情可能扭曲历史涨跌停推断，结果会公开该假设。
 
 `strategy-ir/v1` 位于 v2 router 前的纯解析边界：它只把明确的单标的日线 MA crossover 描述映射为有限枚举、有界窗口、逐条件解释和 canonical key。`ma-crossover-draft/v1` 仅把 canonical IR 可逆映射为 symbol、快慢窗口和固定的 close -> next open / long-only 口径；日期、资金、成本、基准和风控不进入 parameters，仍需显式确认。两者均不调用 LLM、不生成代码、不运行或保存回测；Strategy Lab 只有用户点击应用后才更新三个可映射表单字段。
 
@@ -388,7 +392,6 @@ main.py (lifespan + router registration)
   │   │   └── portfolio.py (service)
   │   │       ├── database
   │   │       └── market_data
-  │   ├── backtest.py      → database, market_data (v1, 同步)
   │   ├── backtests.py     → database, instruments (v2, 异步)
   │   │   └── instruments.py → market_data
   │   ├── instruments.py   → database, instruments (service), market_data, a_stock_extra（资金流/龙虎榜薄包装）
@@ -535,7 +538,7 @@ Router → ticker.py → MarketDataService → 腾讯API
 
 ### 8.8 回测执行与验证（9.3 已完成）
 
-- **A 股执行约束**：v2 单标的与组合回测统一复用纯逻辑规则，模拟 T+1、涨跌停拒单与禁做空；v1 作为旧版向量化兼容入口，明确不提供该保证。
+- **A 股执行约束**：仅 v2 单标的与组合回测，统一复用纯逻辑规则，模拟 T+1、涨跌停拒单与禁做空；v1 入口及引擎已回收。
 - **统计稳健性**：单标的结果附带固定种子的移动块 Bootstrap、经验收益 Monte Carlo 与按时间扩展的固定参数 Walk-forward，避免把随机验证结果误认为确定事实。
 - **组合风险 X 光**：组合结果给出 HHI 集中度、最大/当前回撤、历史 VaR/ES 与分散化收益；样本不足或混合频率时返回明确的 `status`，不伪造数值。
 - **长周期指标**：研究行情统一输出 MA120、MA250 与 VolMA10；前端价格图展示 MA120/MA250。

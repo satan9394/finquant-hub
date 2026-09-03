@@ -212,13 +212,11 @@
 
 ---
 
-## 9. 回测 v1（同步）`/api/backtest`
+## 9. 回测 v1（已回收）
 
-| 路径 | 方法 | 功能 | 阶段 |
-|------|------|------|------|
-| `/api/backtest/runs` | POST | 执行旧版收盘价向量化回测（3 策略：ma_cross/rsi_reversal/bollinger）；不模拟 A 股 T+1/涨跌停，A 股严谨执行使用 v2 | MVP |
-| `/api/backtest/runs` | GET | 列出历史回测运行记录 | MVP |
-| `/api/backtest/runs/{id}` | GET | 获取单次回测完整结果 | MVP |
+BACKLOG-021 已下线 `/api/backtest` 的全部 3 个 HTTP 操作（2 个路径），回测由 [§11 回测 v2](#11-回测-v2异步apibacktests) 接管。旧 router、引擎和专属测试已移入回收站；`backtest_runs` 历史表及数据保留，不迁移到 v2 的 `quant_backtests`。
+
+Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossover?symbol={ticker}`，预填股票代码并提示确认参数后运行；不再提交 v1 请求，也不会自动创建 v2 回测。
 
 ---
 
@@ -423,19 +421,18 @@
 | 9 | `/api/dashboard` | dashboard.py | 1 | 2 |
 | 10 | `/api/analysis` | analysis.py | 3 | 0 |
 | 11 | `/api/portfolio` | portfolio.py | 10 | 9 |
-| 12 | `/api/backtest` | backtest.py | 3 | 0 |
-| 13 | `/api/research` | research.py | 0 | 11 |
-| 14 | `/api/backtests` | backtests.py | 0 | 10 |
-| 15 | `/api/instruments` | instruments.py | 0 | 10 |
-| 16 | `/api/screening` | screening.py | 0 | 1 |
-| 17 | `/api/wq` | wq.py | 0 | 10 |
-| 18 | `/api/swarm` | swarm.py | 0 | 4 |
-| 19 | `/api/notifications` | notifications.py | 0 | 4 |
-| 20 | `/api/alerts` | alerts.py | 0 | 8 |
-| 21 | `/api/mcp` | mcp.py | 0 | 8 |
-| 22 | `/api/settings` | settings.py | 0 | 12 |
-| 23 | `/api/usage` | usage.py | 0 | 1 |
-| 24 | `/api/thesis` | thesis.py | 0 | 14 |
-| | **合计** | | **42** | **125** |
+| 12 | `/api/research` | research.py | 0 | 11 |
+| 13 | `/api/backtests` | backtests.py | 0 | 10 |
+| 14 | `/api/instruments` | instruments.py | 0 | 10 |
+| 15 | `/api/screening` | screening.py | 0 | 1 |
+| 16 | `/api/wq` | wq.py | 0 | 10 |
+| 17 | `/api/swarm` | swarm.py | 0 | 4 |
+| 18 | `/api/notifications` | notifications.py | 0 | 4 |
+| 19 | `/api/alerts` | alerts.py | 0 | 8 |
+| 20 | `/api/mcp` | mcp.py | 0 | 8 |
+| 21 | `/api/settings` | settings.py | 0 | 12 |
+| 22 | `/api/usage` | usage.py | 0 | 1 |
+| 23 | `/api/thesis` | thesis.py | 0 | 14 |
+| | **合计** | | **39** | **125** |
 
-合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 137 个 `/api/*` 路径、172 个 HTTP 操作。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 22 个 APIRouter 加 1 个内联健康检查，运行时生成 135 个 `/api/*` 路径、169 个 HTTP 操作。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。

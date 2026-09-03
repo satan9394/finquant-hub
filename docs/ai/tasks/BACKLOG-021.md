@@ -1,6 +1,6 @@
 # BACKLOG-021 — 回收 v1 回测（路由下线 + 引擎回收 + 契约/测试同步）
 
-> 状态：`[READY]`（修订版——解除原 BLOCKED）｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
+> 状态：`[DONE]`（修订版全部完成）｜ 优先级：P1 ｜ 创建：2026-09-02 ｜ 执行者：Codex
 > 背景：SCOPE_FREEZE_V1.md §3.3 P2 明确要求"v1 回测 `backtest.py`（/api/backtest）前端零调用；v2 已接管 → 路由下线（回收站），测试同步；OpenAPI 核对"——这是规划内**未完成**的回收项。v1 是旧版收盘价向量化回测（3 策略），v2（`backtests.py` + `ma_crossover` 等，A 股执行规则）已完整接管。本任务下线 v1 回测路由、回收 v1 引擎、同步测试与文档，消除 v1/v2 双轨。
 >
 > **修订说明（2026-09-02，解除 BLOCKED）**：Codex 首轮执行发现两处维护者调研遗漏，已核实确认，本次修订授权补齐：
@@ -117,17 +117,13 @@ cd backend && .\.venv\Scripts\python.exe -c "from app.main import app; print([r.
 
 ## 完成证据（执行后填写）
 
-### 2026-09-02 执行状态：部分完成，卡片边界冲突待维护者决定
+### 2026-09-02 修订收尾（全部完成）
 
-基于干净工作树 `607a145` 执行，未 commit、未 push。原卡片的允许/禁止清单保持不变；下面记录实测偏差，不自行扩大授权。
+维护者以 `e9f1504` 修订卡片，并在本轮明确授权补删第 3 个 v1 测试、同步 sentinel 计数、Chat 跳转及对应测试；另明确授权同步 `frontend/src/types/openapi.generated.ts`。首轮两处 BLOCKED 已解除。HEAD 保持 `e9f1504`，不 commit、不 push。
 
-**阻塞 1：卡片遗漏第 3 个 v1 测试及固定数量断言。** `backend/tests/test_backlog007_router_branches.py` 实际有 3 个 v1 测试。已精准移除卡片指定的 `test_legacy_backtest_data_and_engine_error_paths`、`test_legacy_backtest_success_list_and_details`；按“其余保留”限制，保留 `test_legacy_backtest_validation_and_market_errors` 及其 `_legacy_body`、`backtest` import。这导致回收 router 后 pytest 收集 ImportError。`test_router_contracts.py` 已移除 v1 sentinel 行，但原 `len(ROUTER_SENTINELS) == 22` 断言变为 `21 == 22` 失败；未擅改其余断言。已向维护者请求批准补删遗漏的 v1 测试/helper/import，并同步数量断言与注释为 21。
+### 回收与保留
 
-**阻塞 2：前端零调用前提不成立。** `frontend/src/pages/Chat.tsx:159` 的 `apiClient.post('/backtest/runs', ...)` 结合 `frontend/src/services/api.ts:7` 的 `baseURL: '/api'` 实际调用 v1。`ResearchWorkspace.tsx:24/80` 导入并在 Fast 模式渲染 Chat，`App.tsx:294` 的旧 `/chat` 路由也会进入该模式，因此不是死代码。回收后该按钮将得到 HTTP 404。完整 `/api/backtest/` 字符串 grep 为零只证明字面量不存在，不能证明调用不存在。`frontend/` 禁止修改，本轮保持原样；已请求批准将按钮明确改为打开现有 Strategy Lab（`/strategy-lab/ma-crossover?symbol=...`，仅标的预填、用户确认参数，不将 RSI/布林静默改为 MA），并补针对性测试。在维护者决定前，不宣称前端零调用或本任务完成。
-
-### 回收与代码变更
-
-采用 PowerShell `Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile`，明确传入 `OnlyErrorDialogs`、`SendToRecycleBin`、`ThrowException`。执行前逐个解析绝对路径，校验位于本工作区且 SHA256 与修改前快照一致；执行后核对原路径不存在、Windows 回收站 `$I` 原路径/时间和 `$R` 内容 SHA256 一致，3/3 确认。
+三个源文件已在首轮使用 PowerShell `Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile` + `OnlyErrorDialogs` / `SendToRecycleBin` / `ThrowException` 移入 Windows 回收站。逐个核对原路径消失、回收站 `$I` 元数据及 `$R` 内容 SHA256 一致。没有使用 rm/Remove-Item/del 回收文件。
 
 | 文件 | 字节数 | 回收站文件 | 原文件/回收文件 SHA256 |
 |------|--------|------------|------------------------|
@@ -135,51 +131,55 @@ cd backend && .\.venv\Scripts\python.exe -c "from app.main import app; print([r.
 | `backend/app/backtest/engine.py` | 11134 | `$R18VETU.py` | `0987F38B4AABBAB04DC862E17344CBA0D1BB0D314063F12EF711F718DB5289BD` |
 | `backend/tests/test_backtest_engine.py` | 2705 | `$RHQZNDW.py` | `1E5F548CA764E0AA047DF45CADA1AB8036ACF528D11F0329D3F4FCC4D5BD914E` |
 
-- 回收时间：2026-09-02 16:20:05 UTC；位置：`E:\$Recycle.Bin\S-1-5-21-1866984205-3748508198-824681690-1002\`。没有使用永久删除命令。
-- `main.py` 仅移除 v1 import 与 router 注册，保留 v2 与全部其他业务逻辑。
-- 专属 engine 测试文件有 8 项，加已移除的 2 项 router 测试，本轮删除 10 项。若批准补删遗漏的 1 项，预期完整套件为 `808 - 11 = 797`；这是预期，尚非通过结果。
-- `test_router_contracts.py` 仅删除 `"backtest": ("/api/backtest/runs", "get")` 行；v2 sentinel 与全部既有断言仍保留。
+回收时间：2026-09-02 16:20:05 UTC；目录：`E:\$Recycle.Bin\S-1-5-21-1866984205-3748508198-824681690-1002\`。
 
-### OpenAPI 与运行核对
+- `main.py` 仅移除 v1 import 与 router 注册；所有其他逻辑的 AST 与 HEAD 一致。
+- 补删 `test_legacy_backtest_validation_and_market_errors`、`_legacy_body` 和 `backtest` import；合计删除 8 项 engine 测试与 3 项 v1 router 测试，其余分支测试 AST 完全保留。
+- sentinel 移除 v1 行，计数及注释 22→21；v2 与原有其他断言保留。新增 1 项退役回归：旧 3 操作均 404、历史 backtest_runs 数据不变、v2 列表隔离、真实 Alpha 本地模拟仍使用共享 metrics，并对零方差保持 IC/Sharpe 为 null。
+- `metrics.py`、database.py / backtest_runs 表、v2 全套、Agent 工具、共享/v2 测试、认证、reference、依赖及锁文件均未修改。零新依赖；测试仅用临时 SQLite/确定性 fixture，不访问真实行情、LLM 或生产数据库。
 
-| 核对项 | 修改前 | 修改后 | 结论 |
-|--------|--------|--------|------|
-| APIRouter | 23 | 22 | 仅下线 v1 |
-| OpenAPI 路径 | 137 | 135 | v1 实际为 2 路径，卡片“3 路径/134”有误 |
-| HTTP 操作 | 172 | 169 | 减少 POST runs、GET runs、GET runs/{run_id} 共 3 操作 |
-| v2 `/api/backtests` | 9 路径 / 10 操作 | 9 路径 / 10 操作 | 逐路径完整 JSON 相等 |
-| 其余路径契约 | 保存完整基线 | 与基线逐项相等 | 无其他接口变更 |
-| components.schemas | 含 BacktestRequest | 仅移除 BacktestRequest | 其他 schema 完整相等 |
+### Chat 跳转与前端同步
 
-准确消失的路径为 `/api/backtest/runs` 与 `/api/backtest/runs/{run_id}`。隔离临时 SQLite + ASGI 生命周期实测：启动/关闭通过，`GET /api/health` 为 `200`、`status=ok`、`db=wal`；3 个旧操作均返回 `404`，未登录访问 v2 与 models 仍为 `401`；初始化后 `backtest_runs` 和 `quant_backtests` 两表均存在。不访问真实行情/LLM、不启动端口服务、不重启日常实例。
+- 按钮改为“打开策略实验室” / “Open Strategy Lab”。`handleRunBacktest` 仅取 ticker 后导航到 `/strategy-lab/ma-crossover?symbol=` + `encodeURIComponent(ticker)`；提示确认参数后运行，不自动提交 v1/v2，也不传递旧 strategy 类型。
+- 空输入保持禁用、缺少 ticker 保留 warning。移除 v1 POST、backtestResults/isBacktesting state、结果列表、loading 与结果组件 import。
+- `BacktestResultCard.tsx`、`features/backtest/request.ts` 文件及原测试不变；按修订卡目标 3 的明确说明，保留现有 `parseBacktestRequest` import 仅提取 ticker，避免复制解析逻辑。
+- zh/en 删除 completed/failed、新增 redirected，同步描述与按钮文案；各 2274 keys，差集/重复均为 0。
+- 经维护者单独授权，用现有 `scripts/openapi_tsgen.py` 同步生成类型，唯一差异为删除失效 `BacktestRequest` 的 7 行；其余生成内容完全一致，59→58 schemas。
+- 新增 `ChatBacktestRedirect.test.tsx` 7 项组件测试，验证 A 股/美股/港股及 MA ticker、无 POST、空输入、无代码提示、英文跳转语义；使用真实 MemoryRouter。原 ChatStarterDraft 等测试保持不变。
+- `chat-paths.spec.ts` 原用例全文保留，追加 2 项 E2E：键盘触发跳转、精确 URL、真实 StrategyLab 股票代码预填、确认提示、无任何 backtest 写请求，以及空/缺代码时不跳转。
 
-### 测试与质量门禁
+### OpenAPI 与生命周期
 
-- **修改前全量覆盖率基线**：808 passed，114.52s；92.28%（JSON 精确值 92.28125%）。与卡片基线一致。
-- **修改后全量 no-cov**：按卡片命令执行，4.66s，退出码 2；`test_backlog007_router_branches.py` 的残留 v1 import 导致 1 个 collection error，未取得全量通过证据。
-- **修改后全量 coverage**：已执行卡片 coverage 命令；同一收集错误阻塞，未取得有效完整套件覆盖率。收集失败产生的局部覆盖率不用于“覆盖率不降”结论。
-- **受影响测试双环境**：`test_backlog007_router_branches.py`、`test_router_contracts.py`、`test_main_static.py`，使用 `--continue-on-collection-errors --no-cov -p no:cacheprovider` 诊断；代理变量清空为 30 passed / 1 failed / 1 error（16.83s），HTTP/HTTPS 7897 + ALL_PROXY socks5 7897 为相同结果（16.72s）。28 项静态托管测试和 2 项其余 router 契约通过；失败均为上述已知遗漏，不能标为双环境全绿。
-- Ruff `check .` 通过。最终逐文件 SHA256 检查：976 个原已跟踪非 reference 文件中仅白名单内 11 个变化，965 个保持一致；3 个删除路径恰好等于回收清单。AST 对比确认 main 仅移除 v1 import/注册、分支测试仅移除指定 2 函数、router 契约仅移除 v1 sentinel；API_CONTRACT §11 完整文本不变。测试删除遗留的文件尾空白已精确清理，最终 `git diff --check` 通过。
-- 未运行前端 build/test/e2e：前端代码未改，现存调用阻塞已经由静态调用链与后端 404 证实。
+| 项目 | 修改前 | 修改后 | 验证 |
+|------|--------|--------|------|
+| APIRouter | 23 | 22 | 仅移除 v1 |
+| paths / operations | 137 / 172 | 135 / 169 | v1 实际为 2 路径 / 3 操作 |
+| v2 | 9 路径 / 10 操作 | 9 路径 / 10 操作 | 完整 JSON 相等 |
+| 非 v1 path 契约 | 完整基线 | 逐项完全相等 | 无其他接口变化 |
+| schemas | 含 BacktestRequest | 仅移除 BacktestRequest | 其余 schema 完全相等 |
 
-### 保留项与文档范围
+原卡片“3 路径/134”计数有误：`POST /api/backtest/runs` 与 `GET /api/backtest/runs` 共用一个 OpenAPI path，另一个是 `/api/backtest/runs/{run_id}`。隔离 ASGI 启动/关闭通过，health 为 200/ok/WAL，旧 3 操作均 404，未登录 v2/models 仍为 401，backtest_runs 与 quant_backtests 均存在。后端业务代码无 v1 import，frontend/src 无 `/backtest/runs` 调用。
 
-- `metrics.py`、v2 全套、Agent 工具、database.py、所有共享/v2 测试均保持原内容；`alpha_simulator.py` 仍引用共享 metrics，Agent 工具仍引用 v2 ma_crossover/significance。
-- `backtest_runs` 表、schema 和历史数据不删除、不迁移；生产数据库未作为测试目标。
-- 新增依赖为零，依赖清单和锁文件无变更；认证、`frontend/`、`reference/` 无修改。
-- 已同步 `docs/API_CONTRACT.md` §9/路由汇总与 `docs/ARCHITECTURE.md` 的回测说明/依赖图；§11 v2 契约内容不变。EXEC_PLAN 标记 BLOCKED，CHANGELOG 追加日期标题与真实结果。
-- `HANDOFF.md`、`docs/ROUTER_MAP.md`、`AGENTS.md`、`README.md`、`docs/TECH_STACK.md` 不在本卡白名单内，未修改；不运行会写 HANDOFF 的 `handoff-log.py`。其中旧 v1/路由数量描述可能仍需维护者另行安排同步。
+### 门禁结果
 
-### 可复查原始证据
+- 修改前基线：808 passed / 92.28%（精确 92.28125%，114.52s）。
+- 补删后的首轮：797 passed / 92.260239%，213.77s；覆盖率略降，未当作通过。定位到失去共享 metrics 间接覆盖及覆盖分母变化后，增加上述真实保留行为回归，不改覆盖率配置、不改共享代码/测试。
+- 最终后端 no-cov：798/798 passed，144.42s（808 − 11 + 1）。
+- 最终后端 coverage：798/798 passed，190.09s，92.34%（精确 92.34291528873061%），高于基线 92.28%。
+- 受影响后端双环境：代理变量清空 45/45 passed（34.25s）；HTTP/HTTPS 7897 + ALL_PROXY socks5 7897 为 45/45 passed（28.18s）。包括 router branches、router contracts 与 main static，未降低断言。
+- Ruff check .、git diff --check 通过。
+- Frontend build：通过；58 schemas fresh、4243 modules（原 4244）、Vite 构建 48.34s。既有大 chunk 提示不作为失败，未改分包配置。
+- Frontend Vitest：124/124 files、354/354 tests passed（原 123/347 + 新增 1 file/7 tests），1086.53s；保留现有单 worker 配置。全部原断言与新增 Chat 跳转断言通过。
+- Frontend E2E：最终全量 50/50 passed（原 48 + 新增 2），51.1s，无重试；按 build → Vitest → E2E 顺序完成。每次运行前确认 4173 空闲，使用原配置 workers:2 / retries:1。
+- 首次全量 E2E 为 49 passed / 1 failed：新增用例的 StrategyLab 按钮精确 accessible name 漏了图标前缀；仅将该 locator 改为实际名称 `experiment 运行回测`，保留 exact:true、URL/预填/提示/请求数全部严格断言，随后全量重跑通过。原 48 项用例及其断言不变。
+- 首次新增组件测试有 3 项 AntD 全局 toast 跨用例销毁造成的展示断言失败；组件测试改为精确校验 message.info 的文案调用，仍用真实路由断言完整 URL、禁止任何 POST；E2E 继续检查真实提示可见，未放宽原测试。
 
-证据目录：`C:\Users\SATANC~1\AppData\Local\Temp\finquant-backlog021-a47e34ef81e14aeb8347fd9a1e85791e\`。
+### 范围与证据文件
 
-- `recycle-before.json` / `recycle-confirmation.json`：回收前清单与回收站逐文件确认。
-- `before-openapi.json` / `after-openapi.json` / `openapi-verification.json`：完整 OpenAPI 前后与断言结果。
-- `before-tracked-sha256.json`：976 个非 reference 已跟踪文件的修改前 SHA256，用于白名单外保留项核验。
-- `final-scope.json` / `verify_scope.py`：白名单、保留项哈希、AST 与 v2 契约完整性验证；HEAD 为 607a145、暂存区为空、无新增未跟踪文件。
-- `baseline-pytest.log` / `baseline-coverage.json` / `post-recycle-no-cov.log` / `post-recycle-coverage.log`：全量基线与阻塞日志。
-- `affected-proxy-off.log` / `affected-proxy-on.log`：双环境确定性诊断。
-- 可重跑 OpenAPI/隔离生命周期验证：在 `backend` 执行 `.\.venv\Scripts\python.exe C:\Users\SATANC~1\AppData\Local\Temp\finquant-backlog021-a47e34ef81e14aeb8347fd9a1e85791e\verify_openapi.py`。
-
-**待维护者决定**：补充遗漏 v1 测试/helper/import 与数量断言的修改授权，并决定前端活跃调用的迁移范围。获准后再完成完整 no-cov、coverage、双环境与最终范围门禁，才能标记 DONE。
+- AST/SHA256 检查确认 main、分支测试、sentinel 的变动仅限上述预期；API_CONTRACT §11 文本完整不变，所有原 Chat E2E 保留。960 个原非 reference 已跟踪文件哈希不变，16 个文件在授权范围内变化，另新增 1 个 Chat 测试文件。
+- API_CONTRACT §9/汇总、ARCHITECTURE 回测说明/依赖图已同步。HANDOFF、ROUTER_MAP、AGENTS、README、TECH_STACK 不在卡片白名单内，保持不变；不运行会写 HANDOFF 的 handoff-log.py。
+- 证据根目录：`C:\Users\SATANC~1\AppData\Local\Temp\finquant-backlog021-a47e34ef81e14aeb8347fd9a1e85791e\`。
+- 根目录的 `recycle-confirmation.json`、`before-openapi.json`、`after-openapi.json`、`openapi-verification.json`、`baseline-coverage.json` 保留回收/基线/完整 OpenAPI 证据。
+- 本轮证据在 `revised-e9f1504\`：`resume-existing.diff`、`backend-no-cov.log`、`verified-coverage.log` / `verified-coverage.json`、`proxy-off.log` / `proxy-on.log`、`build.log`、`vitest-full.log`、`e2e-full.log`、`e2e-first-failure.md` / `.png`、最终 `e2e-verified.log`、`scope-verification.json`，以及获准前的 `generated-types-proposed.diff`。
+- 可重跑范围审计：项目根运行 `.\backend\.venv\Scripts\python.exe <证据根目录>\revised-e9f1504\verify_scope.py`；OpenAPI/隔离生命周期：backend 内运行 `.\.venv\Scripts\python.exe <证据根目录>\verify_openapi.py`。
+- 全部完成标准满足；EXEC_PLAN 标记 DONE，CHANGELOG 追加本轮完成记录，首轮 BLOCKED 记录仅作历史保留。最终范围审计及 diff check 通过，HEAD 为 `e9f1504`、暂存区为空，未 commit、未 push。

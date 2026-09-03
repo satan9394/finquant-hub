@@ -13,10 +13,9 @@ import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
-import BacktestResultCard, { type BacktestResult } from '../components/BacktestResultCard';
 import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const { Sider, Content } = Layout;
@@ -58,6 +57,7 @@ export function ChatStarterDraft({
 export default function Chat({ initialPrompt }: { initialPrompt?: string } = {}) {
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const starterPrompt = initialPrompt?.trim() || searchParams.get('prompt')?.trim();
   const {
     sessions, currentSessionId, messages, streamingContent, isStreaming,
@@ -70,8 +70,6 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [selectedRole, setSelectedRole] = useState<string | undefined>();
   const [inputValue, setInputValue] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
-  const [backtestResults, setBacktestResults] = useState<Array<{ id: number; sessionId: number; ticker: string; result: BacktestResult }>>([]);
-  const [isBacktesting, setIsBacktesting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -101,7 +99,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   // 自动滚动
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, backtestResults, currentSessionId]);
+  }, [messages, streamingContent, currentSessionId]);
 
   // 创建新会话
   const handleNewSession = async () => {
@@ -140,7 +138,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
     }
   };
 
-  const handleRunBacktest = async () => {
+  const handleRunBacktest = () => {
     if (!currentSessionId) return;
     const description = inputValue.trim();
     if (!description) {
@@ -148,27 +146,14 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
       return;
     }
 
-    const { ticker, strategy } = parseBacktestRequest(description);
+    const { ticker } = parseBacktestRequest(description);
     if (!ticker) {
       message.warning(t('chat.backtest.tickerRequired'));
       return;
     }
 
-    setIsBacktesting(true);
-    try {
-      const res = await apiClient.post<BacktestResult>('/backtest/runs', {
-        ticker,
-        strategy_type: strategy,
-        periods: 252,
-      });
-      setBacktestResults((items) => [...items, { id: res.data.id, sessionId: currentSessionId, ticker, result: res.data }]);
-      message.success(t('chat.backtest.completed'));
-    } catch (e: any) {
-      const detail = e.response?.data?.detail;
-      message.error(typeof detail === 'string' ? detail : e.message || t('chat.backtest.failed'));
-    } finally {
-      setIsBacktesting(false);
-    }
+    navigate('/strategy-lab/ma-crossover?symbol=' + encodeURIComponent(ticker));
+    message.info(t('chat.backtest.redirected'));
   };
 
   // SSE 流式发送消息
@@ -331,9 +316,6 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
               {currentMessages.map((msg) => (
                 <ChatMessageBubble key={msg.id} message={msg} />
               ))}
-              {backtestResults.filter((item) => item.sessionId === currentSessionId).map((item) => (
-                <BacktestResultCard key={item.id} ticker={item.ticker} result={item.result} />
-              ))}
               {isStreaming && (
                 <ChatMessageBubble
                   message={{
@@ -376,7 +358,6 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
                 ) : (
                   <>
                     <Button
-                      loading={isBacktesting}
                       disabled={!inputValue.trim()}
                       onClick={handleRunBacktest}
                     >{t('chat.runBacktest')}</Button>

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from app.routers import alerts, backtest, dashboard, instruments
+from app.routers import alerts, dashboard, instruments
 from app.services import alerts as alerts_service
 from app.services.chip_distribution import ChipDistributionUnavailable
 from app.services.import_service import ImportFormatError
@@ -221,70 +221,3 @@ async def test_instrument_workspace_insert_and_update(monkeypatch, existing):
     )
     assert result == {"id": 9, "symbol": "sh600519", "saved": True}
     assert "UPDATE" in execute.await_args.args[0] if existing else "INSERT" in execute.await_args.args[0]
-
-
-def _legacy_body(strategy="ma_cross"):
-    return backtest.BacktestRequest(ticker="600519", strategy_type=strategy, periods=120)
-
-
-@pytest.mark.asyncio
-async def test_legacy_backtest_validation_and_market_errors(monkeypatch):
-    with pytest.raises(HTTPException) as exc:
-        await backtest.create_backtest(_legacy_body("future"), _request(), {"id": 1})
-    assert exc.value.status_code == 400
-
-    from app.services.analysis import ticker as ticker_module
-
-    monkeypatch.setattr(ticker_module, "resolve_ticker", AsyncMock(side_effect=ValueError("bad ticker")))
-    with pytest.raises(HTTPException) as exc:
-        await backtest.create_backtest(_legacy_body(), _request(), {"id": 1})
-    assert exc.value.status_code == 400
-
-    monkeypatch.setattr(ticker_module, "resolve_ticker", AsyncMock(return_value="sh600519"))
-    market = SimpleNamespace(kline=AsyncMock(side_effect=MarketError("down")))
-    with pytest.raises(HTTPException) as exc:
-        await backtest.create_backtest(_legacy_body(), _request(market), {"id": 1})
-    assert exc.value.status_code == 502
-
-
-@pytest.mark.asyncio
-async def test_legacy_backtest_data_and_engine_error_paths(monkeypatch):
-    from app.services.analysis import ticker as ticker_module
-
-    monkeypatch.setattr(ticker_module, "resolve_ticker", AsyncMock(return_value="sh600519"))
-    market = SimpleNamespace(kline=AsyncMock(return_value=[]))
-    with pytest.raises(HTTPException) as exc:
-        await backtest.create_backtest(_legacy_body(), _request(market), {"id": 1})
-    assert exc.value.status_code == 400
-
-    market.kline = AsyncMock(return_value=[{"close": 10}] * 60)
-    monkeypatch.setattr(backtest, "run_backtest", lambda *_args: {"error": "invalid params"})
-    with pytest.raises(HTTPException) as exc:
-        await backtest.create_backtest(_legacy_body(), _request(market), {"id": 1})
-    assert exc.value.status_code == 400
-
-
-@pytest.mark.asyncio
-async def test_legacy_backtest_success_list_and_details(monkeypatch):
-    from app.services.analysis import ticker as ticker_module
-
-    monkeypatch.setattr(ticker_module, "resolve_ticker", AsyncMock(return_value="sh600519"))
-    market = SimpleNamespace(kline=AsyncMock(return_value=[{"close": 10}] * 60))
-    monkeypatch.setattr(backtest, "run_backtest", lambda *_args: {"total_return": 1.2})
-    monkeypatch.setattr(backtest.database, "execute", AsyncMock(return_value=9))
-    assert (await backtest.create_backtest(_legacy_body(), _request(market), {"id": 1}))["id"] == 9
-
-    monkeypatch.setattr(backtest.database, "query_all", AsyncMock(return_value=[{"id": 9}]))
-    monkeypatch.setattr(backtest.database, "query_one", AsyncMock(return_value={"n": 1}))
-    listed = await backtest.list_backtest_runs({"id": 1}, page=2, page_size=10)
-    assert listed["total"] == 1 and listed["page"] == 2
-
-    monkeypatch.setattr(backtest.database, "query_one", AsyncMock(return_value=None))
-    with pytest.raises(HTTPException) as exc:
-        await backtest.get_backtest_run(9, {"id": 1})
-    assert exc.value.status_code == 404
-    monkeypatch.setattr(backtest.database, "query_one", AsyncMock(return_value={
-        "id": 9, "params": '{"fast":10}', "result": '{"return":1.2}',
-    }))
-    detailed = await backtest.get_backtest_run(9, {"id": 1})
-    assert detailed["params"] == {"fast": 10} and detailed["result"] == {"return": 1.2}

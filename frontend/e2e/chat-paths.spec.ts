@@ -316,3 +316,39 @@ test('legacy chat route redirects to Research fast mode and preserves the prompt
   await expect(page.getByTestId('research-mode-fast')).toBeVisible();
   await expect(page.getByLabel('快速问答内容')).toHaveValue('估值复核');
 });
+
+test('chat opens Strategy Lab with the parsed ticker and never submits a backtest', async ({ page }) => {
+  const backtestWrites: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/backtest') && request.method() !== 'GET') {
+      backtestWrites.push(`${request.method()} ${path}`);
+    }
+  });
+  await openExistingChat(page, {
+    'GET /api/backtests': { items: [] },
+    'GET /api/market/pulse': { sections: { weekly: { items: [] } } },
+  });
+  await page.getByLabel('输入消息…（Shift+Enter 换行）').fill('请用 RSI 回测 600519');
+  const openStrategy = page.getByRole('button', { name: '打开策略实验室' });
+  await openStrategy.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page).toHaveURL('http://127.0.0.1:4173/strategy-lab/ma-crossover?symbol=600519');
+  await expect(page.getByLabel('股票代码', { exact: true })).toHaveValue('600519');
+  await expect(page.getByText('已转到策略实验室，请在页面确认参数后运行')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'experiment 运行回测', exact: true })).toBeVisible();
+  expect(backtestWrites).toEqual([]);
+});
+
+test('chat keeps empty and ticker-free backtest descriptions on the current page', async ({ page }) => {
+  await openExistingChat(page);
+  const openStrategy = page.getByRole('button', { name: '打开策略实验室' });
+  await expect(openStrategy).toBeDisabled();
+  await page.getByLabel('输入消息…（Shift+Enter 换行）').fill('请帮我回测');
+  await openStrategy.click();
+
+  await expect(page.getByText('策略描述中需要包含股票代码，例如 600519 或 AAPL')).toBeVisible();
+  await expect(page).toHaveURL('http://127.0.0.1:4173/research?mode=fast');
+  await expect(page.getByLabel('输入消息…（Shift+Enter 换行）')).toHaveValue('请帮我回测');
+});

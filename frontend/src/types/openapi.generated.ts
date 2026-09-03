@@ -51,13 +51,6 @@ export interface BacktestCreate {
   validation_samples?: number;
 }
 
-export interface BacktestRequest {
-  ticker: string;
-  strategy_type: string;
-  periods?: number;
-  params?: Record<string, unknown> | null;
-}
-
 export interface Body_import_watchlist_api_dashboard_watchlist_import_post {
   text?: string;
   existing?: string;

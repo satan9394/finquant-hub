@@ -4,13 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-021: 回收 v1 回测（路由下线 + 引擎回收 + Chat 入口重定向 + 契约/测试同步）
+## [DONE] BACKLOG-021: 回收 v1 回测（路由下线 + 引擎回收 + Chat 入口重定向 + 契约/测试同步）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-021.md`
 **范围**: SCOPE_FREEZE §3.3 P2 明确规划但未完成的回收项（v1/v2 双轨）。**修订版（解除 BLOCKED）**：首轮已下线 v1 路由并回收 3 文件，发现两处卡片偏差已确认并授权补齐——①前端**非零调用**：`Chat.tsx` 用相对路径 POST `/backtest/runs`（baseURL `/api` 合成 v1），按钮改为**重定向 Strategy Lab**（`/strategy-lab/ma-crossover?symbol={ticker}`，StrategyLab 已支持 symbol 预填）+ 清理 v1 state/结果渲染/i18n；②第 3 个 v1 测试 `test_legacy_backtest_validation_and_market_errors` 与其 `_legacy_body` helper 及 `backtest` import 需补删，`test_router_contracts` sentinel 数量断言 22→21 同步。本任务收尾：补删遗漏测试/helper/import、Chat 重定向 + 对应前端测试/E2E 更新为跳转语义、OpenAPI 核对（v1 137→135 路径实测）、API_CONTRACT/ARCHITECTURE/CHANGELOG 同步。**保留**：`backtest_runs` 表、`metrics.py`（alpha_simulator 依赖）、v2 全套、Agent 工具、共享测试。后端全量全绿、覆盖率不降、ruff；前端 build/Vitest/E2E 全绿；零新依赖、无 rm（回收站铁律）、不删表。
-**证据**: 待执行（首轮部分完成记录见任务卡）
-**证据**: 待执行（首轮部分完成记录见任务卡）
+**证据**: 2026-09-02 修订收尾完成。3 个 v1 文件进回收站并核对 SHA256；main 仅去除 v1 import/注册，补删全部 3 项 v1 router 测试/helper/import，sentinel 22→21，新增 1 项退役/历史数据保留/共享 Alpha 回归。Chat 仅提取 ticker 并跳转 StrategyLab，移除 v1 请求/state/结果/loading，组件文件保留，zh/en 各 2274 keys、差集/重复 0。OpenAPI 137→135 paths、172→169 operations，v1 为 2 路径/3 操作，v2 9 路径/10 操作及所有非 v1 契约不变；单独获准同步生成类型，仅删除 7 行失效接口。后端 no-cov 与 coverage 均 798/798（808−11+1），覆盖率 92.28125%→92.342915%；代理开/关各 45/45，Ruff 通过。前端按序 build（4243 modules、58 schemas fresh）→ Vitest（124 files/354 tests，1086.53s）→ E2E（50/50，51.1s，原 workers:2/retries:1，最终无重试）全绿；初次新增用例修正及日志见任务卡，原断言未放宽。API_CONTRACT/ARCHITECTURE/CHANGELOG 同步，diff/scope 审计通过；960 个原文件哈希不变，16 个原文件变化 + 1 新测试均获授权，禁止修改项及依赖均未动。HEAD e9f1504、暂存区空，未 commit/push。
 
 ---
 
