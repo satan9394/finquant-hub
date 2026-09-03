@@ -4,6 +4,15 @@
 
 ---
 
+## [READY] BACKLOG-023: echarts 按需引入（echarts/core）：懒加载 chunk 瘦身
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-023.md`
+**范围**: 纯前端性能任务（后端零改动、**零依赖变化**，不碰 package.json/bun.lock）。BACKLOG-022 证实 ECharts 懒加载 chunk `index-dM8hBGUF.js` 1,145,864 bytes 是 echarts 6.1.0 全量，而实际只用到 line/bar/scatter/candlestick 4 种图表。本任务：①新建 `frontend/src/charts/echartsSetup.ts`（echarts/core + use 注册 4 图表 + Grid/Tooltip/Legend + 使用者 option 实际组件 + CanvasRenderer）；②新建 `LazyEChartCore.tsx`（`echarts-for-react/lib/core` + `echarts={configured}` 透传 props，已验证 core.js 支持 echarts prop）+ `LazyEChart` lazy 目标改指它（Suspense/chart.loading/EChartsReactProps 签名保留）；③三个使用者（PortfolioRiskWorkbench/BacktestCharts/ResearchCharts）零改动；④Vitest（LazyEChart.test 更新语义不放松 + 全量 121/346）+ E2E 50 + build 前后 chunk 字节对比（预期 1119KB 显著缩小，未缩则记录实际不扩大）；⑤docs 同步。零新依赖、零删除。
+**证据**: 待执行
+
+---
+
 ## [DONE] BACKLOG-022: 前端死组件回收 + bundle 瘦身（echarts 移出主包）
 
 **优先级**: P1
