@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import type { EChartsReactProps } from 'echarts-for-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
-const EChart = lazy(() => import('echarts-for-react'));
+const EChart = lazy(() => import('./LazyEChartCore'));
 
 export default function LazyEChart(props: EChartsReactProps) {
   const { t } = useLanguage();

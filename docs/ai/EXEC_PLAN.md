@@ -4,12 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-023: echarts 按需引入（echarts/core）：懒加载 chunk 瘦身
+## [DONE] BACKLOG-023: echarts 按需引入（echarts/core）：懒加载 chunk 瘦身
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-023.md`
 **范围**: 纯前端性能任务（后端零改动、**零依赖变化**，不碰 package.json/bun.lock）。BACKLOG-022 证实 ECharts 懒加载 chunk `index-dM8hBGUF.js` 1,145,864 bytes 是 echarts 6.1.0 全量，而实际只用到 line/bar/scatter/candlestick 4 种图表。本任务：①新建 `frontend/src/charts/echartsSetup.ts`（echarts/core + use 注册 4 图表 + Grid/Tooltip/Legend + 使用者 option 实际组件 + CanvasRenderer）；②新建 `LazyEChartCore.tsx`（`echarts-for-react/lib/core` + `echarts={configured}` 透传 props，已验证 core.js 支持 echarts prop）+ `LazyEChart` lazy 目标改指它（Suspense/chart.loading/EChartsReactProps 签名保留）；③三个使用者（PortfolioRiskWorkbench/BacktestCharts/ResearchCharts）零改动；④Vitest（LazyEChart.test 更新语义不放松 + 全量 121/346）+ E2E 50 + build 前后 chunk 字节对比（预期 1119KB 显著缩小，未缩则记录实际不扩大）；⑤docs 同步。零新依赖、零删除。
-**证据**: 待执行
+**证据**: 2026-09-03 完成 core 按需注册与 lazy 接入：4 图表 + Grid/Tooltip/Legend/DataZoom/MarkLine/MarkPoint + CanvasRenderer，axisPointer 由 Grid/Tooltip 安装。前后 build 通过，ECharts chunk 1,145,864→639,262 bytes（-44.21%），33 个 JS 总量 3,629,057→3,122,982（-506,075）；主入口仍 368,423 bytes，AST 验证图表库保持动态加载。四个相关测试仅同步 core mock 并预热配置，不改断言/超时；专项 5/5 files、17/17 tests，全量 Vitest 121/121 files、346/346 tests（1139.05s）。完整 E2E 50/50（45.2s，原 workers:2/retries:1，无重试），研究/回测/组合风险 Canvas 断言通过。最终 9 原文件修改 + 2 新文件，其余 6,316 原文件哈希不变、无缺失/越界，diff check 通过、暂存区为空。依赖/配置/backend/三个业务使用者零改动，无删除、commit 或 push；完整证据见卡片。
 
 ---
 

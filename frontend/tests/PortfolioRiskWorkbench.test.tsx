@@ -3,11 +3,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import '../src/charts/echartsSetup';
 import PortfolioRiskWorkbench from '../src/components/portfolio/PortfolioRiskWorkbench';
 import { runPortfolioBacktest } from '../src/services/analysisApi';
 import type { PortfolioBacktestResult, PortfolioHolding } from '../src/types';
 
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="portfolio-risk-chart" /> }));
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="portfolio-risk-chart" /> }));
 vi.mock('../src/services/analysisApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/services/analysisApi')>();
   return { ...original, runPortfolioBacktest: vi.fn() };

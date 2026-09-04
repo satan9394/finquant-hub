@@ -3,11 +3,12 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import '../src/charts/echartsSetup';
 import BacktestCharts from '../src/components/research/BacktestCharts';
 import ResearchCharts from '../src/components/research/ResearchCharts';
 import type { BacktestRun, BarsResponse } from '../src/types/research';
 
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="echart-canvas" /> }));
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="echart-canvas" /> }));
 
 const payload: BarsResponse = {
   provider: 'sina', as_of: '2026-08-08', timezone: 'Asia/Shanghai', currency: 'CNY',

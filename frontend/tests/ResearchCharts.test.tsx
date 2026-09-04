@@ -2,12 +2,13 @@
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import '../src/charts/echartsSetup';
 import ResearchCharts from '../src/components/research/ResearchCharts';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 localStorage.setItem('finquant_lang', 'zh');
 
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="echart" /> }));
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="echart" /> }));
 
 const base = {
   provider: 'sina', as_of: '2026-08-30', timezone: 'Asia/Shanghai', currency: 'CNY', adjustment: 'none', frequency: '1d', quality_flags: [],

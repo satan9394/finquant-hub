@@ -2,12 +2,13 @@
 
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import '../src/charts/echartsSetup';
 import BacktestCharts from '../src/components/research/BacktestCharts';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 
 localStorage.setItem('finquant_lang', 'zh');
 
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="echart" /> }));
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="echart" /> }));
 
 const run = {
   id: 1, symbol: '600519', status: 'completed',
