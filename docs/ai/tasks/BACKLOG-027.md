@@ -1,7 +1,7 @@
 # BACKLOG-027 — CSP 允许同源嵌入：修复 8000 Knowledge iframe 被拦
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：— ｜ 执行者：Codex
-> 背景：BACKLOG-026 新增的 8000 真实入口 E2E 暴露真实缺陷：`SERVE_FRONTEND=1` 的真实 8000 入口会给每个响应附加 `Content-Security-Policy: frame-ancestors 'none'` + `X-Frame-Options: DENY`（`backend/app/middleware/security.py` L31/L35，防点击劫持部署安全头）。中文 `/knowledge` 页（`frontend/src/pages/Knowledge.tsx` L137-145）主动用同源 `<iframe src="/knowledge/xxx.html">` 嵌入知识库静态文档（9 个 html，存于 dist 根/知识子路径）。`frame-ancestors 'none'` 表示"本页不允许被**任何**页面 frame 嵌入"，于是同源 html 被自身页面嵌入也被浏览器拒绝——Chromium 报 framing CSP 错误，子 frame 随后触发 `Failed to read the 'localStorage' property from 'Window'` pageerror（子 frame 因被拒无 storage 访问）。这是**配置与自身功能的冲突（自锁）**，不是跨站防护，也不是测试假阳性（4173 dev 无 CSP 头所以一直测不到）。主 Knowledge 页面与 SPA 其余内容仍 200/可见，仅知识库正文 iframe 不可用。BACKLOG-026 禁止改 backend/frontend-src，故 026 保持 `[BLOCKED]` 并记录 `docs/HANDOVER.md`。本轮**单独授权**修复该安全头。
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：2026-09-04 ｜ 执行者：Codex
+> 背景：BACKLOG-026 新增的 8000 真实入口 E2E 暴露真实缺陷：`SERVE_FRONTEND=1` 的真实 8000 入口会给每个响应附加 `Content-Security-Policy: frame-ancestors 'none'` + `X-Frame-Options: DENY`（`backend/app/middleware/security.py` L31/L35，防点击劫持部署安全头）。中文 `/knowledge` 页（`frontend/src/pages/Knowledge.tsx` L137-145）主动用同源 `<iframe src="/knowledge/xxx.html">` 嵌入知识库静态文档（9 个 html，存于 dist 根/知识子路径）。`frame-ancestors 'none'` 表示"本页不允许被**任何**页面 frame 嵌入"，于是同源 html 被自身页面嵌入也被浏览器拒绝——Chromium 报 framing CSP 错误，子 frame 随后触发 `Failed to read the 'localStorage' property from 'Window'` pageerror（子 frame 因被拒无 storage 访问）。这是**配置与自身功能的冲突（自锁）**，不是跨站防护，也不是测试假阳性（4173 dev 无 CSP 头所以一直测不到）。主 Knowledge 页面与 SPA 其余内容仍 200/可见，仅知识库正文 iframe 不可用。BACKLOG-026 禁止改 backend/frontend-src，因此当时保持 `[BLOCKED]` 并记录 `docs/HANDOVER.md`；本轮**单独授权**修复该安全头。
 
 ## 目标
 
@@ -53,14 +53,14 @@
 
 ## 完成证据模板（Codex 填写后交维护者复核）
 
-```
-- security.py 精确 diff（仅两处取值）与其余头零变化确认
-- test_security.py 更新/新增断言
-- product-acceptance.spec.ts 容忍分支删除 diff
-- 修复后真实 8000：中文 /knowledge iframe 正文可见、无 framing/localStorage pageerror 的实测证据
-- test:e2e:8000 三连（--retries=0）与代理开关结果
-- 4173 50/50、build、Vitest、backend pytest+ruff（覆盖率）结果
-- EXEC_PLAN 026 DONE / 027 完成、HANDOVER Broken→Verified 同步
-- git diff --check、删除 0、依赖锁零变化
-- 未 commit/push
-```
+### 2026-09-04 Codex 完成证据
+
+- `backend/app/middleware/security.py` 精确 diff 为 2 增/2 删：仅将 `frame-ancestors 'none'` 改为 `'self'`、`X-Frame-Options: DENY` 改为 `SAMEORIGIN`；CSP 仍以 `default-src 'self'` 开头，其余 CSP 指令与全部其他头逐字不变，没有按路径豁免分支。
+- `backend/tests/test_security.py` 将 X-Frame-Options 断言同步为 `SAMEORIGIN`，新增 CSP 包含 `frame-ancestors 'self'` 的断言；聚焦命令加 `--no-cov` 后 8/8 通过（单文件原命令的 8 个断言也全过，仅因全局 coverage fail-under 不适用于聚焦运行而退出 1）。
+- `frontend/e2e-8000/product-acceptance.spec.ts` 仅删除已知 localStorage 子 frame 错误的筛选/容忍分支，恢复把完整 `errors` 传给 `expectHealthyPage`，即所有页面严格零 pageerror。
+- 真实 8000 中文 `/knowledge` 浏览器实测：主响应 200，CSP 为 `frame-ancestors 'self'`，X-Frame-Options 为 `SAMEORIGIN`；iframe `/knowledge/m1-移动平均策略.html` 可见，正文实际包含“策略 01 · 趋势跟踪”“移动平均策略”与策略说明。独立 Playwright 探针得到 `pageErrors=[]`、`framingOrStorageErrors=[]`；内置浏览器 DOM snapshot 也展开了同一正文。知识 HTML 自带 inline script 仍受未改的 `script-src 'self'` 限制并产生 console 提示，但不是 framing/localStorage 错误、不形成 pageerror，且不影响正文验收。
+- `bun run test:e2e:8000 -- --retries=0` 连续三次 15/15，耗时 56.2s、1.0m、53.1s；代理关闭态（清空 HTTP/HTTPS/ALL_PROXY）15/15、43.9s；代理开启态（HTTP/HTTPS 及 SOCKS 均为 127.0.0.1:7897）15/15、43.7s。开启态日志出现一次既有 Windows Proactor `WinError 10054` 客户端断连，命令 exit 0、全部断言通过。
+- 全量门禁：4173 `bun run test:e2e` 50/50（58.7s）；`bun run build` OpenAPI 58 schemas fresh、4,242 modules、15.91s；Vitest 121/121 files、346/346 tests、877.35s；backend pytest 798/798、coverage 92.34%（与基线持平）、133.36s；Ruff `All checks passed!`。
+- 状态同步：`docs/ai/EXEC_PLAN.md` 中 026/027 均为 `[DONE]`；026 卡由 BLOCKED 转 DONE 并引用本卡闭环证据；`docs/HANDOVER.md` 的 Knowledge CSP 缺陷已从 Broken 移至 Verified Working；`task/CHANGELOG.md` 已记录本轮。
+- 最终 `git diff --check` 通过；删除 0；依赖与 `frontend/bun.lock` 零变化；禁止的 backend 业务文件、`frontend/src/`、既有 `frontend/e2e/*`、`frontend/playwright.config.ts`、`frontend/tests/`、`reference/` 均未改；未使用 `channel: 'chrome'`。
+- 未 commit、未 push。

@@ -38,9 +38,10 @@ async def test_security_headers_and_https_hsts() -> None:
 
     assert response.status_code == 200
     assert response.headers["content-security-policy"].startswith("default-src 'self'")
+    assert "frame-ancestors 'self'" in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-frame-options"] == "SAMEORIGIN"
     assert response.headers["strict-transport-security"].startswith("max-age=31536000")
     assert response.headers["cache-control"] == "no-store"
 

@@ -28,11 +28,11 @@ _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; "
-        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "X-Frame-Options": "DENY",
+    "X-Frame-Options": "SAMEORIGIN",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cross-Origin-Opener-Policy": "same-origin",
 }

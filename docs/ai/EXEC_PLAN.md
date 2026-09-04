@@ -4,20 +4,21 @@
 
 ---
 
-## [READY] BACKLOG-027: CSP 允许同源嵌入——修复 8000 Knowledge iframe 被拦
+## [DONE] BACKLOG-027: CSP 允许同源嵌入——修复 8000 Knowledge iframe 被拦
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-027.md`
-**范围**: 单独授权修复 BACKLOG-026 暴露的真实缺陷（026 因禁止改 backend/frontend-src 保持 BLOCKED）：后端安全头 `frame-ancestors 'none'` + `X-Frame-Options: DENY`（防点击劫持）把中文 /knowledge 页主动嵌入的同源 `<iframe src="/knowledge/xxx.html">` 一并拒绝（自锁，非跨站防护），Chromium 报 framing CSP error + 子 frame localStorage pageerror。本任务：①`backend/app/middleware/security.py` **仅两处**取值改 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`（仍禁第三方站嵌、允许同源嵌入，其余 CSP 指令/头一字不改，**不新增按路径豁免分支**）；②`backend/tests/test_security.py` 同步 L43 断言 + 新增 frame-ancestors 'self' 断言；③`frontend/e2e-8000/product-acceptance.spec.ts` 删除 localStorage 子 frame 错误容忍分支恢复严格零 pageerror；④实测中文 /knowledge iframe 正文可见无错误；⑤test:e2e:8000 三连（--retries=0）+ 代理开关 + 4173 50/50 + build/Vitest/backend 798 全门禁；⑥026 转 DONE、HANDOVER Broken→Verified。**禁止**：backend 除 security.py 外一切、frontend/src（Knowledge.tsx iframe 方案不改）、4173 基线/依赖锁/channel chrome/删除/整体移除或 `frame-ancestors *`。
+**范围**: 单独授权修复 BACKLOG-026 暴露的真实缺陷：后端安全头 `frame-ancestors 'none'` + `X-Frame-Options: DENY`（防点击劫持）把中文 /knowledge 页主动嵌入的同源 `<iframe src="/knowledge/xxx.html">` 一并拒绝（自锁，非跨站防护），Chromium 报 framing CSP error + 子 frame localStorage pageerror。本任务：①`backend/app/middleware/security.py` **仅两处**取值改 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`（仍禁第三方站嵌、允许同源嵌入，其余 CSP 指令/头一字不改，**不新增按路径豁免分支**）；②`backend/tests/test_security.py` 同步 L43 断言 + 新增 frame-ancestors 'self' 断言；③`frontend/e2e-8000/product-acceptance.spec.ts` 删除 localStorage 子 frame 错误容忍分支恢复严格零 pageerror；④实测中文 /knowledge iframe 正文可见无错误；⑤test:e2e:8000 三连（--retries=0）+ 代理开关 + 4173 50/50 + build/Vitest/backend 798 全门禁；⑥026 转 DONE、HANDOVER Broken→Verified。**禁止**：backend 除 security.py 外一切、frontend/src（Knowledge.tsx iframe 方案不改）、4173 基线/依赖锁/channel chrome/删除/整体移除或 `frame-ancestors *`。
+**证据**: security.py 精确仅两处取值变更，test_security 8/8；8000 严格零 pageerror 15/15 ×3，代理关/开各 15/15；真实中文 `/knowledge` m1 iframe 正文可见，pageErrors 与 framing/localStorage 错误均为 0；4173 50/50、build 4,242 modules、Vitest 121/346、backend 798/92.34%、Ruff、diff/scope 门禁全过。BACKLOG-026 同步转 DONE，HANDOVER 缺陷移至 Verified Working；未 commit/push。
 
 ---
 
-## [BLOCKED] BACKLOG-026: 8000 单进程真实入口 E2E（生产托管验收）
+## [DONE] BACKLOG-026: 8000 单进程真实入口 E2E（生产托管验收）
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-026.md`
 **范围**: 方向 A（恢复实测验收）。目标用户使用入口是 8000 单进程（start.bat → 127.0.0.1:8000，BACKLOG-016~019 交付），但既有 50 个 E2E 全跑在 4173 Vite dev + mock，从不经过 8000 真实入口——016 静态托管/SPA/favicon、017/018 双击即用、019 静态优先无浏览器级验收证据。本任务：①**新建** `frontend/playwright.8000.config.ts`（独立 config，baseURL 8000，内置 chromium 无 channel，workers 2/retries 1，webServer 起真实 SERVE_FRONTEND=1 后端）；②**新建** `frontend/e2e-8000/` spec/helpers（≥10 用例：真实 index/assets/favicon/SPA 深层刷新非 404 + Dashboard/导航 + 016-020 关键页面筹码/资金流走势容器、limit-pool、龙虎榜渲染），外网数据请求一律 route 拦截返回真实形状夹具；③package.json 加 `test:e2e:8000` 脚本（不动既有 `test:e2e`）。**禁止**：backend/src/既有 4173 spec/playwright.config/依赖锁/真实外网依赖/channel chrome/删除。完成标准：8000 真实入口可启动、用例在代理开关两环境确定性、连跑 3 次全绿、4173 基线 50/50 与 build/Vitest/backend 798 全门禁不回归、diff check、删除 0。
-**证据**: 独立 8000 config + 2 spec/15 例已实现；8000 真实 index/assets/favicon/health/API 404、6 深层刷新、八组导航、chip/money-flow/dragon-tiger/limit-pool 均有证据。15/15 显式零重试连跑 3 次，代理开/关各 15/15；4173 E2E 50/50、build 4,242 modules、Vitest 121/346、backend 798/92.34%、Ruff 均通过。阻塞仅为新发现的 8000 CSP：`frame-ancestors 'none'` 拦截中文 Knowledge 同源 iframe，并产生子 frame localStorage pageerror；主页面可见但违反“每页零 pageerror”。修复需越过本卡禁止的 backend/frontend-src 边界，已记录 `docs/HANDOVER.md`，详见任务卡完整证据。
+**证据**: 独立 8000 config + 2 spec/15 例已实现；8000 真实 index/assets/favicon/health/API 404、6 深层刷新、八组导航、chip/money-flow/dragon-tiger/limit-pool 均有证据。15/15 显式零重试连跑 3 次，代理开/关各 15/15；4173 E2E 50/50、build 4,242 modules、Vitest 121/346、backend 798/92.34%、Ruff 均通过。原 CSP 自锁阻塞已由 BACKLOG-027 在独立授权范围内修复；严格零 pageerror 恢复，真实中文 Knowledge m1 iframe 正文可见且无 framing/localStorage 错误，故本卡转 DONE。详见两张任务卡完整证据。
 
 ---
 

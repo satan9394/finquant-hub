@@ -1,6 +1,6 @@
 # BACKLOG-026 — 8000 单进程真实入口 E2E（生产托管验收）
 
-> 状态：`[BLOCKED]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：— ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：2026-09-04 ｜ 执行者：Codex
 > 背景：目标用户是中文非技术个人投资者，产品目标"他人可本地快速部署使用"，使用入口是双击 `start.bat` → 浏览器打开 `http://127.0.0.1:8000`（BACKLOG-016~019 交付的单进程托管：FastAPI 直接服务 `frontend/dist`，SPA fallback + `/assets` + 根级静态文件）。但现有 E2E（`frontend/e2e/*`，共 50 例）全部跑在 **4173 Vite dev server + API 全 mock** 上（`playwright.config.ts` baseURL=4173），**从不经过 8000 真实单进程入口**——016 的静态托管/SPA fallback/favicon 层、017/018 的"双击即用"入口、019 的静态优先修正，都没有浏览器级验收证据。pytest `test_main_static.py`（21 项）只覆盖单测层，不是真实浏览器。
 
 ## 目标
@@ -80,5 +80,5 @@
 - 全量门禁：既有 `bun run test:e2e` 4173 基线 50/50（52.6s）；`bun run build` OpenAPI 58 schemas fresh、4,242 modules、16.35s；Vitest 121/121 files、346/346 tests、860.39s；backend pytest 798/798、coverage 92.34%、124.62s；Ruff `All checks passed!`。
 - 内置浏览器实测：Codex In-app Browser 可见打开 `http://127.0.0.1:8000/`，标题“今日工作台 - FinQuant Hub”，Dashboard/任务入口/导航 accessibility tree 可见，错误日志 `[]`。客户端策略阻止直接打开 JSON `/api/health`，未绕过；该 JSON 由真实 Playwright/API 请求验证。
 - 范围证据：首次文档回填前 `git diff --check` 通过；仅新增 config/e2e-8000 与 package script，随后只回填本卡允许的证据文档。最终复核见下方缺陷结论；删除 0，依赖与 `bun.lock` 零变化，既有 `frontend/e2e/*`、`frontend/playwright.config.ts`、`frontend/src/`、`frontend/tests/`、backend 业务代码零变化。
-- 真实缺陷 / 阻塞：8000 返回的既有 CSP 含 `frame-ancestors 'none'`，会拦截中文 `/knowledge` 页中的同源 `<iframe src="/knowledge/...">`；Chromium 控制台报告 framing CSP error，子 frame 另触发 `Failed to read the 'localStorage' property from 'Window'` pageerror。主 Knowledge 页面仍 200、可见、可刷新，无白屏/overlay；新增导航测试要求该已知子 frame error 实际出现并只精确隔离它，任何其他 pageerror 仍失败，专项复测 1/1（`--retries=0`）。修复需修改本卡禁止的 `backend/` 安全头或 `frontend/src/pages/Knowledge.tsx`，故严格“每页零 pageerror”完成标准未满足，卡片保持 `[BLOCKED]`；已同步 `docs/HANDOVER.md`。
+- 缺陷闭环：本卡最初暴露的 8000 CSP 自锁已由单独授权的 BACKLOG-027 修复；全局安全头现为 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`，第三方嵌入仍被拒、同源 Knowledge iframe 可加载。导航测试已删除容忍分支并恢复严格零 pageerror；真实 m1 正文可见，`pageErrors=[]`、framing/localStorage 错误为 0。027 复验 8000 15/15 ×3、代理关/开各 15/15、4173 50/50、build、Vitest 121/346、backend 798/92.34% 与 Ruff 全绿，因此本卡转 `[DONE]`；完整新证据见 `BACKLOG-027.md`。
 - 未 commit、未 push；根 `HANDOFF.md` 与 harness handoff-log 因不在本卡允许修改清单而未触碰。

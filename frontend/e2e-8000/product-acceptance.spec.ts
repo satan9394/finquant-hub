@@ -33,11 +33,7 @@ test('017/018 loads the Dashboard and exposes all eight real navigation groups',
     await page.getByRole('link', { name: link, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/$' : `${path}$`}`));
   }
-  // ponytail: the production CSP blocks Knowledge's child iframe; keep that tracked defect distinct from main-app crashes.
-  const knowledgeFrameErrors = errors.filter((message) => message.includes("Failed to read the 'localStorage' property from 'Window'"));
-  expect(knowledgeFrameErrors.length).toBeGreaterThan(0);
-  const unexpectedErrors = errors.filter((message) => !knowledgeFrameErrors.includes(message));
-  await expectHealthyPage(page, unexpectedErrors, externalRequests);
+  await expectHealthyPage(page, errors, externalRequests);
 });
 
 test('013/020 renders the A-share snapshot plus chip and money-flow history containers', async ({ page }) => {

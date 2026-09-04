@@ -36,6 +36,11 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 
 ## Verified Working (✅)
 
+### 8000 Knowledge same-origin iframe (Sep 4)
+- `SecurityMiddleware` 的全局响应头为 `Content-Security-Policy: ... frame-ancestors 'self' ...` 与 `X-Frame-Options: SAMEORIGIN`：允许应用自身嵌入知识 HTML，同时继续拒绝第三方站点 frame 嵌入。
+- 真实 `SERVE_FRONTEND=1` 入口下，中文 `/knowledge` 的 `/knowledge/m1-移动平均策略.html` iframe 可见并渲染“移动平均策略”正文；独立浏览器探针得到 `pageErrors=[]`，framing/localStorage 错误为 0。
+- BACKLOG-027 已删除 8000 E2E 的已知错误容忍分支并恢复严格零 pageerror；15/15 ×3、代理关/开各 15/15，以及 4173 50/50、build、Vitest 121/346、backend 798/92.34%、Ruff 全绿。
+
 ### Core Infrastructure
 - FastAPI lifespan: boot, init DB, seed data → ✅
 - SQLite WAL + foreign keys → ✅
@@ -101,11 +106,6 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 ---
 
 ## Broken, Incorrect, or Half-Baked (🔥)
-
-### 🔥 8000 Knowledge iframe blocked by production CSP (Sep 4)
-- `SERVE_FRONTEND=1` 的真实 8000 入口会发送 `Content-Security-Policy: frame-ancestors 'none'`；中文 `/knowledge` 使用同源 `<iframe src="/knowledge/...">`，Chromium 因此拒绝加载。
-- 可复现证据：8000 Playwright 导航中出现 framing CSP console error，子 frame 随后触发 `Failed to read the 'localStorage' property from 'Window'` pageerror。Knowledge 主页面、SPA fallback 与其他内容仍 200/可见，但原始策略正文 iframe 不可用。
-- BACKLOG-026 严禁修改 backend 与 `frontend/src/`，因此本轮只记录且卡片保持 `[BLOCKED]`。后续修复需单独授权，建议在保持抗点击劫持前提下允许 same-origin framing，或移除 Knowledge 的 iframe 内嵌方案；修复后恢复严格零 pageerror 断言。
 
 ### 🔥 Market: HK/US stocks DO NOT WORK → FIXED (Jul 25 04:30)
 - `00700` (Tencent) → ✅ price=434.6  
