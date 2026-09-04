@@ -1,6 +1,6 @@
 # BACKLOG-026 — 8000 单进程真实入口 E2E（生产托管验收）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：— ｜ 执行者：Codex
+> 状态：`[BLOCKED]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：— ｜ 执行者：Codex
 > 背景：目标用户是中文非技术个人投资者，产品目标"他人可本地快速部署使用"，使用入口是双击 `start.bat` → 浏览器打开 `http://127.0.0.1:8000`（BACKLOG-016~019 交付的单进程托管：FastAPI 直接服务 `frontend/dist`，SPA fallback + `/assets` + 根级静态文件）。但现有 E2E（`frontend/e2e/*`，共 50 例）全部跑在 **4173 Vite dev server + API 全 mock** 上（`playwright.config.ts` baseURL=4173），**从不经过 8000 真实单进程入口**——016 的静态托管/SPA fallback/favicon 层、017/018 的"双击即用"入口、019 的静态优先修正，都没有浏览器级验收证据。pytest `test_main_static.py`（21 项）只覆盖单测层，不是真实浏览器。
 
 ## 目标
@@ -64,13 +64,21 @@
 
 ## 完成证据模板（Codex 填写后交维护者复核）
 
-```
-- 新增文件清单（config/spec/helpers）与行数
-- 8000 真实入口启动方式（命令）与 / 首页 / /api/health / favicon / SPA 深层刷新实测结果
-- 用例清单（≥10）与每条对应 016-020 哪个交付物
-- 夹具形状来源（对齐哪个既有 mock / 后端结构）
-- 全量验证：test:e2e（4173）xx/xx、test:e2e:8000 xx/xx 连跑 3 次、bun run build、Vitest、backend pytest + ruff
-- 代理开/关两环境结果、git diff --check、删除 0、依赖锁零变化
-- 记录的缺陷（如有）
-- 未 commit/push
-```
+### 2026-09-04 Codex 完成证据
+
+- 新增文件与行数：`frontend/playwright.8000.config.ts` 31 行；`frontend/e2e-8000/helpers.ts` 205 行；`static-entry.spec.ts` 56 行；`product-acceptance.spec.ts` 135 行。`frontend/package.json` 仅新增 1 行 `test:e2e:8000`，既有 `test:e2e` 未改；共 2 个 spec、15 个用例。
+- 8000 启动方式：Playwright `webServer` 先执行 `bun run build`，再在 `SERVE_FRONTEND=1 LOCAL_ONLY_MODE=1` 环境从真实 `backend/.venv` 执行 `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`，等待真实 `/api/health`。实测 `/` 200、`<title>FinQuant Hub</title>`、无 `/@vite/client`/Vite overlay 标记；从 index 提取的真实 `/assets/*` 200 且非 HTML；`/favicon.svg` 200 + `image/svg+xml`；真实 `/api/health` 200 + `status=ok/db=wal`；未知 `/api/backlog-026-missing` 404 JSON、非 SPA。
+- SPA 深层刷新 6 例：`/research`、`/portfolio`、`/discover`、`/strategy-lab/ma-crossover`、`/alerts`、`/knowledge` 均由真实 8000 返回 200，浏览器 reload 后真实 `<main>` 可见、无白屏/Vite overlay。
+- Dashboard/导航 1 例：真实 dist Dashboard 显示“今日”“今天想完成什么？”；今日/研究/发现/策略/组合/监控/资料库/设置八组一级导航均可见，逐一展开并点击到实际子路由，再回到 `/`。
+- 013/020 证据页 1 例：`/research/600519` 显示真实响应形状的贵州茅台快照 `1500.00 CNY`，`chip-history-chart` 与 `money-flow-chart` 容器可见。
+- 014/015 龙虎榜 2 例：两条历史记录可见，本地选择旧记录不增请求；日期改为 `2026-08-20` 后请求携带 `date=2026-08-20&look_back=30` 并渲染 `2026-08-19` 历史记录。
+- 014 涨跌停池 2 例：涨停池表格渲染 `600519/贵州茅台` 与 `eastmoney.push2ex/DIRECT`；切跌停池请求 `pool=limit_down` 并渲染 `000001`，再切日期请求 `date=2026-08-20&pool=limit_down`。
+- 016/019 静态与 API 3 例：生产 index + hashed asset、根级 favicon SVG、真实 health + 未知 API 404 分别独立断言。以上合计 15 例，全部使用 Playwright 1.62 内置 Chromium `devices['Desktop Chrome']`，无 `channel: 'chrome'`。
+- 夹具形状来源：auth/models/notifications/Dashboard 对齐 `frontend/e2e/helpers.ts` 与 `dashboard.spec.ts`；snapshot/bars/fundamentals/workspace、chip、money-flow、dragon-tiger、limit-pool 对齐 `core-paths.spec.ts`、`chip-chart.spec.ts`、`money-flow.spec.ts`、`dragon-tiger.spec.ts`、`limit-pool.spec.ts`；真实静态/API 边界对齐 `backend/tests/test_main_static.py`。所有非 8000 同源请求被测试内阻断；除真实 `/api/health` 外，`/api/**` 均由确定性 fixture/空响应 fulfill，未写 DB、未调用真实行情/新闻/LLM。
+- 8000 三连：显式 `--retries=0`，15/15 ×3，分别 47.9s、55.8s、约 1.1m；无测试重试。第二轮服务日志出现一次 Windows Proactor 客户端断连 `WinError 10054`，测试仍为 15/15 且命令成功退出。
+- 代理双环境：清除 HTTP/HTTPS/ALL_PROXY 后 15/15（约 1.1m）；设置 HTTP/HTTPS `127.0.0.1:7897`、ALL_PROXY `socks5://127.0.0.1:7897` 后 15/15（52.6s），均显式 `--retries=0`。
+- 全量门禁：既有 `bun run test:e2e` 4173 基线 50/50（52.6s）；`bun run build` OpenAPI 58 schemas fresh、4,242 modules、16.35s；Vitest 121/121 files、346/346 tests、860.39s；backend pytest 798/798、coverage 92.34%、124.62s；Ruff `All checks passed!`。
+- 内置浏览器实测：Codex In-app Browser 可见打开 `http://127.0.0.1:8000/`，标题“今日工作台 - FinQuant Hub”，Dashboard/任务入口/导航 accessibility tree 可见，错误日志 `[]`。客户端策略阻止直接打开 JSON `/api/health`，未绕过；该 JSON 由真实 Playwright/API 请求验证。
+- 范围证据：首次文档回填前 `git diff --check` 通过；仅新增 config/e2e-8000 与 package script，随后只回填本卡允许的证据文档。最终复核见下方缺陷结论；删除 0，依赖与 `bun.lock` 零变化，既有 `frontend/e2e/*`、`frontend/playwright.config.ts`、`frontend/src/`、`frontend/tests/`、backend 业务代码零变化。
+- 真实缺陷 / 阻塞：8000 返回的既有 CSP 含 `frame-ancestors 'none'`，会拦截中文 `/knowledge` 页中的同源 `<iframe src="/knowledge/...">`；Chromium 控制台报告 framing CSP error，子 frame 另触发 `Failed to read the 'localStorage' property from 'Window'` pageerror。主 Knowledge 页面仍 200、可见、可刷新，无白屏/overlay；新增导航测试要求该已知子 frame error 实际出现并只精确隔离它，任何其他 pageerror 仍失败，专项复测 1/1（`--retries=0`）。修复需修改本卡禁止的 `backend/` 安全头或 `frontend/src/pages/Knowledge.tsx`，故严格“每页零 pageerror”完成标准未满足，卡片保持 `[BLOCKED]`；已同步 `docs/HANDOVER.md`。
+- 未 commit、未 push；根 `HANDOFF.md` 与 harness handoff-log 因不在本卡允许修改清单而未触碰。

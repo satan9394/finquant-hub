@@ -102,6 +102,11 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 
 ## Broken, Incorrect, or Half-Baked (🔥)
 
+### 🔥 8000 Knowledge iframe blocked by production CSP (Sep 4)
+- `SERVE_FRONTEND=1` 的真实 8000 入口会发送 `Content-Security-Policy: frame-ancestors 'none'`；中文 `/knowledge` 使用同源 `<iframe src="/knowledge/...">`，Chromium 因此拒绝加载。
+- 可复现证据：8000 Playwright 导航中出现 framing CSP console error，子 frame 随后触发 `Failed to read the 'localStorage' property from 'Window'` pageerror。Knowledge 主页面、SPA fallback 与其他内容仍 200/可见，但原始策略正文 iframe 不可用。
+- BACKLOG-026 严禁修改 backend 与 `frontend/src/`，因此本轮只记录且卡片保持 `[BLOCKED]`。后续修复需单独授权，建议在保持抗点击劫持前提下允许 same-origin framing，或移除 Knowledge 的 iframe 内嵌方案；修复后恢复严格零 pageerror 断言。
+
 ### 🔥 Market: HK/US stocks DO NOT WORK → FIXED (Jul 25 04:30)
 - `00700` (Tencent) → ✅ price=434.6  
 - `AAPL` (Apple) → ✅ price=333.02  

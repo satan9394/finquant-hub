@@ -501,3 +501,10 @@
 - Docs updated: `README.md`, `docs/ROUTER_MAP.md`, `docs/ai/tasks/BACKLOG-025.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`. The already-correct `docs/API_CONTRACT.md` remains unchanged.
 - Verification: runtime app title `FinQuant Hub`, 135 paths and 169 operations; source registration count 1 direct auth + 21 authenticated routers = 22. README/ROUTER_MAP/API_CONTRACT current counts agree; old current-count scan is clean; `git diff --check` and cumulative eight-file allowlist audit passed.
 - Risk: low; 025 adds document-only count changes. No backend/frontend code, dependency, test, config, historical AIOS card, or file deletion change; no commit or push.
+
+## 2026-09-04
+- What changed: BACKLOG-026 adds independent `frontend/playwright.8000.config.ts`, `frontend/e2e-8000/helpers.ts`, and two 8000-only specs with 15 built-in Chromium cases; `frontend/package.json` adds only `test:e2e:8000`. No existing 4173 config/spec, business source, backend, test, dependency, or lock file changed.
+- Why: add browser-level acceptance for the real FastAPI-served `frontend/dist` entry at port 8000 while intercepting every market/news/LLM-facing API with deterministic real-shape fixtures and leaving real `/api/health` intact.
+- Docs updated: `docs/ai/tasks/BACKLOG-026.md`, `docs/ai/EXEC_PLAN.md`, `docs/HANDOVER.md`, and `task/CHANGELOG.md`.
+- Verification: 8000 15/15 with `--retries=0` three consecutive times; proxy off/on 15/15 each; existing 4173 E2E 50/50; build 4,242 modules; Vitest 121 files/346 tests; backend 798/798 at 92.34%; Ruff and pre-doc diff check passed. In-app Browser rendered the real Dashboard with empty error log. Recorded blocker: production CSP `frame-ancestors 'none'` breaks the Chinese Knowledge same-origin iframe and emits a child-frame localStorage pageerror, so the strict zero-pageerror criterion requires separately authorized backend or frontend-source work. No deletion, commit, or push.
+- Risk: low for the isolated test/config additions; medium unresolved product defect limited to the existing 8000 Knowledge iframe path.
