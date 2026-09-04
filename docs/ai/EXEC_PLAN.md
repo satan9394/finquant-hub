@@ -4,6 +4,14 @@
 
 ---
 
+## [READY] BACKLOG-028: 标的代码输入契约收口（canonical ticker）+ 8000 真实入口验收
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-028.md`
+**范围**: 方向 A+B 结合大任务（known debt #1 ticker 归一化边界，维护者探针已实锤）。①后端 canonical 收口：`BRK.B`/`BRK-B` 同标分裂（usBRK.B vs usBRK-B）统一为单 canonical（Yahoo 形态 `-`）；6 位非 6/68/0/3 开头（830799/920002/430047 北交所/新段）`detect_market` 不再静默 sh → 诚实拒绝（无 bj 数据源，不扩源）；`normalize_code`/`detect_market`/`external_symbol` 同步；契约矩阵单测固化 + 改 test_market.py L48 旧断言（语义不放宽）。②前端收敛：新建 `frontend/src/features/tickerContract.ts` 共享 canonical（与后端同规则），researchContinuity.tickerKey/isLikelyTicker/displayTicker 收敛复用（**4 处用途不同不可乱合并**，backtest 抽取器只过 canonical 校验）。③8000 真实入口 E2E ≥4 用例（BRK.B↔BRK-B 同一标的、600519 正常、不支持段诚实提示、港股 .HK 归一）。**禁止**：backend 除 market_data/instruments.py 外一切（不为新代码段扩源）、前端除收敛文件外、4173 基线/依赖锁/channel chrome/删除/放宽容错。完成标准：契约矩阵全绿、前端单测、8000 三连 + 代理开关、4173 50/50、build/Vitest/backend 798 + 覆盖率不降、i18n parity 0、diff check、删除 0。
+
+---
+
 ## [DONE] BACKLOG-027: CSP 允许同源嵌入——修复 8000 Knowledge iframe 被拦
 
 **优先级**: P1
