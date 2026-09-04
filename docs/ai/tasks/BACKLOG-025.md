@@ -1,6 +1,6 @@
 # BACKLOG-025 — 文档计数一致性：README/ROUTER_MAP 同步到运行时 OpenAPI
 
-> 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-03 ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P2 ｜ 创建：2026-09-03 ｜ 完成：2026-09-04 ｜ 执行者：Codex
 > 背景：BACKLOG-021 下线 v1 回测后，运行时 OpenAPI 为 **135 paths / 169 operations**，但部分文档仍写旧计数，且 ROUTER_MAP 内部自相矛盾。维护者已核实：
 > - `README.md` L5 写"23 个 APIRouter、133 个 `/api/*` 路径和 168 个 HTTP 操作" —— **过时**
 > - `docs/ROUTER_MAP.md` 标题写"23 APIRouter，168 个 OpenAPI 操作"、L3 写"133 个路径、168 个操作" —— **过时且与文件结尾 L438（已正确 135/169）矛盾**
@@ -56,7 +56,7 @@ git status --short
 
 ## 完成证据（执行后填写）
 
-- 修正前后计数对照（README/ROUTER_MAP 各文件行）
-- 运行时实测计数（paths/operations/router 数）
-- 一致性核对结果（三处文档一致）
-- 代码零改动确认；无删除
+- **运行时权威实测**：使用项目后端 venv 直接 import `app.main.app`，OpenAPI title 为 `FinQuant Hub`，`len(paths)` 为 **135**，GET/POST/PUT/PATCH/DELETE operation 合计 **169**。对 `backend/app/main.py` 的实际注册结构做 AST 核对：`auth.router` 直接 include 1 个，受 `authenticated_context` 保护的 tuple include 21 个，合计 **22 个 APIRouter**；`GET /api/health` 仍为额外内联路由。
+- **修正前后**：`README.md` L5、路由层摘要和 API 概览三处均由 `23 / 133 / 168` 修正为 **`22 / 135 / 169`**；`docs/ROUTER_MAP.md` 标题由 `23 / 168` 修正为 **`22 / 169`**，L3 由 `133 / 168` 修正为 **`135 / 169`**。除数字外未改变这些行的措辞，也未改 ROUTER_MAP 的其他语义。
+- **一致性**：修正后 README 三处、ROUTER_MAP 标题/L3 与只读的 `docs/API_CONTRACT.md` L438 均为 **22 APIRouter + 1 内联 health、135 paths、169 operations**；对 README/ROUTER_MAP 全文扫描，旧的 23-router / 133-path / 168-operation 当前计数残留为 0。`docs/API_CONTRACT.md` 和历史 `docs/ai/tasks/AIOS-*.md` 均未修改。
+- **范围与验证**：025 只新增 README、ROUTER_MAP、本卡、EXEC_PLAN、CHANGELOG 五份文档差异；进入 025 时已完成的 024 package/lock 差异保持不变，`backend/` 与 `frontend/src/` 等代码零新增改动。`git diff --check` 和累计八文件允许范围审计通过，暂存区为空；无依赖新增、文件删除、commit 或 push。

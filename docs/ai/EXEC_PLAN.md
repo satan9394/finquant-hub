@@ -4,21 +4,21 @@
 
 ---
 
-## [READY] BACKLOG-025: 文档计数一致性——README/ROUTER_MAP 同步到运行时 OpenAPI
+## [DONE] BACKLOG-025: 文档计数一致性——README/ROUTER_MAP 同步到运行时 OpenAPI
 
 **优先级**: P2
 **任务卡**: `docs/ai/tasks/BACKLOG-025.md`
 **范围**: 纯文档计数核对修正（零代码/测试改动）。BACKLOG-021 下线 v1 后运行时 OpenAPI 为 135 paths / 169 ops，但 `README.md` L5（23 router/133 路径/168 操作）与 `docs/ROUTER_MAP.md` 标题/L3（旧计数，且与文件结尾 L438 已正确的 135/169 自相矛盾）仍过时。本任务：①以运行时 OpenAPI + main.py 实际 include 为唯一权威，实测 paths/operations/router 数；②修正 README L5 与 ROUTER_MAP 标题/L3 计数（含 APIRouter 数，v1 下线后 business router 变化）；③全文扫无残留旧计数；④`docs/API_CONTRACT.md` 已正确不改、AIOS-*.md 历史快照不改；⑤git diff --check + 一致性核对（三处文档一致）。零代码改动、无删除。
-**证据**: 待执行
+**证据**: 2026-09-04 以运行时 `FinQuant Hub` OpenAPI 实测为权威：135 paths / 169 operations；main.py 实际为 auth 直接 include 1 个 + 认证 tuple 21 个，共 22 APIRouter，另有内联 health。README 三处当前计数由 23/133/168 统一改为 22/135/169；ROUTER_MAP 标题/L3 同步为 22 router、135 paths、169 operations；只读 API_CONTRACT L438 已为相同口径。README/ROUTER_MAP 旧当前计数残留 0，除数字外未改原行措辞。025 仅增加五份允许文档差异，代码/依赖零新增改动；累计八文件范围、diff check、无删除/空暂存区均通过，未 commit/push；完整证据见卡片。
 
 ---
 
-## [READY] BACKLOG-024: 依赖卫生——显式声明 pro-layout、移除死依赖 pro-components
+## [DONE] BACKLOG-024: 依赖卫生——显式声明 pro-layout、移除死依赖 pro-components
 
 **优先级**: P1
 **任务卡**: `docs/ai/tasks/BACKLOG-024.md`
 **范围**: 依赖卫生（BACKLOG-022 记录"留待授权"项，本次授权执行）。`package.json` 的 `@ant-design/pro-components`（^2.8.5）全库零 import（真死依赖），但 App.tsx 实际 `import ProLayout from '@ant-design/pro-layout'`（未直接声明，是 pro-components 传递依赖 7.22.7）。本任务：①`frontend/package.json` **唯一依赖变更**——删 `pro-components`、加 `@ant-design/pro-layout@^7.22.7`；②`cd frontend && bun install` 更新 bun.lock（pro-components 及其独占子包 pro-card/form/table/list 等清出）；③App.tsx 等一切源码只读（import 路径不变无需改）；④build 前后量化 `vendor-antd`/总 JS 字节 + Vitest 121/346 + E2E 50 全绿，**E2E 用 Playwright 内置 Chromium（禁 channel: chrome 调 Google Chrome，用户要求）**；⑤backend 798/798 不受影响；⑥docs 同步。零删除、除目标依赖外零其他改动。
-**证据**: 待执行
+**证据**: 2026-09-04 完成唯一依赖替换：package.json 移除未使用的 `@ant-design/pro-components@^2.8.5`，显式声明实际 import 的 `@ant-design/pro-layout@^7.22.7`；Bun 1.3.12 install 成功并将 lock 顶层切换到 pro-layout 7.22.7，清除 pro-components 及 pro-card/form/table/list/descriptions/field/skeleton 等独占条目，未改变其他依赖。前后 build 均为 58 schemas fresh / 4,242 modules；vendor-antd 均 1,565,418 bytes、33 个 JS 总量均 3,122,982 bytes（差值 0，死依赖原本未进入生产包）。Vitest 121/121 files、346/346 tests（974.80s），内置 Chromium E2E 50/50（1.0m，workers:2/retries:1，无 channel），backend no-cov 798/798（81.61s）全绿。最终仅 package/lock 与三份允许文档改动，源码/测试/Vite/Playwright/backend 未改，diff check 与白名单审计通过；无删除、commit 或 push，完整证据见卡片。
 
 ---
 

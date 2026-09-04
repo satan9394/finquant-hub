@@ -1,6 +1,6 @@
-# Router Map — 23 APIRouter，168 个 OpenAPI 操作
+# Router Map — 22 APIRouter，169 个 OpenAPI 操作
 
-> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 133 个 `/api/*` 路径、168 个 HTTP 操作；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
+> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 135 个 `/api/*` 路径、169 个 HTTP 操作；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
 
 | Prefix | File | Stage |
 |--------|------|-------|
