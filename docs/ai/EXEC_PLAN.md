@@ -4,6 +4,14 @@
 
 ---
 
+## [READY] BACKLOG-026: 8000 单进程真实入口 E2E（生产托管验收）
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-026.md`
+**范围**: 方向 A（恢复实测验收）。目标用户使用入口是 8000 单进程（start.bat → 127.0.0.1:8000，BACKLOG-016~019 交付），但既有 50 个 E2E 全跑在 4173 Vite dev + mock，从不经过 8000 真实入口——016 静态托管/SPA/favicon、017/018 双击即用、019 静态优先无浏览器级验收证据。本任务：①**新建** `frontend/playwright.8000.config.ts`（独立 config，baseURL 8000，内置 chromium 无 channel，workers 2/retries 1，webServer 起真实 SERVE_FRONTEND=1 后端）；②**新建** `frontend/e2e-8000/` spec/helpers（≥10 用例：真实 index/assets/favicon/SPA 深层刷新非 404 + Dashboard/导航 + 016-020 关键页面筹码/资金流走势容器、limit-pool、龙虎榜渲染），外网数据请求一律 route 拦截返回真实形状夹具；③package.json 加 `test:e2e:8000` 脚本（不动既有 `test:e2e`）。**禁止**：backend/src/既有 4173 spec/playwright.config/依赖锁/真实外网依赖/channel chrome/删除。完成标准：8000 真实入口可启动、用例在代理开关两环境确定性、连跑 3 次全绿、4173 基线 50/50 与 build/Vitest/backend 798 全门禁不回归、diff check、删除 0。
+
+---
+
 ## [DONE] BACKLOG-025: 文档计数一致性——README/ROUTER_MAP 同步到运行时 OpenAPI
 
 **优先级**: P2
