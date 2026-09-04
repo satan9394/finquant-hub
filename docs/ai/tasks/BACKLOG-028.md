@@ -1,6 +1,6 @@
 # BACKLOG-028 — 标的代码输入契约收口（canonical ticker）+ 8000 真实入口验收
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：— ｜ 执行者：Codex
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-04 ｜ 完成：2026-09-04 ｜ 执行者：Codex
 > 背景：CLAUDE.md known debt #1"canonical ticker normalization 与 provider-specific external_symbol() 边界需收口"。维护者 2026-09-04 用只读探针跑样例矩阵**实锤三处真实破损**（非理论猜测）：
 > 1. **同一美股两种输入 → 两个内部码**：`BRK.B`→`usBRK.B`、`BRK-B`→`usBRK-B`，伯克希尔同标的分裂成两个 canonical。现有 `backend/tests/test_market.py` L48 竟把 `("usBRK.B","usBRK.B")` 当正确固化。存库（quant_backtests.symbol、alerts.ticker 等）、搜索回显、研究/组合/预警跨页关联会因输入形态不同而对不上同一标的。
 > 2. **A 股 6 位非 6/68/0/3 开头被静默默认 sh**：`detect_market` L112 `return "sh"` 把北交所/老三板/新代码段（`830799`/`920002`/`430047`）静默当上交所股票，可能查错股。数据源矩阵（腾讯/东财/Sina A股 sh/sz、HK/US Yahoo、akshare/tushare/yahoo 基本面）**无 bj 数据源**，故正确方向是**诚实拒绝**（报"暂不支持该代码段"），而非扩源或伪造。
@@ -9,6 +9,14 @@
 ## 目标
 
 建立**唯一 canonical ticker 契约**（前后端同规则）：①修 canonical 分裂（BRK.B/BRK-B 等点连字符同标统一）；②6 位非 6/68/0/3 开头诚实拒绝不再静默默认 sh；③后端 normalize/external/_yahoo 契约矩阵单测固化；④前端 key/探测/显示收敛到同一 canonical 纯函数（抽取器保持独立但复用 canonical 后校验）；⑤研究/组合/预警/回测输入各格式标的的 8000 真实入口 E2E 验收（含 BRK.B↔BRK-B 同一标的、不支持代码段诚实提示）+ 全量门禁。
+
+## Canonical 契约决策（实施前冻结）
+
+- **内部 canonical**：`sh|sz|hk|us` 小写市场前缀；A 股保留 6 位数字，港股补齐 5 位，美股主体大写且把类别分隔符 `.` 统一为 Yahoo 形态 `-`。因此 `BRK.B`、`BRK-B`、`usBRK.B`、`usBRK-B` 均为 `usBRK-B`，`BF.B`/`BF-B` 同理。
+- **A 股边界**：仅 `6xxxxx` 属 `sh`，`0xxxxx`/`3xxxxx` 属 `sz`。`830799`、`920002`、`430047` 及其伪装的 `sh`/`sz` 前缀或 `.SS`/`.SZ` 后缀形态均明确抛出 `ValueError("暂不支持该股票代码段")`；`bj` 前缀同样返回前端 `unsupported` 标记、后端明确拒绝。`detect_market` 与 `normalize_code` 共用该判定，不再提供默认 `sh`。
+- **严格性**：只裁剪首尾空白；内部空白、空串、`bj` 等不支持前缀、交易所前缀/后缀与代码段不一致、连续或结尾点连字符等非法输入均拒绝，不通过“容错”改写成另一标的。
+- **external 映射**：A 股为裸 6 位；港股为 5 位 `.HK`（如 `hk00700` → `00700.HK`）；美股保持 canonical Yahoo 主体（如 `usBRK-B` → `BRK-B`），避免把真实连字符不可逆地猜回点号。
+- **Yahoo 映射**：`sh600519` → `600519.SS`，`sz000858` → `000858.SZ`，`hk00700` → `0700.HK`，`usBRK-B` → `BRK-B`。前端共享结果显式区分 `supported` / `unsupported` / `invalid`；key、探测、显示、抽取四个调用方各自保留原用途，只复用上述解析结果。
 
 ## 允许修改
 
@@ -72,13 +80,12 @@
 
 ## 完成证据模板（Codex 填写后交维护者复核）
 
-```
-- canonical 契约决策（点连字符统一形态、不支持段处理方式、external/yahoo 映射）——先写清再改
-- market_data.py/instruments.py 精确 diff；前端 tickerContract.ts 与 4 调用方 diff
-- 契约矩阵测试清单与全绿结果；前端单测新增/同步结果
-- 8000 E2E 新用例清单与三连 + 代理开关结果
-- 4173 50/50、build、Vitest、backend pytest+ruff（覆盖率）、i18n parity
-- CLAUDE.md known debt #1 / HANDOVER 同步
-- git diff --check、删除 0、依赖锁零变化
-- 未 commit/push
-```
+- **Canonical 决策（先写后改）**：见卡内“Canonical 契约决策（实施前冻结）”。内部美股使用 Yahoo `-` 形态，`BRK.B`/`BRK-B`/`usBRK.B`/`usBRK-B` 均为 `usBRK-B`；external/Yahoo 均为 `BRK-B`。无支持源的 6 位段及 `bj` 明确拒绝，不扩源、不猜 `sh`。
+- **后端精确改动**：`market_data.py` 新增严格 A 股段判定与美股类别归一，`detect_market` 复用 `normalize_code`，`_yahoo_symbol` 直接输出 canonical 美股主体；`instruments.py` 的 `external_symbol` 明确四市场分支并保持美股 `-`。`test_market.py` 旧 `usBRK.B` 断言已改为 `usBRK-B`。
+- **后端契约矩阵**：`test_ticker_contract.py` 覆盖 sh/sz/裸 6 位、4/5 位港股及 `.HK`/补零、美股字母/数字/点/连字符、`.SS`/`.SZ`、大小写、首尾/内部空白、空串、市场错配、非法标点、830799/920002/430047/伪前后缀。聚焦命令 57/57；全量 837/837，覆盖率 92.41%（基线 92.34%，未下降）。
+- **前端收敛**：新增 `tickerContract.ts` 显式返回 `supported`/`unsupported`/`invalid`；`researchContinuity`、`globalTaskEntry`、`Alerts`、`backtest/request` 分别保持 key/探测/显示/抽取用途，仅复用 canonical 解析。`TICKER_PATTERN` 未改；`isLikelyTicker` 仍限制无前缀美股探测长度，`backtest` 等长英文命令不被放宽误报。受影响测试与新矩阵最终随全量 Vitest 122/122 文件、374/374 测试通过。
+- **8000 新用例（6）**：BRK.B/BRK-B 两次研究输入只发 `/api/instruments/BRK-B/*`；600519 正常研究；830799 展示“暂不支持该股票代码段”且无 `sh830799`；0700 预警预填 `00700.HK`；600519 组合仅预填；BRK.B 回测入口预填 `BRK-B` 且不运行。沿用 026 同源确定性夹具，外网请求 0。
+- **8000 稳定性与代理**：原 15 + 新 6 = 21/21，`--retries=0` 连续三轮全绿；环境依次为代理关闭、HTTP/HTTPS/ALL/SOCKS5 代理指向 127.0.0.1:7897、代理再次关闭，三轮均全绿。
+- **全量门禁**：4173 未修改基线 50/50（`--retries=0`）；build 4,243 modules；Vitest 122/374；backend 837/837、92.41%；Ruff 全仓通过；i18n zh/en 各 2,274 key，重复 0、双向差集 0。
+- **文档同步**：CLAUDE.md 移除已收口的 known debt #1；`docs/HANDOVER.md` 记入 Verified Working；本卡、EXEC_PLAN 与 CHANGELOG 同步 DONE/证据。
+- **边界**：`git diff --check` 通过；删除 0；`frontend/e2e/*`、两份 Playwright config、依赖与锁文件、`reference/` 零变化；未使用 `channel: 'chrome'`；未 commit、未 push。

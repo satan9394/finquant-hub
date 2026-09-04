@@ -49,6 +49,7 @@ import type {
 import MonitorCard from '../components/MonitorCard';
 import MonitorTypeChips, { MONITOR_TYPES, type MonitorType } from '../components/MonitorTypeChips';
 import { useLanguage } from '../i18n/LanguageContext';
+import { externalTicker } from '../features/tickerContract';
 
 const SIGNAL_KEYS: Record<string, string> = {
   '*': 'alerts.signal.any',
@@ -82,10 +83,7 @@ const CONFIDENCE_KEYS = {
 } as const;
 
 function displayTicker(ticker: string) {
-  if (ticker.startsWith('us')) return ticker.slice(2);
-  if (ticker.startsWith('hk')) return `${ticker.slice(2)}.HK`;
-  if (ticker.startsWith('sh') || ticker.startsWith('sz')) return ticker.slice(2);
-  return ticker;
+  return externalTicker(ticker) ?? ticker;
 }
 
 function monitorTypeForRule(rule: AlertRule): MonitorType {

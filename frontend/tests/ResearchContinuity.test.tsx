@@ -23,6 +23,8 @@ describe('research continuity', () => {
     expect(tickerKey('600519')).toBe(tickerKey('sh600519'));
     expect(tickerKey('00700.HK')).toBe(tickerKey('hk00700'));
     expect(tickerKey('AAPL')).toBe(tickerKey('usAAPL'));
+    expect(tickerKey('BRK.B')).toBe(tickerKey('BRK-B'));
+    expect(tickerKey('usBRK.B')).toBe('US:BRK-B');
     expect(compareReportViewpoints(reports)).toBe('最新两版核心结论文本有变化，请逐版核对差异');
   });
 

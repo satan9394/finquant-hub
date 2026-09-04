@@ -47,7 +47,8 @@ describe('Chat backtest handoff', () => {
   it.each([
     ['回测 600519 ma_cross', '600519'],
     ['请用 RSI 回测 AAPL', 'AAPL'],
-    ['backtest 0700.HK bollinger', '0700.HK'],
+    ['backtest 0700.HK bollinger', '00700.HK'],
+    ['backtest BRK.B', 'BRK-B'],
     ['回测 MA ma_cross', 'MA'],
   ])('opens Strategy Lab with only the ticker from %s without submitting a backtest', async (description, ticker) => {
     renderChat();

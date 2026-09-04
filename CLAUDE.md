@@ -73,10 +73,9 @@ Pure-logic services have zero I/O dependencies — unit-testable without mocking
 
 ## Known technical debt (short term)
 
-1. Canonical ticker normalization and provider-specific `external_symbol()` still need a sharper boundary
-2. Centralized schema creation still uses hand-written incremental migrations
-3. Two portfolio table sets remain: portfolios/positions (active) vs portfolio_groups/portfolio_items (legacy)
-4. Preserve the enforced SSE `try/finally` cleanup and structured exception logging discipline
+1. Centralized schema creation still uses hand-written incremental migrations
+2. Two portfolio table sets remain: portfolios/positions (active) vs portfolio_groups/portfolio_items (legacy)
+3. Preserve the enforced SSE `try/finally` cleanup and structured exception logging discipline
 
 ## Doc sync rule (read before any code change)
 

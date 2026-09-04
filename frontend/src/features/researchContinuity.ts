@@ -1,19 +1,12 @@
 import type { ResearchReportDetail } from '../types/research';
+import { tickerContract } from './tickerContract';
 
 export function tickerKey(value: string): string {
-  const raw = value.trim();
-  const canonical = raw.match(/^(sh|sz|bj)(\d{6})$/);
-  if (canonical) return `CN:${canonical[2]}`;
-  const canonicalHk = raw.match(/^hk(\d{4,5})$/);
-  if (canonicalHk) return `HK:${canonicalHk[1].padStart(5, '0')}`;
-  const canonicalUs = raw.match(/^us([A-Za-z][A-Za-z0-9.-]*)$/);
-  if (canonicalUs) return `US:${canonicalUs[1].toUpperCase()}`;
-
-  const upper = raw.toUpperCase();
-  if (/^\d{6}$/.test(upper)) return `CN:${upper}`;
-  const externalHk = upper.match(/^(\d{4,5})(?:\.HK)?$/);
-  if (externalHk) return `HK:${externalHk[1].padStart(5, '0')}`;
-  return `US:${upper}`;
+  const parsed = tickerContract(value);
+  if (parsed.kind !== 'supported') return `RAW:${value.trim().toUpperCase()}`;
+  if (parsed.market === 'sh' || parsed.market === 'sz') return `CN:${parsed.canonical.slice(2)}`;
+  if (parsed.market === 'hk') return `HK:${parsed.canonical.slice(2)}`;
+  return `US:${parsed.canonical.slice(2)}`;
 }
 
 export function sameTicker(left: string, right: string): boolean {

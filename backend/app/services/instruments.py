@@ -23,7 +23,9 @@ def external_symbol(code: str) -> str:
         return raw
     if market == "hk":
         return f"{raw}.HK"
-    return raw
+    if market == "us":
+        return raw
+    raise ValueError("不支持的市场")
 
 
 def instrument_from_code(

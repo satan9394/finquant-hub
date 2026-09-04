@@ -515,3 +515,10 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-027.md`, `docs/ai/tasks/BACKLOG-026.md`, `docs/ai/EXEC_PLAN.md`, `docs/HANDOVER.md`, and `task/CHANGELOG.md`; BACKLOG-026/027 are DONE and the defect moved from Broken to Verified Working.
 - Verification: security focus 8/8; real 8000 iframe rendered the m1 “移动平均策略” body with zero pageerror/framing/localStorage errors; 8000 15/15 ×3 with `--retries=0`, proxy off/on 15/15 each; 4173 E2E 50/50; build 4,242 modules; Vitest 121/121 files and 346/346 tests; backend 798/798 at 92.34%; Ruff and diff/scope gates passed.
 - Risk: low; third-party framing remains denied. No other CSP directive/header, backend business file, frontend source, existing 4173 E2E/config/test, dependency/lock file, or reference file changed; no file deletion, commit, or push.
+
+## 2026-09-04
+- What changed: BACKLOG-028 established one strict canonical ticker contract in `backend/app/services/market_data.py`, `instruments.py`, and new `frontend/src/features/tickerContract.ts`; converged the four purpose-specific frontend callers; added backend/frontend matrices and six isolated 8000 input journeys.
+- Why: unify `BRK.B`/`BRK-B` as `usBRK-B`, prevent unsupported 6-digit segments from silently becoming Shanghai symbols, and keep research/portfolio/alert/backtest entry behavior consistent without adding a BSE/new-segment provider.
+- Docs updated: `CLAUDE.md`, `docs/HANDOVER.md`, `docs/ai/tasks/BACKLOG-028.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`; known debt #1 is closed and BACKLOG-028 is DONE.
+- Verification: contract focus 57/57; backend 837/837 at 92.41% + Ruff; build 4,243 modules; Vitest 122/122 files and 374/374 tests; 8000 21/21 ×3 with retries 0 and proxy off/on/off; untouched 4173 E2E 50/50; i18n 2,274/2,274 with no duplicate/diff; final diff/scope/dependency/deletion gates passed.
+- Risk: low; unsupported segments now fail explicitly. No backend business file outside the two allowed services, frontend business file outside the five ticker-contract surfaces, existing 4173 E2E/config, Playwright config, dependency/lock file, reference file, or file deletion changed. No commit or push.

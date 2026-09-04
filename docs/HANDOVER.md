@@ -36,6 +36,11 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 
 ## Verified Working (✅)
 
+### Canonical ticker contract (Sep 4)
+- Internal ticker shape is now strict and shared across backend/frontend: `sh|sz|hk|us` prefix, 5-digit HK padding, uppercase US symbols, and `.` class separators canonicalized to Yahoo `-` (`BRK.B`/`BRK-B` → `usBRK-B`). External US/Yahoo output remains `BRK-B`; HK external/Yahoo outputs are `00700.HK`/`0700.HK`.
+- Unsupported 6-digit segments outside `6`/`0`/`3` (including `830799`, `920002`, `430047`, forged `sh`/`sz` or exchange suffixes, and `bj`) now raise `暂不支持该股票代码段`; no BSE/new-segment provider was added and no input is silently guessed as Shanghai.
+- BACKLOG-028 added a backend normalize/external/Yahoo matrix, the shared frontend `tickerContract.ts`, four purpose-preserving callers, and six deterministic real-8000 input journeys. Final gates: backend 837/837 at 92.41%, Ruff; frontend build 4,243 modules and Vitest 122/374; 8000 21/21 ×3 with retries 0 and proxy off/on; unchanged 4173 E2E 50/50; i18n parity 0. No deletion, dependency/lock change, commit, or push.
+
 ### 8000 Knowledge same-origin iframe (Sep 4)
 - `SecurityMiddleware` 的全局响应头为 `Content-Security-Policy: ... frame-ancestors 'self' ...` 与 `X-Frame-Options: SAMEORIGIN`：允许应用自身嵌入知识 HTML，同时继续拒绝第三方站点 frame 嵌入。
 - 真实 `SERVE_FRONTEND=1` 入口下，中文 `/knowledge` 的 `/knowledge/m1-移动平均策略.html` iframe 可见并渲染“移动平均策略”正文；独立浏览器探针得到 `pageErrors=[]`，framing/localStorage 错误为 0。

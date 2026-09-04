@@ -45,7 +45,7 @@ class TestNormalize:
         ("600519", "sh600519"), ("000858", "sz000858"), ("300750", "sz300750"),
         ("688981", "sh688981"), ("sh600519", "sh600519"), ("SZ000858", "sz000858"),
         ("00700", "hk00700"), ("0700.HK", "hk00700"), ("AAPL", "usAAPL"),
-        ("usBRK.B", "usBRK.B"),
+        ("usBRK.B", "usBRK-B"),
     ])
     def test_normalize(self, raw, expected):
         assert normalize_code(raw) == expected

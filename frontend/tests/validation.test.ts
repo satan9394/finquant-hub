@@ -46,7 +46,9 @@ describe('parseBacktestRequest', () => {
 
   test('prefers the ticker after the backtest command', () => {
     expect(parseBacktestRequest('请用 RSI 回测 AAPL')).toEqual({ ticker: 'AAPL', strategy: 'rsi_reversal' });
-    expect(parseBacktestRequest('backtest 0700.HK bollinger')).toEqual({ ticker: '0700.HK', strategy: 'bollinger_breakout' });
+    expect(parseBacktestRequest('backtest 0700.HK bollinger')).toEqual({ ticker: '00700.HK', strategy: 'bollinger_breakout' });
+    expect(parseBacktestRequest('backtest BRK.B')).toEqual({ ticker: 'BRK-B', strategy: 'ma_cross' });
+    expect(parseBacktestRequest('backtest 830799')).toEqual({ ticker: undefined, strategy: 'ma_cross' });
   });
 
   test('removes every repeated ticker occurrence before strategy detection', () => {

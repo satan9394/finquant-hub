@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import GlobalTaskEntry from '../src/components/GlobalTaskEntry';
-import { globalCommandIntent, globalTaskPath } from '../src/features/globalTaskEntry';
+import { globalCommandIntent, globalTaskPath, isLikelyTicker } from '../src/features/globalTaskEntry';
 import { searchStocks } from '../src/services/stockApi';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 
@@ -31,6 +31,12 @@ describe('global task entry', () => {
     expect(globalCommandIntent('筛选过去3年ROE>15%的A股')?.path).toContain('/discover?query=');
     expect(globalCommandIntent('回测贵州茅台 MA20/MA50 过去5年')?.path).toContain('/strategy-lab/ma-crossover?prompt=');
     expect(globalCommandIntent('600519')).toBeNull();
+    expect(globalTaskPath('research', { code: 'BRK.B', name: 'Berkshire Hathaway' })).toBe('/research/BRK-B');
+    expect(isLikelyTicker('BRK.B')).toBe(true);
+    expect(isLikelyTicker('0700')).toBe(true);
+    expect(isLikelyTicker('830799')).toBe(false);
+    expect(isLikelyTicker('backtest')).toBe(false);
+    expect(isLikelyTicker('研究苹果公司')).toBe(false);
   });
 
   it('searches, selects a target, and navigates only after an explicit task click', async () => {

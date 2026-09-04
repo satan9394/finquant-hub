@@ -98,24 +98,27 @@ def _failure_kind(exc: Exception) -> str:
     return type(exc.__cause__ or exc).__name__
 
 
-def detect_market(code: str) -> str:
-    """检测市场：A股6位(6xx/68x→sh, 0xx/3xx→sz), 港股4-5位→hk, 美股字母→us。"""
-    t = code.strip().lower()
-    if t.startswith(("sh", "sz", "hk", "us")):
-        return t[:2]
-    digits = re.sub(r"\D", "", t)
-    if len(digits) == 6:
-        if re.match(r"^(6|68)", digits):
-            return "sh"
-        if re.match(r"^(0|3)", digits):
-            return "sz"
+UNSUPPORTED_CODE_SEGMENT = "暂不支持该股票代码段"
+_US_SYMBOL_RE = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[.\-][A-Za-z0-9]+)*")
+
+
+def _mainland_market(digits: str) -> str:
+    if digits.startswith("6"):
         return "sh"
-    if 4 <= len(digits) <= 5:
-        return "hk"
-    # 无数字或全字母 → 美股
-    if re.match(r"^[a-zA-Z]{1,5}$", t):
-        return "us"
-    return "sh"
+    if digits.startswith(("0", "3")):
+        return "sz"
+    raise ValueError(UNSUPPORTED_CODE_SEGMENT)
+
+
+def _normalize_us_symbol(symbol: str) -> str:
+    if len(symbol) > 15 or not _US_SYMBOL_RE.fullmatch(symbol):
+        raise ValueError("不支持的股票代码格式")
+    return symbol.upper().replace(".", "-")
+
+
+def detect_market(code: str) -> str:
+    """Return the strict internal market prefix for a supported ticker."""
+    return normalize_code(code)[:2]
 
 
 def normalize_code(code: str) -> str:
@@ -129,14 +132,26 @@ def normalize_code(code: str) -> str:
     if not raw:
         raise ValueError("股票代码不能为空")
 
-    compact = raw.replace(" ", "")
+    if any(character.isspace() for character in raw):
+        raise ValueError("不支持的股票代码格式")
+
+    compact = raw
     lower = compact.lower()
-    if re.fullmatch(r"(?:sh|sz)\d{6}", lower):
-        return lower
-    if re.fullmatch(r"hk\d{4,5}", lower):
-        return f"hk{lower[2:].zfill(5)}"
-    if re.fullmatch(r"us[A-Za-z][A-Za-z0-9.\-]{0,14}", compact, re.I):
-        return "us" + compact[2:].upper()
+    mainland = re.fullmatch(r"(sh|sz)(\d{6})", lower)
+    if mainland:
+        market, digits = mainland.groups()
+        if _mainland_market(digits) != market:
+            raise ValueError("股票代码与交易所不匹配")
+        return market + digits
+    unsupported = re.fullmatch(r"bj\d{6}", lower)
+    if unsupported:
+        raise ValueError(UNSUPPORTED_CODE_SEGMENT)
+    hk_prefixed = re.fullmatch(r"hk(\d{4,5})", lower)
+    if hk_prefixed:
+        return f"hk{hk_prefixed.group(1).zfill(5)}"
+    us_prefixed = re.fullmatch(r"us(.+)", compact, re.I)
+    if us_prefixed:
+        return "us" + _normalize_us_symbol(us_prefixed.group(1))
 
     # Exchange suffixes copied from common finance sites are accepted too.
     suffix_match = re.fullmatch(r"(\d{4,5})\.HK", compact, re.I)
@@ -144,16 +159,20 @@ def normalize_code(code: str) -> str:
         return f"hk{suffix_match.group(1).zfill(5)}"
     suffix_match = re.fullmatch(r"(\d{6})\.(SS|SZ)", compact, re.I)
     if suffix_match:
-        return ("sh" if suffix_match.group(2).upper() == "SS" else "sz") + suffix_match.group(1)
+        digits = suffix_match.group(1)
+        suffix_market = "sh" if suffix_match.group(2).upper() == "SS" else "sz"
+        if _mainland_market(digits) != suffix_market:
+            raise ValueError("股票代码与交易所不匹配")
+        return suffix_market + digits
 
     if compact.isdigit():
         if len(compact) == 6:
-            return detect_market(compact) + compact
+            return _mainland_market(compact) + compact
         if 4 <= len(compact) <= 5:
             return f"hk{compact.zfill(5)}"
 
-    if re.fullmatch(r"[A-Za-z][A-Za-z0-9.\-]{0,14}", compact):
-        return "us" + compact.upper()
+    if _US_SYMBOL_RE.fullmatch(compact) and len(compact) <= 15:
+        return "us" + _normalize_us_symbol(compact)
     raise ValueError("不支持的股票代码格式")
 
 
@@ -170,7 +189,7 @@ def _yahoo_symbol(code: str) -> str:
     if market == "hk":
         return f"{int(symbol):04d}.HK"
     if market == "us":
-        return symbol.replace(".", "-")
+        return symbol
     raise ValueError("不支持的市场")
 
 

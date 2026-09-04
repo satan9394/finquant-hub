@@ -1,3 +1,5 @@
+import { externalTicker, tickerContract } from './tickerContract';
+
 export type GlobalTaskAction = 'analysis' | 'research' | 'backtest' | 'portfolio' | 'thesis' | 'alert' | 'question';
 
 export type GlobalCommandIntent = 'compare' | 'monitor' | 'discover' | 'strategy';
@@ -11,14 +13,15 @@ export interface GlobalTaskTarget {
 export const RECENT_TARGETS_KEY = 'finquant_recent_targets_v1';
 
 export function isLikelyTicker(value: string): boolean {
-  return /^(?:\d{5,6}(?:\.HK)?|[A-Z]{1,6})$/i.test(value.trim());
+  const parsed = tickerContract(value);
+  return parsed.kind === 'supported' && (parsed.market !== 'us' || parsed.external.length <= 6);
 }
 
 export function globalTaskPath(action: GlobalTaskAction, target: GlobalTaskTarget | null, question = ''): string {
   if (action === 'question') return `/research?prompt=${encodeURIComponent(question.trim())}`;
   if (!target) return '/';
 
-  const code = target.code.trim().toUpperCase();
+  const code = externalTicker(target.code) ?? target.code.trim().toUpperCase();
   if (action === 'analysis') return `/analysis/${encodeURIComponent(code)}?autorun=0`;
   if (action === 'research') return `/research/${encodeURIComponent(code)}`;
   if (action === 'backtest') return `/strategy-lab/ma-crossover?symbol=${encodeURIComponent(code)}`;
