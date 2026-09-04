@@ -4,6 +4,14 @@
 
 ---
 
+## [READY] BACKLOG-027: CSP 允许同源嵌入——修复 8000 Knowledge iframe 被拦
+
+**优先级**: P1
+**任务卡**: `docs/ai/tasks/BACKLOG-027.md`
+**范围**: 单独授权修复 BACKLOG-026 暴露的真实缺陷（026 因禁止改 backend/frontend-src 保持 BLOCKED）：后端安全头 `frame-ancestors 'none'` + `X-Frame-Options: DENY`（防点击劫持）把中文 /knowledge 页主动嵌入的同源 `<iframe src="/knowledge/xxx.html">` 一并拒绝（自锁，非跨站防护），Chromium 报 framing CSP error + 子 frame localStorage pageerror。本任务：①`backend/app/middleware/security.py` **仅两处**取值改 `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`（仍禁第三方站嵌、允许同源嵌入，其余 CSP 指令/头一字不改，**不新增按路径豁免分支**）；②`backend/tests/test_security.py` 同步 L43 断言 + 新增 frame-ancestors 'self' 断言；③`frontend/e2e-8000/product-acceptance.spec.ts` 删除 localStorage 子 frame 错误容忍分支恢复严格零 pageerror；④实测中文 /knowledge iframe 正文可见无错误；⑤test:e2e:8000 三连（--retries=0）+ 代理开关 + 4173 50/50 + build/Vitest/backend 798 全门禁；⑥026 转 DONE、HANDOVER Broken→Verified。**禁止**：backend 除 security.py 外一切、frontend/src（Knowledge.tsx iframe 方案不改）、4173 基线/依赖锁/channel chrome/删除/整体移除或 `frame-ancestors *`。
+
+---
+
 ## [BLOCKED] BACKLOG-026: 8000 单进程真实入口 E2E（生产托管验收）
 
 **优先级**: P1
