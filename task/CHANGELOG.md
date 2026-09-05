@@ -3,6 +3,14 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-04
+- **Docs: archify（arc 画图）批量生成 FinQuant Hub 五类架构可视化**
+  - What: 用 `~/.claude/skills/archify`（v2.17）在项目下新建 `archify-output/`：`README.md`（目录说明与校验状态）+ `architecture.html` / `workflow.html` / `sequence.html` / `dataflow.html` / `lifecycle.html` 五张自包含交互图 + `specs/*.json` 规格快照（依据仓库真实事实：22 Router/135 API、52 表、4 Agent 并行研究 + 主编、SSE、30s 调度、last_status 状态机、行情源代理策略）
+  - Why: 用户触发词「arc画图/ARC画图」批处理模式——一次生成全部五种图，用于系统可视化
+  - Docs: `task/CHANGELOG.md`、`HANDOFF.md`、`archify-output/README.md`
+  - Verification: 每图 `validate --quality showcase` 通过（9/9 checks、0 errors）；`deliver` 0 errors（SHA-256 收据见 specs 目录）；architecture/workflow 通过 visual-check 1440×900；sequence/dataflow/lifecycle 浏览器证据需滚动（与官方同型样例一致，已人工截图评审无遮挡截断）
+  - Risk: low（仅新增 `archify-output/` 目录，未改任何业务代码/API/表/文档）
+
 ## 2026-08-30
 - **Fix: PortfolioWhy 负数货币格式（¥-10.00 → -¥10.00）**
   - What: `frontend/src/components/PortfolioWhy.tsx` 新增 `formatMoney`（符号在 ¥ 前，负数为 `-¥10.00`，正数 contribution 列保留 `+¥20.00`、marketValue 列无符号）与 `formatPercent`；更新 `frontend/tests/PortfolioWhy.test.tsx` 断言
