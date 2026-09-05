@@ -4,6 +4,15 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-04
+- **Fix: BACKLOG-029 第二轮（DSH）——A5/A8 后端 P2 + B6/B7 前端用户可感**
+  - What: ⑤A5 `backend/app/services/research_orch.py` 工具线程恢复用户上下文（`_run_tool_in_thread` 线程内 `set_current_user`，修复 Astra A5：线程内 current_user_id()=None 致新闻工具走空凭据分支）+ `_execute_tool_call` 补 `validate_tool_arguments` 类型驱动前置校验（integer 传字符串被拒，修复前研究路径直接 tool.run 绕过 dispatch）；user_id 透传 research/swarm 两编排（swarm_orch `_run_team`/run_four_masters/run_earnings_review + routers/swarm.py `_analyze_with_team` run_with_user 包层）。⑥A8 `backend/app/services/market_data.py` 三项行情语义：分钟 K 请求跳过腾讯日线备源（日线不再冒充分钟）、新浪 quote 缺失字段 0→None（诚实 UNKNOWN）、大陆指数 index_quote 直连腾讯不经股票 normalize 校验。⑦B6 `frontend/src/pages/ResearchWorkspace.tsx` 默认研究页读 `?prompt=` 预填搜索框并自动搜索一次（提问不再丢 URL）。⑧B7 `frontend/src/pages/Discover.tsx` extractTickers 加财务术语/停用词黑名单（ROE/FCF/CAGR/PE/PB/vs 等）+ 纯字母≥2 收紧（筛选词不再被当证券代码提交）
+  - Why: Astra 双会话（GPT-6 只读审查）A5/A8 P2 与 B6/B7 用户可感断言，均经 DSH 独立复核证实后修复
+  - Tests: test_research_orch +2（A5 线程上下文+类型校验/隔离）、test_market +4（A8-① 分钟跳腾讯×2、sina None 断言）、test_market_data_degradation +2（A8-③ 指数）、前端 DiscoverTickerExtraction.test 新建 3（B7）、ResearchLanding.test +1（B6）；swarm/research 测试适配 user_id kw
+  - Docs: `docs/ai/astra-review/verification-2026-09-04.md` 处置进展表、HANDOFF.md、task/CHANGELOG.md
+  - Verification: backend 851/851（845 基线 +6）、前端 Vitest 123/378（122/374 +4）、build 通过、相关套件 135+9+30 全绿
+  - Risk: medium（A8 涉及行情数据语义——消费方按 None/缺失处理为 UNKNOWN；A5 保持隔离边界只传本人 user_id 不读他人凭据；B7 黑名单词表覆盖场景内筛选词）
+
+## 2026-09-04
 - **Fix: BACKLOG-029 Astra 双会话审查 P1 修复（DSH 自主执行，A2/A3/A4）**
   - What: ①A4 `backend/app/routers/settings.py` 立即运行排队改原子条件更新（`WHERE last_status NOT IN ('running','queued')` + rowcount 校验），消除读后无条件写 queued 覆盖 running / 双 run 竞态；②A3 `backend/app/routers/research.py` SSE 断连清理：usage reset 留原 context 同步，aclose/查询/失败落库收进独立 create_task + shield（finally 二次取消不再留永久 running 报告）；③A2 `backend/app/database.py` 新增 `exclusive_transaction()`（BEGIN IMMEDIATE + execute 事务内不隐式提交 + 异常/取消统一回滚）与 `in_transaction()`，`backend/app/services/research_jobs.py` 五个事务函数（append/claim/heartbeat/finish/recover）收敛到统一事务所有权，杜绝共享连接其他 execute 提前提交 job 部分状态
   - Why: Astra 会话 A（GPT-6，只读审查）P1 断言经 DSH 独立复核（源码 + 只读内存探针实证 rollback 失效）+ 修复，核心纪律：先证实再修，不照搬 AI 反馈

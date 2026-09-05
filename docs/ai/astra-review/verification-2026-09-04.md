@@ -181,17 +181,17 @@
 | A4 立即运行竞态 | ✅ 已修复 | commit `35d3a50`：settings.py 排队改原子条件更新（`WHERE ... AND last_status NOT IN ('running','queued')` + rowcount=1 校验），快路径预检保留；test_api.py 增 2 回归（并发第二次 409 且不覆盖排队置位、running/queued 预检 409） |
 | A3 SSE 断连留 running | ✅ 已修复 | commit `d6e5450`：research.py finally 清理分两步——usage reset 留原 context 同步执行；aclose/查询/失败落库收进独立 create_task（不在 sse cancel scope 内）+ shield 等待 + done_callback 记录异常。新增 test_research_sse_disconnect_backlog029.py（全 ASGI http.disconnect 断连 + 直连探针 2 用例） |
 | A2 事务原子性 | ✅ 已修复 | commit `5f81378`：database.py 新增 `exclusive_transaction()`（BEGIN IMMEDIATE → execute 事务内不隐式提交 → 成功统一 commit、异常/取消统一 rollback）+ `in_transaction()`；research_jobs.py 五事务函数（append/claim/heartbeat/finish/recover）收敛。新增 test_transaction_atomicity_backlog029.py 4 用例（异常回滚含交错 execute、成功统一提交、事务外仍隐式提交、取消回滚） |
-| A5 工具线程上下文 | ⬜ 待修（P2） | 后续轮 |
+| A5 工具线程上下文 | ✅ 已修复 | commit `248f213`：research_orch `_run_tool_in_thread` 显式 set_current_user（线程内恢复本人 user_id）、`_execute_tool_call` 补 validate_tool_arguments 类型前置校验（integer 传字符串被拒）；user_id 透传 research（run_research→_call_agent）与 swarm（_run_team→run_four_masters/earnings_review→_analyze_with_team run_with_user）；新增 2 回归（线程上下文恢复+类型校验、无 user 隔离） |
 | A6 主编失败仍归完成 | ⬜ 记录待用户决策 | — |
 | A7 重启恢复窗口 | ⬜ 记录（机制）+ 待核 | — |
-| A8 行情语义错误 | ⬜ 待修（P2） | 后续轮 |
+| A8 行情语义错误 | ✅ 已修复 | commit `363d5f0`：①分钟 K 请求跳过腾讯日线备源（`daily_only_skipped_for_minute_period`，不再日线冒充分钟）；②parse_sina_quotes 缺失字段 0→None（PE/PB/turnover/market_cap/timestamp 诚实 UNKNOWN）；③index_quote 大陆指数（sh000001）直连腾讯 `_quotes_tencent` 不经股票 normalize 校验。新增 test_market.py +2、test_market.py sina None 断言、test_market_data_degradation.py +2 |
 | B1 残色未迁完 | ✅ 证伪（旧结论过时） | HANDOFF.md 条目勾除并注明 Astra + DSH 双扫描 `#dce5ef|#1890ff` 0 匹配 |
 | B2 图表主题不重取色 | ⬜ 待修（主题类） | 后续轮 |
 | B3 证据抽屉主题断裂 | ⬜ 待修（主题类） | 后续轮 |
 | B4 两套样式来源 | ⬜ 待修（主题类，低风险） | 后续轮 |
 | B5 尺寸漂移 | ⬜ 待修（需对齐规范） | 后续轮 |
-| B6 提问不被接住 | ⬜ 待修（用户可感） | 后续轮 |
-| B7 筛选术语误识别 | ⬜ 待修（用户可感） | 后续轮 |
+| B6 提问不被接住 | ✅ 已修复 | commit `3e0a27a`：ResearchWorkspace 默认页读 `?prompt=`，预填搜索框 + 自动搜索一次（原问题可见不再丢 URL）；ResearchLanding.test +1 |
+| B7 筛选术语误识别 | ✅ 已修复 | commit `4f955e8`：Discover extractTickers 加因子术语/停用词黑名单（ROE/FCF/CAGR/PE/PB/vs 等）+ 纯字母≥2 收紧；新增 DiscoverTickerExtraction.test 3 用例（Astra 探针样例全过） |
 | B8 文案暴露实现术语 | ⬜ 记录（展示层低风险） | — |
 | B9 配置门槛 | ⬜ 记录（首用引导产品化） | — |
 | B10 空 AgentRail | ⬜ 记录（产品级） | — |
