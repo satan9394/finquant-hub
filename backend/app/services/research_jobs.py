@@ -66,18 +66,11 @@ async def append_research_run_event(
     *, user_id: int, job_id: int, run_id: int, event_type: str, payload: JSONDict,
 ) -> int:
     async with _RUNTIME_LOCK:
-        db = database.get_db()
-        await db.execute("BEGIN IMMEDIATE")
-        try:
-            event_id = await _insert_research_run_event(
-                db, user_id=user_id, job_id=job_id, run_id=run_id,
+        async with database.exclusive_transaction():
+            return await _insert_research_run_event(
+                db=database.get_db(), user_id=user_id, job_id=job_id, run_id=run_id,
                 event_type=event_type, payload=payload,
             )
-            await db.commit()
-            return event_id
-        except Exception:
-            await db.rollback()
-            raise
 
 
 async def create_research_job(
@@ -151,10 +144,10 @@ async def claim_research_job(
         raise ValueError("lease_owner must be between 1 and 100 characters")
     identity = _idempotency_key(idempotency_key)
     duration = max(5, min(3600, lease_seconds))
+    outcome: JSONDict | None = None
     async with _RUNTIME_LOCK:
         db = database.get_db()
-        await db.execute("BEGIN IMMEDIATE")
-        try:
+        async with database.exclusive_transaction():
             existing_row = await (await db.execute(
                 "SELECT * FROM scheduled_research_runs "
                 "WHERE job_id=? AND user_id=? AND idempotency_key=? "
@@ -163,10 +156,8 @@ async def claim_research_job(
             )).fetchone()
             existing = dict(existing_row) if existing_row else None
             if existing is not None and existing["status"] == "running":
-                await db.rollback()
                 return None
             if existing is not None and existing["status"] == "completed":
-                await db.rollback()
                 return {**existing, "idempotent_replay": True}
 
             job_row = await (await db.execute(
@@ -174,7 +165,6 @@ async def claim_research_job(
                 (job_id, user_id),
             )).fetchone()
             if job_row is None:
-                await db.rollback()
                 return None
             job = dict(job_row)
             next_at = next_run_at(str(job["cron_expr"]), current)
@@ -185,7 +175,6 @@ async def claim_research_job(
                 (format_local(current), next_at, job_id, user_id),
             )
             if cursor.rowcount != 1:
-                await db.rollback()
                 return None
 
             latest_row = await (await db.execute(
@@ -225,12 +214,11 @@ async def claim_research_job(
                     "lease_expires_at": expires_at,
                 },
             )
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
+            outcome = {"id": run_id}
+    if outcome is None:
+        return None
     result = await database.query_one(
-        "SELECT * FROM scheduled_research_runs WHERE id=? AND user_id=?", (run_id, user_id),
+        "SELECT * FROM scheduled_research_runs WHERE id=? AND user_id=?", (outcome["id"], user_id),
     )
     assert result is not None
     result["idempotent_replay"] = False
@@ -249,14 +237,12 @@ async def heartbeat_research_run(
     expires_at = format_local(current + timedelta(seconds=max(5, min(3600, lease_seconds))))
     async with _RUNTIME_LOCK:
         db = database.get_db()
-        await db.execute("BEGIN IMMEDIATE")
-        try:
+        async with database.exclusive_transaction():
             row = await (await db.execute(
                 "SELECT job_id FROM scheduled_research_runs WHERE id=? AND user_id=?",
                 (run_id, user_id),
             )).fetchone()
             if row is None:
-                await db.rollback()
                 return False
             cursor = await db.execute(
                 "UPDATE scheduled_research_runs SET heartbeat_at=?, lease_expires_at=? "
@@ -268,18 +254,13 @@ async def heartbeat_research_run(
                 ),
             )
             if cursor.rowcount != 1:
-                await db.rollback()
                 return False
             await _insert_research_run_event(
-                db, user_id=user_id, job_id=int(row["job_id"]), run_id=run_id,
+                db=database.get_db(), user_id=user_id, job_id=int(row["job_id"]), run_id=run_id,
                 event_type="heartbeat",
                 payload={"lease_owner": lease_owner, "lease_expires_at": expires_at},
             )
-            await db.commit()
             return True
-        except Exception:
-            await db.rollback()
-            raise
 
 
 async def finish_research_run(
@@ -294,14 +275,12 @@ async def finish_research_run(
         raise ValueError("invalid terminal research run status")
     async with _RUNTIME_LOCK:
         db = database.get_db()
-        await db.execute("BEGIN IMMEDIATE")
-        try:
+        async with database.exclusive_transaction():
             row = await (await db.execute(
                 "SELECT job_id FROM scheduled_research_runs WHERE id=? AND user_id=?",
                 (run_id, user_id),
             )).fetchone()
             if row is None:
-                await db.rollback()
                 return False
             cursor = await db.execute(
                 "UPDATE scheduled_research_runs SET status=?, error=?, "
@@ -312,7 +291,6 @@ async def finish_research_run(
                 (status, error, status, run_id, user_id, lease_owner),
             )
             if cursor.rowcount != 1:
-                await db.rollback()
                 return False
             await db.execute(
                 "UPDATE scheduled_research_jobs SET last_status=?, last_error=?, "
@@ -325,15 +303,11 @@ async def finish_research_run(
                 ),
             )
             await _insert_research_run_event(
-                db, user_id=user_id, job_id=int(row["job_id"]), run_id=run_id,
+                db=database.get_db(), user_id=user_id, job_id=int(row["job_id"]), run_id=run_id,
                 event_type=status,
                 payload={"status": status, "error": error} if error else {"status": status},
             )
-            await db.commit()
             return True
-        except Exception:
-            await db.rollback()
-            raise
 
 
 async def recover_stale_research_runs(
@@ -349,8 +323,7 @@ async def recover_stale_research_runs(
     retryable = 0
     async with _RUNTIME_LOCK:
         db = database.get_db()
-        await db.execute("BEGIN IMMEDIATE")
-        try:
+        async with database.exclusive_transaction():
             cursor = await db.execute(
                 "SELECT r.*, p.status AS report_status FROM scheduled_research_runs r "
                 "LEFT JOIN research_reports p ON p.id=r.report_id AND p.user_id=r.user_id "
@@ -421,10 +394,6 @@ async def recover_stale_research_runs(
                     payload={"status": "failed", "error": error, "reason": "lease_expired"},
                 )
                 retryable += 1
-            await db.commit()
-        except Exception:
-            await db.rollback()
-            raise
     return {"reconciled": reconciled, "retryable": retryable}
 
 

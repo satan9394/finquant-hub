@@ -1,13 +1,20 @@
 """SQLite 数据层：aiosqlite 单例连接 + 建表 + 种子数据（WAL 模式）。"""
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 import sqlite3
-from typing import Any, cast
+from typing import Any, AsyncIterator, cast
 
 import aiosqlite
 
 from . import config
 from .prompts.roles import PRESET_ROLES
+
+# 活动显式事务深度（BEGIN IMMEDIATE 后为 1）。单连接架构下，aiosqlite 的写
+# 操作经同一连接串行执行；此计数用于让 database.execute() 在显式事务内部
+# 不隐式 commit——否则 job 等长事务进行中一旦有其他请求 execute，会把 job
+# 的部分状态提前提交（Astra A2 P1：rollback 随之失效）。
+_TRANSACTION_DEPTH = 0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -2177,6 +2184,39 @@ def get_db() -> aiosqlite.Connection:
     return _db
 
 
+def in_transaction() -> bool:
+    """是否有显式写事务正在活动（供 execute 决定是否隐式提交）。"""
+    return _TRANSACTION_DEPTH > 0
+
+
+@asynccontextmanager
+async def exclusive_transaction() -> AsyncIterator[None]:
+    """BEGIN IMMEDIATE 写事务：提交/回滚与隐式提交隔离由本上下文统一负责。
+
+    修复 Astra A2 P1：此前 job 用 `_RUNTIME_LOCK`+BEGIN IMMEDIATE，但共享连接
+    上的其他 `database.execute()` 每次隐式 commit，可在 job 事务中途把其部分
+    状态提前落盘，使后续 rollback 失效（且取消异常不在回滚范围）。
+    使用本上下文后：事务期间 execute() 不再隐式 commit（见 execute()），
+    成功统一 commit，任意异常/取消统一 rollback，杜绝部分提交。
+    """
+    global _TRANSACTION_DEPTH
+    db = get_db()
+    if _TRANSACTION_DEPTH == 0:
+        await db.execute("BEGIN IMMEDIATE")
+    _TRANSACTION_DEPTH += 1
+    try:
+        yield
+    except BaseException:
+        # 统一回滚到事务开始处（含 CancelledError/KeyboardInterrupt）
+        _TRANSACTION_DEPTH = 0
+        await db.rollback()
+        raise
+    else:
+        _TRANSACTION_DEPTH -= 1
+        if _TRANSACTION_DEPTH == 0:
+            await db.commit()
+
+
 async def _seed_models() -> None:
     """首次启动预置 DeepSeek 双模型（api_key 取环境变量名，不存值）。"""
     cur = await _db.execute("SELECT COUNT(*) AS n FROM model_configs")
@@ -2220,9 +2260,14 @@ async def query_one(sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | 
 
 
 async def execute(sql: str, params: tuple[Any, ...] = ()) -> int:
-    """执行写操作并提交，返回 lastrowid。"""
+    """执行写操作并提交，返回 lastrowid。
+
+    显式事务活动时（exclusive_transaction 内）不隐式提交——提交/回滚由
+    事务上下文统一负责，避免把长事务的部分状态提前落盘（Astra A2 P1）。
+    """
     cur = await get_db().execute(sql, params)
-    await get_db().commit()
+    if not in_transaction():
+        await get_db().commit()
     return cast(int, cur.lastrowid)
 
 
