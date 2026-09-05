@@ -622,9 +622,9 @@ body { overflow-x: hidden; background: var(--fq-bg-page); }
   --fq-opportunity: #12785f;
   --fq-risk: #d13c3c;
   --fq-warning: #8f6000;
-  --fq-radius-sm: 6px;
-  --fq-radius-md: 8px;
-  --fq-radius-lg: 8px;
+  --fq-radius-sm: 8px;
+  --fq-radius-md: 12px;
+  --fq-radius-lg: 16px;
   --fq-sidebar-expanded: 240px;
   --fq-sidebar-collapsed: 64px;
   --fq-commandbar-inline: 48px;

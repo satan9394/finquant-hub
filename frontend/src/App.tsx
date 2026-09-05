@@ -272,7 +272,9 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
         </a>
       ) : dom}
       location={{ pathname: menuKey }}
-      siderWidth={224}
+      // Astra B5：侧栏宽度与 Design System token（--fq-sidebar-expanded: 240px）
+      // 及 DESIGN_SYSTEM_V1.md 规范一致；此前硬编码 224 使 token 失去尺寸权威。
+      siderWidth={240}
       breakpoint="lg"
       collapsed={collapsed}
       onCollapse={setCollapsed}
@@ -401,6 +403,21 @@ function FinQuantApp() {
       componentSize={layoutDensity === 'compact' ? 'small' : 'middle'}
       theme={{
         algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
+        // Astra B4：此前 ConfigProvider 只切算法，AntD 组件（按钮/Tag 等）用
+        // 自身主题色，与自定义 --fq-ai-primary 两套主色并存。把 AntD 语义 token
+        // 映射到与 --fq-* 亮/暗一致的值，收敛为单一主色与圆角来源。
+        // 值与 app.css --fq-ai-primary（亮 #315efb / 暗 #7c9bff）保持一致；
+        // 圆角 8px 对齐 Design System radius-sm（DESIGN_SYSTEM_V1 §4.3）。
+        token: {
+          colorPrimary: isDark ? '#7c9bff' : '#315efb',
+          borderRadius: 8,
+          borderRadiusLG: 12,
+          borderRadiusSM: 8,
+          colorInfo: isDark ? '#75a7ff' : '#2561e6',
+          colorSuccess: isDark ? '#5ec5a1' : '#12785f',
+          colorError: isDark ? '#ff8585' : '#b42318',
+          colorWarning: isDark ? '#e3b75d' : '#8f6000',
+        },
       }}
     >
       <div className={`${isDark ? 'app-theme app-theme--dark' : 'app-theme'} app-density--${layoutDensity}`}>
