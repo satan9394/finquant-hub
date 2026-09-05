@@ -141,6 +141,39 @@ export function useLightweightCharts(
     volumeRef.current?.applyOptions(theme.volume as any);
   }, [config.theme]);
 
+  // Astra B2：主题切换后重取色。图表创建后 readChartTokens 读的是当时 CSS
+  // 变量（.app-theme / .app-theme--dark），App 切换暗色只改 DOM class，不会
+  // 触发本 hook 的任何 effect（config.theme 恒为调用方写死的值）。用
+  // MutationObserver 监听 .app-theme 的 class 变化，变化即按新 token 重绘，
+  // 对 MoneyFlowChart/ChipHistoryChart 等调用方透明。
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || typeof MutationObserver === 'undefined') return;
+    const root = document.querySelector<HTMLElement>('.app-theme');
+    if (!root) return;
+    let reflowPending = false;
+
+    const applyCurrentTheme = () => {
+      const theme = getThemeOptions(config.theme);
+      chart.applyOptions(theme.chart as DeepPartial<ChartOptions>);
+      candlestickRef.current?.applyOptions(theme.candlestick as any);
+      areaRef.current?.applyOptions(theme.area as any);
+      volumeRef.current?.applyOptions(theme.volume as any);
+    };
+
+    const observer = new MutationObserver(() => {
+      if (reflowPending) return;
+      reflowPending = true;
+      // class 切换与样式重算可能同帧：延后到下一帧再读新 CSS 变量。
+      requestAnimationFrame(() => {
+        reflowPending = false;
+        applyCurrentTheme();
+      });
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [config.theme]);
+
   // 高度更新
   useEffect(() => {
     const chart = chartRef.current;
