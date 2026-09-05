@@ -1590,6 +1590,81 @@ class TestSettingsAndMCPConfiguration:
         assert "research" not in json.dumps(history["items"][0]["events"])
 
     @pytest.mark.asyncio
+    async def test_scheduled_research_manual_run_is_atomic_against_concurrent_queue(
+        self, client, monkeypatch,
+    ):
+        """A4 回归：两并发 run 请求不能互相覆盖状态（先读后写竞态）。
+
+        旧实现读非 running 后无条件写 queued：并发请求可把另一执行者刚认领的
+        running 覆盖回 queued，或两个不同幂等键都进入排队 → 双 running run。
+        修复后排队置位带旧状态条件（NOT IN running/queued）+ rowcount 校验，
+        同一 job 并发第二次 run 必须 409，且 first 的 queued 不被覆盖。
+
+        为使窗口确定：把 settings 引用的 run_research_job stub 成 no-op
+        （job 保持 queued，不进入 claim/完成），从而第二次 run 稳定命中守卫。
+        """
+        from app.routers import settings as settings_router
+
+        created = await client.post("/api/settings/research-jobs", json={
+            "name": "atomic-queue", "ticker": "AAPL", "cron_expr": "0 8 * * *",
+        })
+        job_id = created.json()["id"]
+
+        async def queued_stub(*_args, **_kwargs):
+            return None  # 模拟 background run 尚未开始：job 维持 queued
+
+        monkeypatch.setattr(settings_router, "run_research_job", queued_stub)
+
+        first = await client.post(f"/api/settings/research-jobs/{job_id}/run")
+        assert first.status_code == 202
+        first_key = first.json()["idempotency_key"]
+        row = await database.query_one(
+            "SELECT last_status, pending_idempotency_key FROM scheduled_research_jobs WHERE id=?",
+            (job_id,),
+        )
+        assert row["last_status"] == "queued"
+        assert row["pending_idempotency_key"] == first_key
+
+        # 并发第二次 run：快路径读到 queued → 409；即使读到 idle 也会被原子
+        # UPDATE rowcount=0 拦截 → 409，且不覆盖 first 的排队置位。
+        second = await client.post(f"/api/settings/research-jobs/{job_id}/run")
+        assert second.status_code == 409
+        row = await database.query_one(
+            "SELECT last_status, pending_idempotency_key FROM scheduled_research_jobs WHERE id=?",
+            (job_id,),
+        )
+        assert row["last_status"] == "queued"
+        assert row["pending_idempotency_key"] == first_key
+
+    @pytest.mark.asyncio
+    async def test_scheduled_research_manual_run_rejects_running_or_queued(
+        self, client,
+    ):
+        """A4 回归：running/queued 状态预检仍返回 409（不触库）。
+
+        覆盖修复前的快路径分支（job.last_status in running/queued → 409）。
+        """
+        created = await client.post("/api/settings/research-jobs", json={
+            "name": "busy", "ticker": "AAPL", "cron_expr": "0 8 * * *",
+        })
+        job_id = created.json()["id"]
+        await database.execute(
+            "UPDATE scheduled_research_jobs SET last_status='running' WHERE id=?",
+            (job_id,),
+        )
+        running = await client.post(f"/api/settings/research-jobs/{job_id}/run")
+        assert running.status_code == 409
+        await database.execute(
+            "UPDATE scheduled_research_jobs SET last_status='queued' WHERE id=?",
+            (job_id,),
+        )
+        queued = await client.post(f"/api/settings/research-jobs/{job_id}/run")
+        assert queued.status_code == 409
+        assert (await database.query_one(
+            "SELECT last_status FROM scheduled_research_jobs WHERE id=?", (job_id,)
+        ))["last_status"] == "queued"
+
+    @pytest.mark.asyncio
     async def test_mcp_http_server_configuration_lifecycle(self, client, monkeypatch):
         from app.routers import mcp as mcp_router
 

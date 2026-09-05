@@ -239,13 +239,22 @@ async def run_scheduled_research_job(
     job = await get_research_job(job_id, user_id)
     if job is None:
         raise HTTPException(404, f"定时研究任务不存在：id={job_id}")
-    if job["last_status"] == "running":
-        raise HTTPException(409, "定时研究任务正在运行")
+    # 快路径预检（避免无谓写库）：running/queued 直接拒绝。
+    # 真正的竞态防护在下方带旧状态条件的原子 UPDATE——
+    # 并发两请求都读到 idle 时，先到者 rowcount=1，后到者 rowcount=0 → 409，
+    # 不会再出现"读后无条件写 queued"把他人刚认领的 running 覆盖回 queued 的窗口。
+    if job["last_status"] in {"running", "queued"}:
+        raise HTTPException(409, "定时研究任务正在运行或排队中")
     idempotency_key = secrets.token_hex(32)
-    await database.execute(
+    db = database.get_db()
+    cursor = await db.execute(
         "UPDATE scheduled_research_jobs SET last_status='queued', last_error=NULL, "
-        "pending_idempotency_key=?, updated_at=datetime('now') WHERE id=? AND user_id=?",
+        "pending_idempotency_key=?, updated_at=datetime('now') "
+        "WHERE id=? AND user_id=? AND last_status NOT IN ('running', 'queued')",
         (idempotency_key, job_id, user_id),
     )
+    await db.commit()
+    if cursor.rowcount != 1:
+        raise HTTPException(409, "定时研究任务正在运行或排队中")
     background_tasks.add_task(run_research_job, job_id, user_id, idempotency_key)
     return {"id": job_id, "status": "queued", "idempotency_key": idempotency_key}
