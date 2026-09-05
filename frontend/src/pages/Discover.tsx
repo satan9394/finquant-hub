@@ -10,10 +10,24 @@ import apiClient from '../services/api';
 import { searchAlpha, type AlphaSearchResult } from '../services/alphaApi';
 import { useLanguage } from '../i18n/LanguageContext';
 
-const tickerPattern = /\b(?:[036]\d{5}|\d{5}|[A-Z]{1,5}(?:\.[A-Z])?)\b/gi;
+// 股票代码提取：6/5 位数字与 .HK 后缀按代码处理；裸字母 token 需排除常见
+// 筛选/因子术语（ROE/FCF/CAGR 等财务缩写），避免把自然语言筛选词误当证券
+// 代码提交（Astra B7：`ROE > 20%` 被提取成 ROE、`FCF CAGR > 10%` 提取成
+// FCF、CAGR）。AAPL 之类真实 US 代码不在术语表，仍正常提取。
+const tickerPattern = /\b(?:[036]\d{5}|\d{5}|[A-Z]{2,5}(?:\.[A-Z])?)\b/gi;
 
-function extractTickers(query: string) {
-  return Array.from(new Set((query.match(tickerPattern) ?? []).map((ticker) => ticker.toUpperCase())));
+// 与 i18n discover.filter.* 及常见财务因子缩写一致的术语黑名单（大写比对）。
+const FACTOR_TERMS = new Set([
+  'ROE', 'FCF', 'CAGR', 'PE', 'PB', 'EPS', 'ROA', 'ROIC', 'DCF', 'EV', 'EBITDA',
+  'PEG', 'VS', 'AND', 'OR', 'WITH', 'HIGH', 'LOW', 'GROWING', 'STOCKS', 'COMPANY',
+]);
+
+export function extractTickers(query: string) {
+  return Array.from(new Set(
+    (query.match(tickerPattern) ?? [])
+      .map((ticker) => ticker.toUpperCase())
+      .filter((candidate) => !FACTOR_TERMS.has(candidate)),
+  ));
 }
 
 export default function Discover() {
