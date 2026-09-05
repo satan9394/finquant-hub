@@ -49,11 +49,16 @@ async def _analyze_with_team(
     body: SwarmRunRequest,
     request: Request,
     user_id: int,
-    runner: Callable[[str, str, int | None], AsyncIterator[tuple[str, dict[str, Any]]]],
+    runner: Callable[..., AsyncIterator[tuple[str, dict[str, Any]]]],
     report_builder: Callable[[str, str, dict[str, Any]], dict[str, Any]],
 ) -> EventSourceResponse:
     ticker, company_name = await resolve_research_target(body.ticker, request.app.state.market)
     report_id = await _create_report(ticker, company_name, body.model_id, user_id)
+
+    async def run_with_user() -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        # 把 user_id 透传给工具线程（Astra A5：恢复工具内 current_user_id 上下文）
+        async for event in runner(ticker, company_name, body.model_id, user_id=user_id):
+            yield event
 
     async def event_stream() -> AsyncIterator[dict[str, str]]:
         completed = False
@@ -64,7 +69,7 @@ async def _analyze_with_team(
                 "event": "report_started",
                 "data": json.dumps({"report_id": report_id, "ticker": ticker}, ensure_ascii=False),
             }
-            swarm_stream = runner(ticker, company_name, body.model_id)
+            swarm_stream = run_with_user()
             async for event, data in swarm_stream:
                 if event == "done":
                     report = report_builder(ticker, company_name, data)

@@ -170,6 +170,8 @@ async def _run_team(
     ticker: str,
     company_name: str = "",
     model_id: int | None = None,
+    *,
+    user_id: int | None = None,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
     """运行任意已校验 YAML 团队并产出适合 SSE 转发的事件。"""
     from . import model_router
@@ -220,6 +222,7 @@ async def _run_team(
                 ticker,
                 company_name,
                 registry,
+                user_id=user_id,
                 allowed_tools=set(agent.tools),
                 prior_context=_prior_context(agent, context, fundamentals_context),
             )
@@ -288,8 +291,12 @@ async def run_four_masters(
     ticker: str,
     company_name: str = "",
     model_id: int | None = None,
+    *,
+    user_id: int | None = None,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
-    async for event in _run_team(get_four_masters_team(), ticker, company_name, model_id):
+    async for event in _run_team(
+        get_four_masters_team(), ticker, company_name, model_id, user_id=user_id,
+    ):
         yield event
 
 
@@ -297,6 +304,10 @@ async def run_earnings_review(
     ticker: str,
     company_name: str = "",
     model_id: int | None = None,
+    *,
+    user_id: int | None = None,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
-    async for event in _run_team(get_earnings_review_team(), ticker, company_name, model_id):
+    async for event in _run_team(
+        get_earnings_review_team(), ticker, company_name, model_id, user_id=user_id,
+    ):
         yield event

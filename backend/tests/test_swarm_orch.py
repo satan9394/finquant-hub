@@ -82,6 +82,7 @@ async def test_four_masters_runs_roots_in_parallel_then_feeds_risk(monkeypatch, 
         company_name,
         registry,
         *,
+        user_id=None,
         allowed_tools=None,
         prior_context="",
     ):
@@ -136,6 +137,7 @@ async def test_root_failure_skips_dependent_risk_agent(monkeypatch):
         company_name,
         registry,
         *,
+        user_id=None,
         allowed_tools=None,
         prior_context="",
     ):
@@ -164,7 +166,7 @@ async def test_earnings_review_runs_yaml_discussion_dag(monkeypatch):
         return object(), {"id": model_id, "name": "Fake"}
 
     async def fake_call_agent(
-        client, role, ticker, company_name, registry, *, allowed_tools=None, prior_context="",
+        client, role, ticker, company_name, registry, *, user_id=None, allowed_tools=None, prior_context="",
     ):
         calls[role["role_key"]] = prior_context
         return f"{role['name']}完成", []

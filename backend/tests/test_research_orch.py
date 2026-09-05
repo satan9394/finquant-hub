@@ -250,3 +250,75 @@ async def test_parallel_tool_failures_are_isolated(isolated_registry):
     assert content == "final answer"
     assert logs[0]["result"] == "工具执行异常：boom"
     assert logs[1]["result"] == "错误：工具 missing 不存在"
+
+
+class ContextProbeTool(BaseTool):
+    """在工具线程内读取 current_user_id 并回传。"""
+
+    name = "context_probe"
+    description = "Probe authenticated user context inside the tool thread"
+    parameters = {
+        "type": "object",
+        "properties": {"limit": {"type": "integer", "description": "必填整数参数"}},
+        "required": ["limit"],
+    }
+    auto_register = False
+
+    async def run(self, **kwargs) -> ToolResult:
+        from app.services.auth import current_user_id
+
+        user_id = current_user_id()
+        return ToolResult(True, data={"user_id": user_id, "limit": kwargs.get("limit")})
+
+
+@pytest.mark.asyncio
+async def test_tool_thread_recovers_user_context_and_validates_argument_types(isolated_registry):
+    """A5 回归：工具线程能读到本人 user_id；声明 integer 的参数传字符串被前置校验拒绝。"""
+    isolated_registry.register(ContextProbeTool())
+    client = FakeToolCallingClient([
+        {"id": "call-1", "function": {"name": "context_probe", "arguments": json.dumps({"limit": 5})}},
+        {"id": "call-2", "function": {"name": "context_probe", "arguments": json.dumps({"limit": "not-an-int"})}},
+    ])
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        user_id=42,
+    )
+
+    assert content == "final answer"
+    assert json.loads(logs[0]["result"]) == {
+        "success": True,
+        "data": {"user_id": 42, "limit": 5},
+        "error": None,
+    }
+    # 类型驱动前置校验（dispatch 语义）：字符串传给 integer 参数 → 失败结果，
+    # 工具 run 不执行（修复前直接 tool.run 会绕过校验并执行成功）。
+    failed = json.loads(logs[1]["result"])
+    assert failed["success"] is False
+    assert "integer" in failed["error"]
+
+
+@pytest.mark.asyncio
+async def test_tool_thread_without_user_id_keeps_isolation(isolated_registry):
+    """A5 隔离回归：不传 user_id 时工具线程读不到用户上下文（不落他人凭据）。"""
+    isolated_registry.register(ContextProbeTool())
+    client = FakeToolCallingClient([
+        {"id": "call-1", "function": {"name": "context_probe", "arguments": json.dumps({"limit": 3})}},
+    ])
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+    )
+
+    assert content == "final answer"
+    # ContextProbeTool.run 内 current_user_id() 无上下文时抛 RuntimeError，
+    # 线程内 asyncio.run 使其传播 → _execute_tool_call 捕获返回"工具执行异常"
+    assert logs[0]["result"].startswith("工具执行异常")

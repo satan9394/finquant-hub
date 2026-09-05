@@ -23,17 +23,36 @@ _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="research-
 JSONDict: TypeAlias = dict[str, Any]
 
 
-def _run_tool_in_thread(tool: BaseTool, arguments: JSONDict) -> ToolResult:
-    """在线程独立事件循环中执行异步工具。"""
-    return asyncio.run(tool.run(**arguments))
+def _run_tool_in_thread(tool: BaseTool, arguments: JSONDict, user_id: int | None) -> ToolResult:
+    """在线程独立事件循环中执行异步工具。
+
+    ThreadPoolExecutor 的 worker 不继承调用方协程的 ContextVar（Astra A5 P2：
+    线程内 current_user_id() 变 None，新闻工具走空凭据分支）。因此显式把当前
+    用户写进线程本地上下文，让工具内的 current_user_id() 能取到本人身份，
+    同时保持"绝不读取他人凭据"的隔离边界（只传本人 user_id）。
+    """
+    from ..services.auth import reset_current_user, set_current_user
+
+    token = set_current_user({"id": user_id}) if user_id is not None else None
+    try:
+        return asyncio.run(tool.run(**arguments))
+    finally:
+        if token is not None:
+            reset_current_user(token)
 
 
 async def _execute_tool_call(
     tool_call: JSONDict,
     tool_registry: ToolRegistry,
     allowed_tools: set[str] | None = None,
+    *,
+    user_id: int | None = None,
 ) -> str:
-    """执行单个工具调用并统一序列化结果，不让异常中断同轮其他工具。"""
+    """执行单个工具调用并统一序列化结果，不让异常中断同轮其他工具。
+
+    经 ToolRegistry.dispatch 执行（类型驱动前置校验，Astra A5：研究路径此前
+    直接 tool.run() 绕过参数类型校验），并把 user_id 传入线程以恢复用户上下文。
+    """
     func = tool_call["function"]
     if allowed_tools is not None and func["name"] not in allowed_tools:
         return f"错误：工具 {func['name']} 未授权给当前 Agent"
@@ -45,8 +64,21 @@ async def _execute_tool_call(
         arguments = json.loads(func["arguments"])
         if not isinstance(arguments, dict):
             raise ValueError("工具参数必须是 JSON 对象")
+        # 类型驱动前置校验（与 ToolRegistry.dispatch 相同的 JSON Schema 语义）。
+        # 修复前研究路径直接 tool.run() 绕过此校验（Astra A5 P2：声明为 integer
+        # 的参数传入字符串仍执行成功）。
+        from ..agent.tools import validate_tool_arguments
+
+        validation_error = validate_tool_arguments(tool.name, tool.parameters, arguments)
+        if validation_error is not None:
+            return json.dumps(
+                {"success": False, "data": None, "error": validation_error},
+                ensure_ascii=False,
+            )
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(_TOOL_EXECUTOR, _run_tool_in_thread, tool, arguments)
+        result = await loop.run_in_executor(
+            _TOOL_EXECUTOR, _run_tool_in_thread, tool, arguments, user_id,
+        )
         return json.dumps(
             {"success": result.success, "data": result.data, "error": result.error},
             ensure_ascii=False,
@@ -62,6 +94,7 @@ async def _call_agent(
     company_name: str,
     tool_registry: ToolRegistry,
     *,
+    user_id: int | None = None,
     allowed_tools: set[str] | None = None,
     prior_context: str = "",
     memory_context: str = "",
@@ -103,7 +136,8 @@ async def _call_agent(
 
         # ponytail: 同轮调用直接并发，gather 保留输入顺序，无需额外调度层。
         result_texts = await asyncio.gather(*(
-            _execute_tool_call(tool_call, tool_registry, allowed_tools) for tool_call in tool_calls
+            _execute_tool_call(tool_call, tool_registry, allowed_tools, user_id=user_id)
+            for tool_call in tool_calls
         ))
         for tc, result_text in zip(tool_calls, result_texts, strict=True):
             func = tc["function"]
@@ -183,6 +217,7 @@ async def run_research(
                     ticker,
                     company_name,
                     registry,
+                    user_id=user_id,
                     memory_context=memory_context,
                 )
             except LLMError as exc:
@@ -238,6 +273,7 @@ async def run_research(
             ticker,
             company_name,
             registry,
+            user_id=user_id,
             allowed_tools={"audit_report_data", "check_buffett_rules", "adversarial_review", "calculate_by_financial_rigor"},
             prior_context=lead_context,
             memory_context=memory_context,

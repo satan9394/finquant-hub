@@ -721,7 +721,7 @@ class TestSwarm:
         async def fake_resolve(raw, svc):
             return "usAAPL", "Apple Inc."
 
-        async def fake_swarm(ticker, company_name, model_id):
+        async def fake_swarm(ticker, company_name, model_id, **kwargs):
             yield "team_started", {"ticker": ticker, "company_name": company_name}
             yield "agent_started", {"role_key": "value_investor"}
             yield "done", {
@@ -775,7 +775,7 @@ class TestSwarm:
         async def fake_resolve(raw, svc):
             return "usAAPL", "Apple Inc."
 
-        async def fake_swarm(ticker, company_name, model_id):
+        async def fake_swarm(ticker, company_name, model_id, **kwargs):
             yield "error", {"error": "LLM unavailable", "message": "LLM unavailable"}
 
         monkeypatch.setattr(swarm_router, "resolve_research_target", fake_resolve)
