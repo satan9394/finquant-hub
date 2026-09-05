@@ -4,6 +4,15 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-04
+- **Fix: BACKLOG-029 第三轮（DSH）——B2/B3/B4/B5 前端主题/尺寸类**
+  - What: ⑨B2 `frontend/src/hooks/useLightweightCharts.ts` 主题切换后图表重取色（MutationObserver 监听 `.app-theme` class，变化即按新 CSS token 重绘 chart/系列，MoneyFlowChart/ChipHistoryChart 等调用方透明）。⑩B3 `frontend/src/components/EvidenceDrawer.tsx`+`EvidenceRail.tsx` Drawer `getContainer` 挂回 `.app-theme`（portal 不再脱离暗色主题子树，消除与 AntD darkAlgorithm 混搭）。⑪B4 `frontend/src/App.tsx` ConfigProvider theme.token 映射 colorPrimary/borderRadius/info/success/error/warning 到与 --fq-* 一致的值（亮暗双值，AntD 与自定义组件收敛单主色来源）。⑫B5 `frontend/src/App.tsx` siderWidth 224→240（对齐 --fq-sidebar-expanded token）与 `frontend/src/app.css` radius token 6/8/8→8/12/16（对齐 DESIGN_SYSTEM_V1 §4.3；evidence-chip 等组件规格 6px 保留）
+  - Why: Astra 会话 B（GPT-6 UI 审查）B2-B5 断言（图表暗色切换不重取色、证据抽屉主题作用域断裂、AntD/自定义两套样式来源、token 尺寸漂移），DSH 独立复核证实后修复
+  - Tests: MoneyFlowChart/ChipHistoryChart/StockChart/EvidenceDrawer/EvidenceRail/AppNavigation 组件测试全绿（hook/Drawer 改动在 mock 层无回归）；E2E 无 radius/sider 断言
+  - Docs: `docs/ai/astra-review/verification-2026-09-04.md` 处置进展表（B2-B5 完成）
+  - Verification: frontend build 通过；组件测试 8+4+4 全绿
+  - Risk: low-medium（B4/B5 全局视觉变化——主色/圆角收敛按 DESIGN_SYSTEM 规范值，E2E 断言无色值依赖；B2 observer 在测试 mock 层不执行，真实行为留 E2E/人工验收）
+
+## 2026-09-04
 - **Fix: BACKLOG-029 第二轮（DSH）——A5/A8 后端 P2 + B6/B7 前端用户可感**
   - What: ⑤A5 `backend/app/services/research_orch.py` 工具线程恢复用户上下文（`_run_tool_in_thread` 线程内 `set_current_user`，修复 Astra A5：线程内 current_user_id()=None 致新闻工具走空凭据分支）+ `_execute_tool_call` 补 `validate_tool_arguments` 类型驱动前置校验（integer 传字符串被拒，修复前研究路径直接 tool.run 绕过 dispatch）；user_id 透传 research/swarm 两编排（swarm_orch `_run_team`/run_four_masters/run_earnings_review + routers/swarm.py `_analyze_with_team` run_with_user 包层）。⑥A8 `backend/app/services/market_data.py` 三项行情语义：分钟 K 请求跳过腾讯日线备源（日线不再冒充分钟）、新浪 quote 缺失字段 0→None（诚实 UNKNOWN）、大陆指数 index_quote 直连腾讯不经股票 normalize 校验。⑦B6 `frontend/src/pages/ResearchWorkspace.tsx` 默认研究页读 `?prompt=` 预填搜索框并自动搜索一次（提问不再丢 URL）。⑧B7 `frontend/src/pages/Discover.tsx` extractTickers 加财务术语/停用词黑名单（ROE/FCF/CAGR/PE/PB/vs 等）+ 纯字母≥2 收紧（筛选词不再被当证券代码提交）
   - Why: Astra 双会话（GPT-6 只读审查）A5/A8 P2 与 B6/B7 用户可感断言，均经 DSH 独立复核证实后修复

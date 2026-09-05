@@ -186,10 +186,10 @@
 | A7 重启恢复窗口 | ⬜ 记录（机制）+ 待核 | — |
 | A8 行情语义错误 | ✅ 已修复 | commit `363d5f0`：①分钟 K 请求跳过腾讯日线备源（`daily_only_skipped_for_minute_period`，不再日线冒充分钟）；②parse_sina_quotes 缺失字段 0→None（PE/PB/turnover/market_cap/timestamp 诚实 UNKNOWN）；③index_quote 大陆指数（sh000001）直连腾讯 `_quotes_tencent` 不经股票 normalize 校验。新增 test_market.py +2、test_market.py sina None 断言、test_market_data_degradation.py +2 |
 | B1 残色未迁完 | ✅ 证伪（旧结论过时） | HANDOFF.md 条目勾除并注明 Astra + DSH 双扫描 `#dce5ef|#1890ff` 0 匹配 |
-| B2 图表主题不重取色 | ⬜ 待修（主题类） | 后续轮 |
-| B3 证据抽屉主题断裂 | ⬜ 待修（主题类） | 后续轮 |
-| B4 两套样式来源 | ⬜ 待修（主题类，低风险） | 后续轮 |
-| B5 尺寸漂移 | ⬜ 待修（需对齐规范） | 后续轮 |
+| B2 图表主题不重取色 | ✅ 已修复 | commit `3ab276e`：useLightweightCharts 加 MutationObserver 监听 `.app-theme` class 变化，变化即按新 CSS token 重取色（chart/系列 applyOptions），对 MoneyFlowChart/ChipHistoryChart 等调用方透明 |
+| B3 证据抽屉主题断裂 | ✅ 已修复 | commit `a7d31a5`：EvidenceDrawer/EvidenceRail 的 Drawer 加 `getContainer={() => .app-theme ?? body}`——portal 挂回主题子树，暗色 token 不再与 AntD 混搭 |
+| B4 两套样式来源 | ✅ 已修复 | commit `f34af8b`：ConfigProvider theme.token 映射 colorPrimary/borderRadius/info/success/error/warning（亮暗值与 --fq-* 一致），AntD 组件收敛到与自定义组件同一主色/圆角来源 |
+| B5 尺寸漂移 | ✅ 已修复 | commit `f34af8b`：App.tsx siderWidth 224→240（对齐 --fq-sidebar-expanded token 与规范）；app.css radius token 6/8/8→8/12/16（对齐 DESIGN_SYSTEM_V1 §4.3）；evidence-chip 等组件规格 6px 保留不机械回退 |
 | B6 提问不被接住 | ✅ 已修复 | commit `3e0a27a`：ResearchWorkspace 默认页读 `?prompt=`，预填搜索框 + 自动搜索一次（原问题可见不再丢 URL）；ResearchLanding.test +1 |
 | B7 筛选术语误识别 | ✅ 已修复 | commit `4f955e8`：Discover extractTickers 加因子术语/停用词黑名单（ROE/FCF/CAGR/PE/PB/vs 等）+ 纯字母≥2 收紧；新增 DiscoverTickerExtraction.test 3 用例（Astra 探针样例全过） |
 | B8 文案暴露实现术语 | ⬜ 记录（展示层低风险） | — |
@@ -210,6 +210,13 @@
 - **B2/B3/B4/B5（主题/尺寸）**：图表主题重取色、Drawer getContainer、ConfigProvider token 映射、半径/sider 对齐（改前核 E2E 与 HANDOVER 既有 6-8px 收敛记录）。
 - **记录不修**：A1（archify 生成物漂移，README 计数已收敛）、A6（降级完成契约）、A7（机制记录，无受损实例）、B1（证伪旧结论→文档修正）、B8（文案展示层低风险、部分可顺手）、B9（首用引导产品化）、B10（空右栏产品级）、B11（仅低成本子集）、B12（两处重做，禁擅自实施）。
 
-## 收尾纪律
+## 收尾纪律（2026-09-04 三轮后更新）
 
-阶段 0 全程零业务改动：本核验表为唯一新增文件，其余工作树无修改。下一步按处置路线进入阶段 1 逐条修复（每修独立 commit）。
+阶段 0 全程零业务改动（本核验表为唯一新增文件）。阶段 1 已按处置路线**完成全部可修项**：
+A2/A3/A4（P1）+ A5/A8（P2）+ B1（证伪修正）+ B6/B7（用户可感）+ B2/B3/B4/B5（主题/尺寸），
+每项独立 commit + 聚焦测试，共 12 个修复 commit。
+阶段 2 全量门禁全绿：backend 851/851、cov 92.52%、ruff；frontend Vitest 123/378、build、
+4173 E2E 50/50、8000 E2E 21/21。
+记录待用户决策项（未擅自修）：A1（archify 生成物漂移，文档计数已收敛）、A6（主编降级完成契约）、
+A7（重启恢复机制，无已证实受损实例）、B8（文案展示层）、B9（首用引导）、B10（空右栏）、
+B11（回测顺序，仅低成本子集可修）、B12（两处重做，禁擅自实施）。
