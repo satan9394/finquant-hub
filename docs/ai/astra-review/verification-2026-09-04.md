@@ -4,6 +4,7 @@
 > 基线：HEAD `0adbea1`（BACKLOG-029 注册后工作树干净）
 > 方法：每条断言 → 定位当前源码行 → 读实现 + 既有测试 + 只读内存探针。阶段 0 零业务改动。
 > 结论三态：**已证实** / **已证伪** / **待复现**（含"待核"＝静态可达但需真实并发/产品决策）。
+> 处置进展：随阶段 1 逐条修复后在本表追加 commit 标记（2026-09-04 更新）。
 
 ---
 
@@ -172,6 +173,30 @@
 - 首页→研究连续工作面、策略实验室"规则-结果-限制"同视野。任务书明确**禁止擅自实施**，需用户单独确认范围。阶段 0 仅记录。
 
 ---
+
+## 处置进展（阶段 1 逐条更新，2026-09-04）
+
+| 断言 | 状态 | commit / 证据 |
+|---|---|---|
+| A4 立即运行竞态 | ✅ 已修复 | commit `35d3a50`：settings.py 排队改原子条件更新（`WHERE ... AND last_status NOT IN ('running','queued')` + rowcount=1 校验），快路径预检保留；test_api.py 增 2 回归（并发第二次 409 且不覆盖排队置位、running/queued 预检 409） |
+| A3 SSE 断连留 running | ✅ 已修复 | commit `d6e5450`：research.py finally 清理分两步——usage reset 留原 context 同步执行；aclose/查询/失败落库收进独立 create_task（不在 sse cancel scope 内）+ shield 等待 + done_callback 记录异常。新增 test_research_sse_disconnect_backlog029.py（全 ASGI http.disconnect 断连 + 直连探针 2 用例） |
+| A2 事务原子性 | ✅ 已修复 | commit `5f81378`：database.py 新增 `exclusive_transaction()`（BEGIN IMMEDIATE → execute 事务内不隐式提交 → 成功统一 commit、异常/取消统一 rollback）+ `in_transaction()`；research_jobs.py 五事务函数（append/claim/heartbeat/finish/recover）收敛。新增 test_transaction_atomicity_backlog029.py 4 用例（异常回滚含交错 execute、成功统一提交、事务外仍隐式提交、取消回滚） |
+| A5 工具线程上下文 | ⬜ 待修（P2） | 后续轮 |
+| A6 主编失败仍归完成 | ⬜ 记录待用户决策 | — |
+| A7 重启恢复窗口 | ⬜ 记录（机制）+ 待核 | — |
+| A8 行情语义错误 | ⬜ 待修（P2） | 后续轮 |
+| B1 残色未迁完 | ✅ 证伪（旧结论过时） | HANDOFF.md 条目勾除并注明 Astra + DSH 双扫描 `#dce5ef|#1890ff` 0 匹配 |
+| B2 图表主题不重取色 | ⬜ 待修（主题类） | 后续轮 |
+| B3 证据抽屉主题断裂 | ⬜ 待修（主题类） | 后续轮 |
+| B4 两套样式来源 | ⬜ 待修（主题类，低风险） | 后续轮 |
+| B5 尺寸漂移 | ⬜ 待修（需对齐规范） | 后续轮 |
+| B6 提问不被接住 | ⬜ 待修（用户可感） | 后续轮 |
+| B7 筛选术语误识别 | ⬜ 待修（用户可感） | 后续轮 |
+| B8 文案暴露实现术语 | ⬜ 记录（展示层低风险） | — |
+| B9 配置门槛 | ⬜ 记录（首用引导产品化） | — |
+| B10 空 AgentRail | ⬜ 记录（产品级） | — |
+| B11 回测顺序/语义 | ⬜ 记录（仅低成本子集可修） | — |
+| B12 两处产品重做 | ⬜ 记录待用户决策 | 禁止擅自实施 |
 
 ## 处置路线（阶段 1 建议顺序）
 

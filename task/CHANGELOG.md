@@ -4,6 +4,16 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-04
+- **Fix: BACKLOG-029 Astra 双会话审查 P1 修复（DSH 自主执行，A2/A3/A4）**
+  - What: ①A4 `backend/app/routers/settings.py` 立即运行排队改原子条件更新（`WHERE last_status NOT IN ('running','queued')` + rowcount 校验），消除读后无条件写 queued 覆盖 running / 双 run 竞态；②A3 `backend/app/routers/research.py` SSE 断连清理：usage reset 留原 context 同步，aclose/查询/失败落库收进独立 create_task + shield（finally 二次取消不再留永久 running 报告）；③A2 `backend/app/database.py` 新增 `exclusive_transaction()`（BEGIN IMMEDIATE + execute 事务内不隐式提交 + 异常/取消统一回滚）与 `in_transaction()`，`backend/app/services/research_jobs.py` 五个事务函数（append/claim/heartbeat/finish/recover）收敛到统一事务所有权，杜绝共享连接其他 execute 提前提交 job 部分状态
+  - Why: Astra 会话 A（GPT-6，只读审查）P1 断言经 DSH 独立复核（源码 + 只读内存探针实证 rollback 失效）+ 修复，核心纪律：先证实再修，不照搬 AI 反馈
+  - Tests: `backend/tests/test_api.py` +2（A4 并发回归）、新增 `backend/tests/test_research_sse_disconnect_backlog029.py` +2（A3 全 ASGI 断连/直连探针）、新增 `backend/tests/test_transaction_atomicity_backlog029.py` +4（A2 异常回滚/统一提交/隐式提交兼容/取消回滚）
+  - Docs: `docs/ai/astra-review/verification-2026-09-04.md`（核验表 + 处置进展）、`HANDOFF.md`（B1 残色证伪勾除 + 变更日志）、`task/CHANGELOG.md`
+  - Verification: backend 845 passed（837 基线 +8）、cov 92.41%→92.51%、ruff 全过；既有 SSE 错误路径 25/25 无回归；commit c0b13b5/35d3a50/d6e5450/5f81378
+  - Risk: medium（A2 涉及全库提交语义，已用既有 845 测试 + 4 新事务探针覆盖；事务外 execute 隐式提交语义保持兼容）
+
+
+## 2026-09-04
 - **Docs: archify（arc 画图）批量生成 FinQuant Hub 五类架构可视化**
   - What: 用 `~/.claude/skills/archify`（v2.17）在项目下新建 `archify-output/`：`README.md`（目录说明与校验状态）+ `architecture.html` / `workflow.html` / `sequence.html` / `dataflow.html` / `lifecycle.html` 五张自包含交互图 + `specs/*.json` 规格快照（依据仓库真实事实：22 Router/135 API、52 表、4 Agent 并行研究 + 主编、SSE、30s 调度、last_status 状态机、行情源代理策略）
   - Why: 用户触发词「arc画图/ARC画图」批处理模式——一次生成全部五种图，用于系统可视化

@@ -31,7 +31,7 @@
 
 ### 不阻塞发布（长期）
 
-- [ ] Design System 新老双轨迁移（`--fq-*` tokens 只被新组件消费，旧硬编码色值 `#dce5ef`/`#1890ff` 未迁移）
+- [x] ~~Design System 新老双轨迁移（`--fq-*` tokens 只被新组件消费，旧硬编码色值 `#dce5ef`/`#1890ff` 未迁移）~~ **已证伪（2026-09-04 复核）**：Astra 会话 B 全量扫描 152 文件 0 匹配 + DSH 复扫 `frontend/src` `#dce5ef|#1890ff` 0 匹配，颜色已全量收敛到 `--fq-*` tokens（UI-004 期间完成，旧结论过时，诚实撤回）
 - [ ] Graphiti/Mem0 选型：AIOS-004/005/034 仍 BLOCKED，依赖第三方包安装和 ADR 决策
 
 ## 验证命令（Verification）
@@ -243,3 +243,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-04 archify（arc画图）批量生成 FinQuant Hub 五类可视化图：architecture/workflow/sequence/dataflow/lifecycle HTML + specs JSON（22 Router/135 API、52 表、4 Agent 并行+主编、SSE、last_status 状态机等真实事实） | 验证: 每图 validate --quality showcase 9/9 通过、deliver 0 errors；architecture+workflow visual-check 通过 1440x900，sequence/dataflow/lifecycle 需滚动（与官方同型样例一致）；人工截图评审无遮挡截断；输出 archify-output/
 
 - 2026-09-04 GPT-6 Astra 上线调研 + 双会话审查（Codex 应用，A=架构 medium / B=UI high）：两会话只读审查原文存档 `docs/ai/astra-review/`（session-A/session-B，commit 87bcdd9）。A 组发现 P1 待核断言（job 事务原子性/SSE 断连留 running/立即运行竞态）+ P2（工具线程上下文/主编失败仍完成/重启恢复/行情语义）；B 组（残色已清零推翻旧结论/图表主题不重取色/证据抽屉主题断裂/提问不接住/筛选术语 ROE/FCF 误识别）。切换 DSH 自主执行，BACKLOG-029 已注册 [READY]（任务书 docs/ai/BACKLOG-029.md） | 验证: 存档 2 文件与用户贴回逐字一致；任务书已建、EXEC_PLAN 已注册；HEAD 待提交
+
+- 2026-09-04 BACKLOG-029 阶段 0 + P1×3 修复（DSH 自主执行第一轮）：阶段 0 只读核验产出 `docs/ai/astra-review/verification-2026-09-04.md`（A/B 组 18 断言 → 证实/证伪/记录三态表，内存探针实证 A2 rollback 失效、B7 正则误识别 ROE/FCF/CAGR）；P1 修复——A4 立即运行排队改原子条件更新（防并发覆盖 running/双 run）、A3 SSE 断连清理改独立任务 shield（finally 二次取消不再留永久 running，新增全 ASGI 断连回归）、A2 database.exclusive_transaction 统一事务所有权（execute 事务内不隐式提交、异常/取消统一回滚，research_jobs 五事务函数收敛 + 回滚/取消探针测试）；B1 旧结论诚实修正（HANDOFF"残色未迁完"条目勾除并注明 Astra+DSH 双扫描 0 匹配已证伪） | 验证: backend 845 passed（837 基线 +8 新测试）、cov 92.41%→92.51%、ruff 全过；既有 SSE 错误路径 25/25 无回归；commit 依次 c0b13b5/A 组 3 个（35d3a50/d6e5450/5f81378）；工作树待收尾（HANDOFF 已改未提交）；后续轮：A5/A8 P2 后端 + B6/B7 用户可感 + B2/B3 主题类 + 阶段 2/3
