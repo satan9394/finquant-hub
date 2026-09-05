@@ -179,4 +179,3 @@ async def test_sse_disconnect_event_stream_direct(monkeypatch):
     row = await _wait_report_status(report_id, {"failed", "completed"})
     assert row["status"] == "failed"
     assert fail_called == [report_id]
-

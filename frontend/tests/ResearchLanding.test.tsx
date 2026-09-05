@@ -60,4 +60,3 @@ describe('Astra B6 — URL prompt is received by the default research page', () 
     await waitFor(() => expect(searchInput?.value).toBe('茅台'));
   });
 });
-
