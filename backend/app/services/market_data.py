@@ -551,7 +551,23 @@ class MarketDataService:
     ) -> JSONDict:
         """Return a normalized index quote for mainland or Yahoo index symbols."""
         if provider_symbol.startswith(("sh", "sz")):
-            quote = await self.quote(provider_symbol)
+            # 大陆指数（如上证 sh000001）不是股票：normalize_code 的 A 股段校验
+            # 会拒绝它们（Astra A8-③）。腾讯行情原生支持指数代码（v_sh000001），
+            # 直接走腾讯取数即可，不经过股票 normalize/quote 路径。
+            breaker = self._breaker("tencent")
+            if not breaker.allow_request():
+                raise MarketError("腾讯行情源熔断中")
+            try:
+                quotes = await self._quotes_tencent([provider_symbol])
+            except (httpx.HTTPError, ValueError) as exc:
+                breaker.record_failure(exc)
+                raise MarketError(f"指数行情不可用：{provider_symbol}") from exc
+            quote = next(
+                (candidate for candidate in quotes if candidate["code"] == provider_symbol), None
+            )
+            if not quote or quote.get("price") in (None, 0):
+                raise MarketError(f"指数行情不可用：{provider_symbol}")
+            breaker.record_success()
             return {
                 "code": code,
                 "name": name,
@@ -595,6 +611,12 @@ class MarketDataService:
             breaker = self._breaker(provider)
             if not breaker.allow_request():
                 errors.append(f"{provider}:circuit_open")
+                continue
+            # Astra A8-①：腾讯 K 线接口仅支持日线（qfqday/day）。分钟级请求
+            # （5m/15m/30m/60m）走腾讯会用日线冒充分钟数据——语义错误。因此
+            # 分钟请求跳过腾讯备源，宁可继续降级/失败也不返回错误频率的数据。
+            if provider == "tencent" and period != "1d":
+                errors.append("tencent:daily_only_skipped_for_minute_period")
                 continue
             try:
                 if provider == "sina":
@@ -974,12 +996,15 @@ def parse_sina_quotes(raw: str) -> list[JSONDict]:
                 "amount": num(9),
                 "change": change,
                 "change_percent": round(change / last_close * 100, 2) if last_close else 0.0,
-                "turnover_rate": 0.0,  # 新浪实时源不提供，降级时缺失字段置 0
-                "pe": 0.0,
-                "pb": 0.0,
-                "market_cap": 0.0,
-                "amplitude": 0.0,
-                "timestamp": 0,
+                # 新浪实时源不提供以下字段（Astra A8-②：此前硬编码 0 会被当作
+                # 有效值 PE=0/PB=0 展示）。改为 None 表示诚实的"缺失/UNKNOWN"，
+                # 交由 quote_enriched 从低优先级源补齐或由调用方显示暂缺。
+                "turnover_rate": None,
+                "pe": None,
+                "pb": None,
+                "market_cap": None,
+                "amplitude": None,
+                "timestamp": None,
                 "source": "sina",
             }
         )

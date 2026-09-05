@@ -1,4 +1,6 @@
 """行情解析与降级链测试（MockTransport，不依赖真实网络）。"""
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 
@@ -82,6 +84,12 @@ class TestParsers:
         assert q["name"] == "贵州茅台"
         assert q["price"] == 1297.41
         assert q["change_percent"] == round((1297.41 - 1292.00) / 1292.00 * 100, 2)
+        # Astra A8-②：新浪源不提供的字段是 None（诚实缺失），不是假装有效值的 0
+        assert q["pe"] is None
+        assert q["pb"] is None
+        assert q["turnover_rate"] is None
+        assert q["market_cap"] is None
+        assert q["timestamp"] is None
 
 
 class TestFallback:
@@ -213,6 +221,52 @@ class TestFallback:
             await svc.kline("600519", "1d", 60)
         assert "sina:ConnectTimeout" in str(exc_info.value)
         assert "tencent:ConnectTimeout" in str(exc_info.value)
+        assert "yahoo:ConnectTimeout" in str(exc_info.value)
+        await svc.aclose()
+
+    @pytest.mark.asyncio
+    async def test_minute_kline_skips_daily_only_tencent_fallback(self, monkeypatch):
+        """A8-①：分钟 K 请求不因腾讯日线备源而用日线冒充（跳过并继续降级）。"""
+        svc = MarketDataService(http=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, request=request)
+        )))
+        calls = []
+
+        async def sina(code, scale, count):
+            calls.append(("sina", code, scale, count))
+            return []
+
+        async def tencent(code, count):
+            calls.append(("tencent", code, count))
+            raise AssertionError("分钟请求不应走腾讯日线备源")
+
+        async def yahoo(code, period, count):
+            calls.append(("yahoo", code, period, count))
+            return [{"day": "2026-07-24 10:30", "close": 100, "source": "yahoo"}]
+
+        monkeypatch.setattr(svc, "_kline_sina", sina)
+        monkeypatch.setattr(svc, "_kline_tencent", tencent)
+        monkeypatch.setattr(svc, "_kline_yahoo", yahoo)
+
+        items = await svc.kline("600519", "30m", 2)
+
+        assert items[0]["source"] == "yahoo"
+        assert calls == [("sina", "sh600519", 30, 2), ("yahoo", "sh600519", "30m", 2)]
+        await svc.aclose()
+
+    @pytest.mark.asyncio
+    async def test_minute_kline_all_providers_unavailable_reports_daily_only_skip(self, monkeypatch):
+        """A8-①：分钟 K 全源失败时错误信息含 tencent:daily_only_skipped_for_minute_period。"""
+        svc = MarketDataService(http=httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(500, request=request)
+        )))
+        monkeypatch.setattr(svc, "_kline_sina", AsyncMock(side_effect=httpx.ConnectTimeout("sina down")))
+        monkeypatch.setattr(svc, "_kline_yahoo", AsyncMock(side_effect=httpx.ConnectTimeout("yahoo down")))
+
+        with pytest.raises(MarketError, match="无法获取 600519 的 K 线") as exc_info:
+            await svc.kline("600519", "5m", 60)
+        assert "sina:ConnectTimeout" in str(exc_info.value)
+        assert "tencent:daily_only_skipped_for_minute_period" in str(exc_info.value)
         assert "yahoo:ConnectTimeout" in str(exc_info.value)
         await svc.aclose()
 

@@ -235,3 +235,41 @@ async def test_yahoo_fundamentals_rejects_upstream_error_payload():
     with pytest.raises(MarketError, match="upstream_error"):
         await service._yahoo_fundamentals("AAPL")
     await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_index_quote_mainland_uses_tencent_without_stock_normalize(monkeypatch):
+    """A8-③：大陆指数（sh000001）不再被股票 normalize 拒绝——直接腾讯取数。"""
+    service = MarketDataService(http=_client())
+
+    async def fake_tencent(codes):
+        assert codes == ["sh000001"]
+        return [{
+            "code": "sh000001", "name": "上证指数", "price": 3500.0,
+            "change": 12.0, "change_percent": 0.34, "timestamp": 42, "source": "tencent",
+        }]
+
+    monkeypatch.setattr(service, "_quotes_tencent", fake_tencent)
+    quote = await service.index_quote(
+        "sh000001", code="000001.SH", name="上证指数", market="cn",
+    )
+    assert quote == {
+        "code": "000001.SH", "name": "上证指数", "market": "cn",
+        "price": 3500.0, "change": 12.0, "change_percent": 0.34,
+        "timestamp": 42, "source": "tencent",
+    }
+    await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_index_quote_mainland_unusable_raises(monkeypatch):
+    """A8-③：腾讯无指数行情 → MarketError（不静默 unavailable）。"""
+    service = MarketDataService(http=_client())
+
+    async def empty_tencent(_codes):
+        return []
+
+    monkeypatch.setattr(service, "_quotes_tencent", empty_tencent)
+    with pytest.raises(MarketError, match="指数行情不可用"):
+        await service.index_quote("sh000001", code="000001.SH", name="上证指数", market="cn")
+    await service.aclose()
