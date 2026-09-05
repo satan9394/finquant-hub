@@ -190,7 +190,12 @@ function ResearchWorkspaceCore() {
   const [searchParams, setSearchParams] = useSearchParams();
   const agentMode: AgentMode = 'analyst';
   const currentSymbol = symbol ? decodeURIComponent(symbol).toUpperCase() : '';
-  const [query, setQuery] = useState('');
+  // Astra B6：底部/全局"继续研究"以 /research?prompt=… 进入默认研究页，此前
+  // prompt 只留在 URL 不呈现，问题丢失。此处接住：预填搜索框（原问题可见），
+  // 有 prompt 且无标的时自动搜索一次，让问题进入"已识别对象"流程而非被丢弃。
+  const urlPrompt = searchParams.get('prompt') ?? '';
+  const [query, setQuery] = useState(urlPrompt);
+  const [searchedUrlPrompt, setSearchedUrlPrompt] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Instrument[]>([]);
   const [savedWorkspaces, setSavedWorkspaces] = useState<WorkspaceType[]>([]);
@@ -242,6 +247,16 @@ function ResearchWorkspaceCore() {
       setSearching(false);
     }
   }, [query, t]);
+
+  // Astra B6：URL 携带 prompt 且无标的时自动搜索一次（原问题留在输入框可见，
+  // 结果列表让用户选择对象继续），避免提问被静默丢弃在 URL。
+  useEffect(() => {
+    if (!currentSymbol && urlPrompt.trim() && !searchedUrlPrompt) {
+      setSearchedUrlPrompt(true);
+      void runSearch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSymbol, urlPrompt]);
 
   useEffect(() => {
     if (currentSymbol) return;
