@@ -1,6 +1,6 @@
 # 审查任务书 B — GPT-6 Astra 前端 UI / 设计审查（FinQuant Hub）
 
-> 执行模型：OpenAI GPT-6 Astra（Codex 应用内选 **GPT-6 Pro / Astra**，推理档位 **Extra High / xhigh**；若需对某页做完整重设计示范可升最高档 max）
+> 执行模型：OpenAI GPT-6 Astra（Codex 应用内选 **GPT-6 Pro / Astra**，推理档位 **High**；若要完整重设计示范可临时升 xhigh/max，注意 Plus 配额消耗极快）
 > 本文件**只供会话 B（UI 审查）使用**；会话 A（架构审查）用 `ASTRA_REVIEW_TASK_A.md`。
 > 只读审查：**不 commit / 不改任何文件 / 不新增依赖 / 不删除**。完成后只贴结论文本。
 
@@ -16,7 +16,7 @@
 
 ## 1. 档位语义
 
-- `reasoning.effort` 官方五档：low / medium / high / xhigh / max（API 默认 low；深度思考须显式选高档）。本任务主选 **xhigh（Extra High）**；Astra 前端最强态在 max（发布前泄漏的零样本完整页面生成均 max），若你对某页想看"完整重做示范"可临时升 max。
+- `reasoning.effort` 官方五档：low / medium / high / xhigh / max（API 默认 low；深度思考须显式选高档）。本任务选 **high**——在 Plus 配额约束下平衡设计质量与消耗（xhigh/max 实测几分钟即耗尽日额度）；Astra 前端最强态在 max，若你对某页想看"完整重做示范"且配额允许可临时升档。
 - 只读审查，不涉及任何敏感操作。
 
 ---

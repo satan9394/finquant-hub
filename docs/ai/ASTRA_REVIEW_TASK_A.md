@@ -1,6 +1,6 @@
 # 审查任务书 A — GPT-6 Astra 架构与逻辑正确性审查（FinQuant Hub）
 
-> 执行模型：OpenAI GPT-6 Astra（Codex 应用内选 **GPT-6 Pro / Astra**，推理档位 **Extra High / xhigh**）
+> 执行模型：OpenAI GPT-6 Astra（Codex 应用内选 **GPT-6 Pro / Astra**，推理档位 **Medium**）
 > 本文件**只供会话 A（架构审查）使用**；会话 B（UI 审查）用 `ASTRA_REVIEW_TASK_B.md`。
 > 只读审查：**不 commit / 不改任何文件 / 不新增依赖 / 不删除**。完成后只贴结论文本。
 
@@ -16,7 +16,7 @@
 
 ## 1. 档位语义
 
-- `reasoning.effort` 官方五档：low / medium / high / xhigh / max（API 默认 low；深度思考须显式选高档）。本任务选 **xhigh（Extra High）**。
+- `reasoning.effort` 官方五档：low / medium / high / xhigh / max（API 默认 low；深度思考须显式选高档）。本任务选 **medium**——在 Plus 配额约束下平衡深度与消耗（xhigh/max 实测几分钟即耗尽日额度）。
 - Astra 对"利用漏洞"类请求会拒绝、敏感操作可能中途停下要你确认；本任务为只读代码/设计审查，不涉及。
 
 ---
