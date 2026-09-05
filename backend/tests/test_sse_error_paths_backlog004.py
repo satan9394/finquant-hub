@@ -195,7 +195,7 @@ async def test_swarm_pipeline_exception_fails_report_and_closes(monkeypatch):
     async def resolve(_raw, _market):
         return "usAAPL", "Apple"
 
-    async def runner(*_args):
+    async def runner(*_args, **_kwargs):
         try:
             yield "agent_started", {"role_key": "fixture"}
             raise RuntimeError("fixture swarm interrupted")
