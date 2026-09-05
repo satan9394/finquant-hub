@@ -6,6 +6,7 @@
 - GET  /api/research/{id}    → 获取单份报告详情
 - GET  /api/research/{id}/export?format=md|html|pdf|docx → 导出该版本
 """
+import asyncio
 import json
 import logging
 import re
@@ -298,26 +299,71 @@ async def start_research(body: ResearchRequest, request: Request, user: CurrentU
             }
             return
         finally:
+            # 断连安全清理（Astra A3 P1）：sse_starlette 在客户端断开时取消
+            # event_stream 协程。直接 await 清理会再次收到 CancelledError，
+            # 报告永久停留 running。分两步处理：
+            # 1) 同步清理（reset_usage_context，ContextVar 上下文敏感，须留在
+            #    原 context 且无 await，不依赖取消点）——原样执行；
+            # 2) 需要 await 的清理（生成器 aclose、状态查询、失败落库）放进
+            #    独立任务（不在 sse 的 cancel scope 内），shield 等待其完成。
+            #    外层取消只让 shield 抛 CancelledError，清理任务继续执行。
             reset_usage_context(usage_token)
-            close = getattr(research_stream, "aclose", None)
-            if close is not None:
-                try:
-                    await close()
-                except Exception:
+            cleanup_task = asyncio.get_running_loop().create_task(
+                _cleanup_stream(report_id, research_stream, completed, user_id),
+                name=f"research-sse-cleanup-{report_id}",
+            )
+            def _report_cleanup_failure(task: asyncio.Task[None]) -> None:
+                if task.cancelled():
+                    return
+                error = task.exception()
+                if error is not None:
                     LOGGER.exception(
-                        "Research SSE cleanup failed",
+                        "Research SSE background cleanup failed",
+                        exc_info=error,
                         extra={"event": "research.stream.cleanup_error", "report_id": report_id},
                     )
-            if not completed:
-                report = await database.query_one(
-                    "SELECT status FROM research_reports WHERE id=? AND user_id=?", (report_id, user_id)
-                )
-                if report and report["status"] == "running":
-                    message = "研究流在完成前中断"
-                    await _fail_report(report_id, message, user_id)
-                    await publish_research_status(report_id, "failed", message, user_id=user_id)
+
+            cleanup_task.add_done_callback(_report_cleanup_failure)
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                # shield 的 inner 不受外层取消影响：清理任务继续在后台完成，
+                # 取消则向上传播让 sse_starlette 正常收尾（不留永久 running）。
+                raise
 
     return EventSourceResponse(event_stream())
+
+
+async def _cleanup_stream(
+    report_id: int,
+    research_stream: AsyncIterator[tuple[str, dict[str, Any]]] | None,
+    completed: bool,
+    user_id: int,
+) -> None:
+    """收尾（独立任务运行，避开 sse 的 cancel scope）：关闭上游流、必要时失败落库。
+
+    作为 ensure_future 的独立 task 执行：不在 sse_starlette 的取消作用域内，
+    因此 event_stream 被断连取消后，这里的 aclose / 查询 / _fail_report 仍能
+    完成，不会留下永久 running 报告（Astra A3 P1）。
+    注意：不要在此函数内触碰 ContextVar token（usage reset 已在原 context 同步完成）。
+    """
+    close = getattr(research_stream, "aclose", None)
+    if close is not None:
+        try:
+            await close()
+        except Exception:
+            LOGGER.exception(
+                "Research SSE cleanup failed",
+                extra={"event": "research.stream.cleanup_error", "report_id": report_id},
+            )
+    if not completed:
+        report = await database.query_one(
+            "SELECT status FROM research_reports WHERE id=? AND user_id=?", (report_id, user_id)
+        )
+        if report and report["status"] == "running":
+            message = "研究流在完成前中断"
+            await _fail_report(report_id, message, user_id)
+            await publish_research_status(report_id, "failed", message, user_id=user_id)
 
 
 async def _create_report(ticker: str, company_name: str, model_id: int | None, user_id: int) -> int:
