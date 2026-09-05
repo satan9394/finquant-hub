@@ -4,6 +4,27 @@
 
 ---
 
+## [READY] BACKLOG-030: B12 重做②低风险批——顶部 MetricStrip 删除 + FinancialMetric 空值直传 + MDD 语义复核
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-030.md`
+**范围**: B12 设计（b12-design-2026-09-05.md 已审过）拆分的第 1 张顺序卡，只做 ②-C/②-E/②-D（风险最低、E2E 影响已核为零）：删 StrategyLab 顶部重复 MetricStrip（StrategyLab.tsx:706-713，保留 BacktestSummary 内全部 metric-* data-testid 与结论 Alert——4173 core-paths:186 依赖）；FinancialMetric 空值原始直传 + 真实 quality（BacktestSummary pct() 不再 pre-format，占位移入组件，空值不标 OK）；MDD 语义全站复核统一 --fq-risk。**禁止**：E2E 断言/playwright config/后端/依赖/删除/实施 ②-A/B（031）或重做①（032）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 零改动 + i18n parity 0。
+
+---
+
+## [READY] BACKLOG-031: B12 重做②布局与 IR 折叠——360px 设置栏 + 弹性结果栏 + "一句话填规则"
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-031.md`
+**范围**: B12 第 2 张卡（依赖 030 先行），执行 ②-A/②-B：StrategyLab 主区两栏 Grid（左 360px 设置 + 右弹性结果，<900px 上下排，Run 按钮常驻可见）；首屏 IR 大卡折叠为"用一句话填写规则"（不动解析逻辑与后端，解析出中文规则+待确认项）。**文案锁定**：chat-paths:351 `'策略描述中需要包含股票代码…'` 与 E2E 依赖文案不得改，只折叠 UI。自选股/市场参考现状无独立结构则不臆造。**禁止**：E2E/playwright config/后端/依赖/删除/②-C/D/E（030）与重做①（032）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 + i18n parity 0 + 三宽度走查。
+
+---
+
+## [READY] BACKLOG-032: B12 重做①连续工作面——单 ⌘K + Composer 语境化 + 空 Rail 折叠 + DecisionCard 瘦身
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-032.md`
+**范围**: B12 第 3 张卡（前端独立，可并行排期），执行重做① Step C→A→B→D（每步独立 commit）：AgentRail 默认折叠（376px 空右栏归零，真实阶段用 AgentStatusCard）；⌘K 收敛 App 层单例 + CommandBar triggerOnly（hero/header 共用一弹窗）；CommandComposer 仅研究语境追问（携带对象+原问题）；DecisionCard 卡面瘦身（provenance 平铺入抽屉，B3 主题已修）。**保留** hero task-launchpad 试用按钮（dashboard.spec 依赖）。**禁止**：E2E/playwright config/后端/依赖/删除/重做②（030/031）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 + i18n parity 0 + 三宽度走查。
+
+---
+
 ## [DONE（记录项待用户决策）] BACKLOG-029: Astra 双会话审查处置（DSH 自主执行）
 
 **优先级**: P1
