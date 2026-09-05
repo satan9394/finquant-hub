@@ -47,6 +47,9 @@ export default function EvidenceDrawer({
       width={professional ? 560 : 440}
       className="evidence-drawer"
       aria-labelledby={titleId}
+      // Astra B3：抽屉默认 portal 到 body（脱离 .app-theme--dark 主题子树），
+      // 自定义 CSS 吃到的是 :root 亮色 token，与 AntD 暗色算法混搭。挂回主题根。
+      getContainer={() => document.querySelector<HTMLElement>('.app-theme') ?? document.body}
     >
       <div className="evidence-drawer__status">
         <Tag className={`evidence-chip evidence-chip--${evidence.kind.toLowerCase()}`}>{evidence.kind}</Tag>
