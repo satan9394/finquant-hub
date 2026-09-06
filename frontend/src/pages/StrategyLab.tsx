@@ -23,7 +23,6 @@ import StrategySetup from '../components/strategy/StrategySetup';
 import BacktestSummary from '../components/strategy/BacktestSummary';
 import BacktestFailurePanel from '../components/strategy/BacktestFailurePanel';
 import ExperimentWorkbench from '../components/strategy/ExperimentWorkbench';
-import MetricStrip from '../components/MetricStrip';
 import { STRATEGY_PRESETS, type StrategyGoal, type StrategyPresetKey } from '../features/backtest/presets';
 import apiClient from '../services/api';
 import { fetchStrategySharePreview } from '../services/sharePreviewApi';
@@ -705,12 +704,6 @@ export default function StrategyLab() {
 
       {run?.status === 'completed' && run.metrics && (
         <section data-testid="backtest-completed">
-          <MetricStrip items={[
-            { key: 'cagr', label: 'CAGR', value: pct(run.metrics.annualized_return), tone: (run.metrics.annualized_return ?? 0) >= 0 ? 'up' : 'down' },
-            { key: 'sharpe', label: 'Sharpe', value: run.metrics.sharpe_ratio == null ? 'UNKNOWN' : run.metrics.sharpe_ratio.toFixed(2) },
-            { key: 'mdd', label: 'MDD', value: pct(run.metrics.max_drawdown), tone: 'down' },
-            { key: 'win-rate', label: t('strategy.result.winRate'), value: pct(run.metrics.win_rate) },
-          ]} />
           <Tabs
             className="strategy-result-tabs"
             activeKey={resultTab}

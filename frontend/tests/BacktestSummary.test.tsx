@@ -101,7 +101,9 @@ describe('BacktestSummary', () => {
       },
     }} />);
 
-    expect(screen.getByTestId('metric-recovery').textContent).toContain('—');
+    // ②-E：空值不再 pre-format 成 '—' 冒充 OK——recovery 缺失时 FinancialMetric 显示 unknown 占位（'未知'）且不带 OK 标记
+    expect(screen.getByTestId('metric-recovery').textContent).toContain('未知');
+    expect(screen.getByTestId('metric-recovery').textContent).not.toContain('—');
     expect(screen.getByText(/历史结果未包含 P1 诊断/)).toBeTruthy();
   });
 

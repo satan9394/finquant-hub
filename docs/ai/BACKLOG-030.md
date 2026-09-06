@@ -1,6 +1,6 @@
 # BACKLOG-030 — B12 重做② 低风险批：顶部 MetricStrip 删除 + FinancialMetric 空值直传 + MDD 语义复核
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：— ｜ 执行：DSH
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：2026-09-05 ｜ 执行：DSH
 > 背景：B12 设计（`docs/ai/astra-review/b12-design-2026-09-05.md`）已由任务29产出、维护者审阅通过。本卡为 B12 拆分的**第一张顺序执行卡**，只做设计中的 ②-C/②-E/②-D（风险最低、E2E 影响已核为零的三步），其余步骤在 BACKLOG-031/032。
 
 ## 目标
@@ -53,12 +53,19 @@
 - 现状：`StrategyLab.tsx:706-713`、`BacktestSummary.tsx:9/61/66-77`、`FinancialMetric.tsx:26`
 - E2E 依赖（禁改）：`frontend/e2e/core-paths.spec.ts:186`（metric-total-return `+12.00%`）、`chat-paths.spec.ts:351`（IR 文案，本卡不触及）
 
-## 完成证据模板
+## 完成证据模板（2026-09-05 DSH 填写，详情见 `docs/ai/tasks/BACKLOG-030.md`）
 
 ```
 - ②-C diff（StrategyLab 删顶部 MetricStrip）与 metric-* 保留 grep 证据
+  - StrategyLab.tsx：删除顶部 <MetricStrip items={[CAGR/Sharpe/MDD/win-rate]}/>（原 L706-713，MDD tone:'down' 即全站唯一绿 MDD）及孤立 import MetricStrip；backtest-completed section/Tabs/BacktestSummary 顺序不变。
+  - metric-* 保留：BacktestSummary.tsx metricCards（metric-total-return/benchmark/excess/max-drawdown/recovery/trade-count，L72-77）+ 折叠区 metric-annualized-return…metric-trading-cost（L33-55）+ 结论 Alert（L82）。grep 确认全部在位。
+  - 4173 core-paths strategy 用例（metric-total-return 含 +12.00%、回测结论摘要、保存实验、权益曲线 canvas）实测通过（50/50 全绿，断言零改动）。
 - ②-E diff（pct/quality/FinancialMetric 显示层）与测试同步（语义不放松说明）
+  - BacktestSummary.tsx：pct() 空值返回 null（新增 pctText 供 Statistic 兜底）；recovery 缺失传 null；qualityOf 按真实来源推导（null→UNKNOWN / flags UPSTREAM_ERROR→UPSTREAM_ERROR / flags 非空→PARTIAL / 否则 OK）；toneOf 对 null 不再标绿 down。
+  - FinancialMetric.tsx 零改动（显示层已承接 null→'未知' 占位 + quality 标记）；零新增 i18n key。
+  - BacktestSummary.test.tsx：legacy 空 metrics 断言 '—' → 改"含'未知'且不含'—'"（显示 unknown 而非假 OK）；非空 fixture 全部原样（+12.00% 等）。StrategyLab.test.tsx 无顶部条断言故零改动。
 - ②-D MDD 语义全站扫描结果
-- 全量门禁：build、Vitest x/x、4173 E2E x/x、8000 E2E x/x、backend 851（零改动确认）、i18n parity
-- git diff --check、删除 0、commit、工作树干净
+  - 全站唯一带语义色的 MDD = BacktestSummary metric-max-drawdown（tone:'risk' → --fq-risk）；其余 MDD 展示为中性文本/Statistic；--fq-price-down 其余使用均为收益/价格方向（B4 允许）。结论：无 MDD 用绿/--fq-price-down。
+- 全量门禁：build 通过（4,243 modules）、Vitest 全量 123 文件/378 测试全绿（聚焦 15/15）、4173 E2E 50/50、8000 E2E 21/21（--retries=0）、backend 851/851 覆盖率 92.52%（零后端改动）、i18n zh/en 各 2,274 key parity 0
+- git diff --check 通过、删除 0（仅 3 文件 M）、工作树仅本卡改动、未 commit（按卡要求）
 ```

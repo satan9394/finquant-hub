@@ -3,6 +3,14 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-05
+- **BACKLOG-030（DSH）——B12 重做②低风险批：删顶部 MetricStrip + FinancialMetric 空值直传 + MDD 语义复核**
+  - What changed: `frontend/src/pages/StrategyLab.tsx`（删除完成后顶部的独立 4 格 MetricStrip 及其孤立 import；`backtest-completed` section 与 Tabs/overview 内 BacktestSummary 不变）；`frontend/src/components/strategy/BacktestSummary.tsx`（`pct()` 遇 null 返回 null 原始直传并新增 `pctText()` 兜底；`recovery` 缺失传 null；新增 `qualityOf()` 按真实来源推导 quality——null→UNKNOWN、quality_flags 上游错误→UPSTREAM_ERROR、部分→PARTIAL、否则 OK；`toneOf()` 对 null 不再标绿 down）；`frontend/tests/BacktestSummary.test.tsx`（legacy 空 metrics 断言从 `'—'` 改为"显示 unknown 占位而非假 OK"，非空断言原样保留）。
+  - Why: 消除 StrategyLab 顶部与 BacktestSummary 重复的指标条（4173 core-paths:186 依赖的 `metric-total-return` 等全部保留在 BacktestSummary 内）；空值不再被 pre-format 成 `'—'` 冒充 quality="OK"；MDD 红绿语义全站唯一化为 `--fq-risk`（B12 设计 §2.2 Step C/D/E、§2.4 验收 B3/B4/B5）。
+  - Docs updated: `docs/ai/tasks/BACKLOG-030.md`（新证据文档）、`docs/ai/BACKLOG-030.md`（卡状态 [READY]→[DONE] + 完成证据模板填写）、`docs/ai/EXEC_PLAN.md`（[READY]→[DONE]）。
+  - Verification: build 通过（4,243 modules）；Vitest 全量 123 文件/378 测试全绿（聚焦 StrategyLab 10/10 + BacktestSummary 3/3 + MetricStrip 2/2）；4173 E2E 50/50、8000 E2E 21/21（`--retries=0`，断言零改动）；backend 851/851 覆盖率 92.52%（零后端改动）；i18n zh/en 各 2,274 key parity 0（零新增 key）；`git diff --check` 通过、删除 0、未 commit。
+  - Risk: low（纯前端展示层；E2E 影响已核为零；FinancialMetric 组件 API 零改动）。
+
 ## 2026-09-04
 - **Fix: BACKLOG-029 第三轮（DSH）——B2/B3/B4/B5 前端主题/尺寸类**
   - What: ⑨B2 `frontend/src/hooks/useLightweightCharts.ts` 主题切换后图表重取色（MutationObserver 监听 `.app-theme` class，变化即按新 CSS token 重绘 chart/系列，MoneyFlowChart/ChipHistoryChart 等调用方透明）。⑩B3 `frontend/src/components/EvidenceDrawer.tsx`+`EvidenceRail.tsx` Drawer `getContainer` 挂回 `.app-theme`（portal 不再脱离暗色主题子树，消除与 AntD darkAlgorithm 混搭）。⑪B4 `frontend/src/App.tsx` ConfigProvider theme.token 映射 colorPrimary/borderRadius/info/success/error/warning 到与 --fq-* 一致的值（亮暗双值，AntD 与自定义组件收敛单主色来源）。⑫B5 `frontend/src/App.tsx` siderWidth 224→240（对齐 --fq-sidebar-expanded token）与 `frontend/src/app.css` radius token 6/8/8→8/12/16（对齐 DESIGN_SYSTEM_V1 §4.3；evidence-chip 等组件规格 6px 保留）

@@ -4,10 +4,11 @@
 
 ---
 
-## [READY] BACKLOG-030: B12 重做②低风险批——顶部 MetricStrip 删除 + FinancialMetric 空值直传 + MDD 语义复核
+## [DONE] BACKLOG-030: B12 重做②低风险批——顶部 MetricStrip 删除 + FinancialMetric 空值直传 + MDD 语义复核
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-030.md`
 **范围**: B12 设计（b12-design-2026-09-05.md 已审过）拆分的第 1 张顺序卡，只做 ②-C/②-E/②-D（风险最低、E2E 影响已核为零）：删 StrategyLab 顶部重复 MetricStrip（StrategyLab.tsx:706-713，保留 BacktestSummary 内全部 metric-* data-testid 与结论 Alert——4173 core-paths:186 依赖）；FinancialMetric 空值原始直传 + 真实 quality（BacktestSummary pct() 不再 pre-format，占位移入组件，空值不标 OK）；MDD 语义全站复核统一 --fq-risk。**禁止**：E2E 断言/playwright config/后端/依赖/删除/实施 ②-A/B（031）或重做①（032）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 零改动 + i18n parity 0。
+**证据（2026-09-05）**: ②-C 删顶部 MetricStrip（StrategyLab.tsx）且 BacktestSummary 内 metric-* 与结论 Alert 全保留（grep + 4173 strategy 用例实测）；②-E `pct()` null 直传 + `qualityOf` 真实推导（UNKNOWN/UPSTREAM_ERROR/PARTIAL/OK）+ FinancialMetric 显示层承接（组件零改动），BacktestSummary.test legacy 断言改"显示未知而非假 OK"（语义不放松）；②-D 全站扫描确认唯一 MDD 语义色为 `--fq-risk`（BacktestSummary metric-max-drawdown），无 MDD 用 `--fq-price-down`/绿。门禁实测：build 4,243 modules；Vitest 全量 123 文件/378 测试全绿（首轮四任务并发下 1 例 Thesis 5s 超时与本次改动无关——Thesis 不引用任何改动文件，独占复跑全绿）；4173 E2E 50/50；8000 E2E 21/21（均 `--retries=0`、断言零改动）；backend 851/851 覆盖率 92.52%（零后端改动）；i18n zh/en 各 2,274 key parity 0（零新增 key）；`git diff --check` 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-030.md`。
 
 ---
 
