@@ -12,10 +12,11 @@
 
 ---
 
-## [READY] BACKLOG-031: B12 重做②布局与 IR 折叠——360px 设置栏 + 弹性结果栏 + "一句话填规则"
+## [DONE] BACKLOG-031: B12 重做②布局与 IR 折叠——360px 设置栏 + 弹性结果栏 + "一句话填规则"
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-031.md`
 **范围**: B12 第 2 张卡（依赖 030 先行），执行 ②-A/②-B：StrategyLab 主区两栏 Grid（左 360px 设置 + 右弹性结果，<900px 上下排，Run 按钮常驻可见）；首屏 IR 大卡折叠为"用一句话填写规则"（不动解析逻辑与后端，解析出中文规则+待确认项）。**文案锁定**：chat-paths:351 `'策略描述中需要包含股票代码…'` 与 E2E 依赖文案不得改，只折叠 UI。自选股/市场参考现状无独立结构则不臆造。**禁止**：E2E/playwright config/后端/依赖/删除/②-C/D/E（030）与重做①（032）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 + i18n parity 0 + 三宽度走查。
+**证据（2026-09-06）**: ②-B IR 大卡改 Collapse 折叠入口（默认收起，label=新 title"用一句话填写规则"+appliedTag+描述摘要，extra=填示例，展开保留 parse/apply 全流程，解析逻辑与后端零改动）；②-A `.strategy-lab-layout` grid（左 360px setup=IR+watchlist+references+StrategySetup+表单，右弹性 results=实验台/已保存/失败/进度/结果，@media<900px 单栏+栏内单列防溢出）；Run 按钮在 TaskPageHeader actions 常驻顶部未动；watchlist/references 保留原结构随表单入左栏（不臆造并入）。i18n：title 换新文案 + 新增 appliedTag/setup.pane/resultPane 4 key（zh/en 2277 parity 0）；chat.backtest.tickerRequired（chat-paths:351 依赖）原样未动。StrategyLab.test 新增 expandRuleEntry + 默认折叠断言（语义不放松）。维护者接手补完验证：build ✓；聚焦 StrategyLab 10/10；全量 Vitest 123/378 全绿；4173 E2E 50/50；8000 E2E 21/21（--retries=0）；git diff --check 通过；删除 0；backend/依赖零改动。详见 `docs/ai/tasks/BACKLOG-031.md`。
 
 ---
 

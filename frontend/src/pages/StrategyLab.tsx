@@ -464,109 +464,130 @@ export default function StrategyLab() {
         />
       )}
 
-      <Card title={t('strategy.ir.title')} className="surface-card" style={{ marginBottom: 18 }}>
-        <Paragraph type="secondary" style={{ marginTop: 0 }}>
-          {t('strategy.ir.description')}
-        </Paragraph>
-        <Input.TextArea
-          aria-label={t('strategy.ir.label')}
-          rows={4}
-          maxLength={2000}
-          value={strategyDescription}
-          placeholder={t('strategy.ir.placeholder', { example: t('strategy.ir.example') })}
-          onChange={(event) => {
-            setStrategyDescription(event.target.value);
-            setStrategyIRResponse(null);
-            setStrategyIRError('');
-            setStrategyDraft(null);
-            setStrategyDraftError('');
-          }}
-        />
-        <Space wrap style={{ marginTop: 12 }}>
-          <Button
-            type="primary"
-            loading={strategyIRLoading}
-            disabled={!strategyDescription.trim()}
-            onClick={() => void parseStrategyDescription()}
-          >
-            {t('strategy.ir.parse')}
-          </Button>
-          <Button onClick={() => {
-            setStrategyDescription(t('strategy.ir.example'));
-            setStrategyIRResponse(null);
-            setStrategyIRError('');
-            setStrategyDraft(null);
-            setStrategyDraftError('');
-          }}>
-            {t('strategy.ir.fillExample')}
-          </Button>
-        </Space>
-
-        {!strategyDescription && !strategyIRResponse && !strategyIRError && (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('strategy.ir.empty')} />
-        )}
-        {strategyIRLoading && <Alert style={{ marginTop: 12 }} type="info" showIcon message={t('strategy.ir.validating')} />}
-        {strategyIRError && (
-          <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.failed')} description={strategyIRError} />
-        )}
-        {strategyIRResponse?.status === 'invalid' && (
-          <Alert
-            style={{ marginTop: 12 }}
-            type="warning"
-            showIcon
-            message={t('strategy.ir.invalid')}
-            description={(
-              <List
-                size="small"
-                dataSource={strategyIRResponse.issues}
-                renderItem={(issue) => <List.Item>{issue.field} · {issue.message}</List.Item>}
+      <div className="strategy-lab-layout">
+        <aside className="strategy-lab-layout__setup" aria-label={t('strategy.setup.pane')}>
+      <Collapse
+        ghost
+        bordered={false}
+        className="strategy-ir-entry"
+        style={{ marginBottom: 18 }}
+        items={[{
+          key: 'ir',
+          label: (
+            <Space wrap>
+              <span className="strategy-ir-entry__title">{t('strategy.ir.title')}</span>
+              {strategyDraft ? <Tag color="green">{t('strategy.ir.appliedTag')}</Tag> : null}
+              {strategyDescription.trim() ? <Text type="secondary" ellipsis style={{ maxWidth: 360 }}>{strategyDescription}</Text> : null}
+            </Space>
+          ),
+          extra: (
+            <Button size="small" onClick={() => {
+              setStrategyDescription(t('strategy.ir.example'));
+              setStrategyIRResponse(null);
+              setStrategyIRError('');
+              setStrategyDraft(null);
+              setStrategyDraftError('');
+            }}>
+              {t('strategy.ir.fillExample')}
+            </Button>
+          ),
+          children: (
+            <div className="strategy-ir-entry__panel">
+              <Paragraph type="secondary" style={{ marginTop: 0 }}>
+                {t('strategy.ir.description')}
+              </Paragraph>
+              <Input.TextArea
+                aria-label={t('strategy.ir.label')}
+                rows={4}
+                maxLength={2000}
+                value={strategyDescription}
+                placeholder={t('strategy.ir.placeholder', { example: t('strategy.ir.example') })}
+                onChange={(event) => {
+                  setStrategyDescription(event.target.value);
+                  setStrategyIRResponse(null);
+                  setStrategyIRError('');
+                  setStrategyDraft(null);
+                  setStrategyDraftError('');
+                }}
               />
-            )}
-          />
-        )}
-        {strategyIRResponse?.status === 'valid' && (
-          <Alert
-            style={{ marginTop: 12 }}
-            type="success"
-            showIcon
-            message={t('strategy.ir.generated')}
-            description={(
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                <Descriptions size="small" column={{ xs: 1, md: 3 }}>
-                  <Descriptions.Item label={t('strategy.ir.instrument')}>{strategyIRResponse.ir.instrument.symbol}</Descriptions.Item>
-                  <Descriptions.Item label={t('strategy.ir.data')}>{t('strategy.ir.dailyClose')}</Descriptions.Item>
-                  <Descriptions.Item label={t('strategy.ir.execution')}>{t('strategy.ir.nextOpen')}</Descriptions.Item>
-                </Descriptions>
-                {strategyIRResponse.ir.conditions.map((condition) => (
-                  <Text key={condition.id}>{t(condition.id === 'entry' ? 'strategy.ir.entry' : 'strategy.ir.exit')}: {condition.explanation}</Text>
-                ))}
-                <Text type="secondary">{t('strategy.confirmExplicit', { items: strategyIRResponse.ir.requires_confirmation.join(listSeparator) })}</Text>
-                <Button loading={strategyDraftLoading} onClick={() => void applyStrategyIR()}>
-                  {t('strategy.ir.apply')}
+              <Space wrap style={{ marginTop: 12 }}>
+                <Button
+                  type="primary"
+                  loading={strategyIRLoading}
+                  disabled={!strategyDescription.trim()}
+                  onClick={() => void parseStrategyDescription()}
+                >
+                  {t('strategy.ir.parse')}
                 </Button>
               </Space>
-            )}
-          />
-        )}
-        {strategyDraftError && (
-          <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.compileFailed')} description={strategyDraftError} />
-        )}
-        {strategyDraft && (
-          <Alert
-            style={{ marginTop: 12 }}
-            type="warning"
-            showIcon
-            message={t('strategy.ir.applied')}
-            description={(
-              <Space direction="vertical" size={4}>
-                <Text>{t('strategy.ir.mapping', { symbol: strategyDraft.parameters.symbol, short: strategyDraft.parameters.short_window, long: strategyDraft.parameters.long_window })}</Text>
-                <Text>{t('strategy.ir.noLookahead')}</Text>
-                <Text type="secondary">{t('strategy.ir.review', { items: strategyDraft.requires_confirmation.join(listSeparator) })}</Text>
-              </Space>
-            )}
-          />
-        )}
-      </Card>
+              {!strategyDescription && !strategyIRResponse && !strategyIRError && (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('strategy.ir.empty')} />
+              )}
+              {strategyIRLoading && <Alert style={{ marginTop: 12 }} type="info" showIcon message={t('strategy.ir.validating')} />}
+              {strategyIRError && (
+                <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.failed')} description={strategyIRError} />
+              )}
+              {strategyIRResponse?.status === 'invalid' && (
+                <Alert
+                  style={{ marginTop: 12 }}
+                  type="warning"
+                  showIcon
+                  message={t('strategy.ir.invalid')}
+                  description={(
+                    <List
+                      size="small"
+                      dataSource={strategyIRResponse.issues}
+                      renderItem={(issue) => <List.Item>{issue.field} · {issue.message}</List.Item>}
+                    />
+                  )}
+                />
+              )}
+              {strategyIRResponse?.status === 'valid' && (
+                <Alert
+                  style={{ marginTop: 12 }}
+                  type="success"
+                  showIcon
+                  message={t('strategy.ir.generated')}
+                  description={(
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Descriptions size="small" column={{ xs: 1, md: 3 }}>
+                        <Descriptions.Item label={t('strategy.ir.instrument')}>{strategyIRResponse.ir.instrument.symbol}</Descriptions.Item>
+                        <Descriptions.Item label={t('strategy.ir.data')}>{t('strategy.ir.dailyClose')}</Descriptions.Item>
+                        <Descriptions.Item label={t('strategy.ir.execution')}>{t('strategy.ir.nextOpen')}</Descriptions.Item>
+                      </Descriptions>
+                      {strategyIRResponse.ir.conditions.map((condition) => (
+                        <Text key={condition.id}>{t(condition.id === 'entry' ? 'strategy.ir.entry' : 'strategy.ir.exit')}: {condition.explanation}</Text>
+                      ))}
+                      <Text type="secondary">{t('strategy.confirmExplicit', { items: strategyIRResponse.ir.requires_confirmation.join(listSeparator) })}</Text>
+                      <Button loading={strategyDraftLoading} onClick={() => void applyStrategyIR()}>
+                        {t('strategy.ir.apply')}
+                      </Button>
+                    </Space>
+                  )}
+                />
+              )}
+              {strategyDraftError && (
+                <Alert style={{ marginTop: 12 }} type="error" showIcon message={t('strategy.ir.compileFailed')} description={strategyDraftError} />
+              )}
+              {strategyDraft && (
+                <Alert
+                  style={{ marginTop: 12 }}
+                  type="warning"
+                  showIcon
+                  message={t('strategy.ir.applied')}
+                  description={(
+                    <Space direction="vertical" size={4}>
+                      <Text>{t('strategy.ir.mapping', { symbol: strategyDraft.parameters.symbol, short: strategyDraft.parameters.short_window, long: strategyDraft.parameters.long_window })}</Text>
+                      <Text>{t('strategy.ir.noLookahead')}</Text>
+                      <Text type="secondary">{t('strategy.ir.review', { items: strategyDraft.requires_confirmation.join(listSeparator) })}</Text>
+                    </Space>
+                  )}
+                />
+              )}
+            </div>
+          ),
+        }]}
+      />
 
       <Card
         title={t('strategy.watchlist.title')}
@@ -654,6 +675,8 @@ export default function StrategyLab() {
           }]}
         />
       </Card>
+        </aside>
+        <section className="strategy-lab-layout__results" aria-label={t('strategy.setup.resultPane')}>
 
       <ExperimentWorkbench
         values={values}
@@ -824,6 +847,8 @@ export default function StrategyLab() {
           </div>
         </section>
       )}
+        </section>
+      </div>
       <SharePreviewModal
         open={sharePreviewOpen}
         loading={sharePreviewLoading}

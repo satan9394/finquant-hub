@@ -3,6 +3,14 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-06
+- **BACKLOG-031（DSH）——B12 重做②布局与 IR 折叠：360px 设置栏 + 弹性结果栏 + "一句话填规则"**
+  - What changed: `frontend/src/pages/StrategyLab.tsx`（②-A `.strategy-lab-layout` 两栏 grid——左 360px setup 栏含 IR 入口/watchlist/references/StrategySetup/表单卡，右弹性 results 栏含实验台/已保存/失败/进度/结果；②-B IR 大卡改 Collapse 折叠入口默认收起，展开保留 parse/apply 全流程，逻辑零改动）；`frontend/src/app.css`（grid 布局 + @media<900px 单栏回退 + 栏内 .ant-col 单列防溢出 + .strategy-ir-entry 折叠观感）；`frontend/src/i18n/zh.ts`+`en.ts`（strategy.ir.title 换新文案"用一句话填写规则"、新增 appliedTag/setup.pane/resultPane 4 key 同步，parity 0）；`frontend/tests/StrategyLab.test.tsx`（expandRuleEntry helper + 默认折叠断言，语义不放松）。
+  - Why: B12 设计②-A/②-B——普通用户先看清"我测试了什么规则"再看结果；消除首屏 IR 大卡抢位与 "IR" 实现术语；设置与结果同视野（B12 设计 §2.2 Step A/B、§2.4 验收 B1/B2）。
+  - Docs updated: `docs/ai/tasks/BACKLOG-031.md`（证据文档）、`docs/ai/BACKLOG-031.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`（[READY]→[DONE]）。
+  - Verification: build ✓；聚焦 StrategyLab 10/10；全量 Vitest 123/378 全绿；4173 E2E 50/50、8000 E2E 21/21（--retries=0，断言零改动）；i18n 2277/2277 parity 0；git diff --check 通过、删除 0、backend/依赖零改动。
+  - Risk: medium（UI 结构调整；Run 按钮常驻 TaskPageHeader actions 未动、chat-paths:351 锁定文案未动；响应式经 CSS @media 与 E2E 覆盖，三宽度人工走查受限时如实记录）。
+
 ## 2026-09-05
 - **BACKLOG-030（DSH）——B12 重做②低风险批：删顶部 MetricStrip + FinancialMetric 空值直传 + MDD 语义复核**
   - What changed: `frontend/src/pages/StrategyLab.tsx`（删除完成后顶部的独立 4 格 MetricStrip 及其孤立 import；`backtest-completed` section 与 Tabs/overview 内 BacktestSummary 不变）；`frontend/src/components/strategy/BacktestSummary.tsx`（`pct()` 遇 null 返回 null 原始直传并新增 `pctText()` 兜底；`recovery` 缺失传 null；新增 `qualityOf()` 按真实来源推导 quality——null→UNKNOWN、quality_flags 上游错误→UPSTREAM_ERROR、部分→PARTIAL、否则 OK；`toneOf()` 对 null 不再标绿 down）；`frontend/tests/BacktestSummary.test.tsx`（legacy 空 metrics 断言从 `'—'` 改为"显示 unknown 占位而非假 OK"，非空断言原样保留）。

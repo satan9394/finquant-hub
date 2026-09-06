@@ -43,6 +43,12 @@ describe('StrategyLab', { timeout: 15_000 }, () => {
     } as never);
   });
 
+  // The one-sentence rule entry is collapsed by default; open it before IR interactions.
+  async function expandRuleEntry() {
+    fireEvent.click(screen.getByText('用一句话填写规则'));
+    await screen.findByLabelText('策略描述');
+  }
+
   test('offers a ranked market reference and keeps actual cost and drawdown controls in advanced settings', async () => {
     render(<MemoryRouter><StrategyLab /></MemoryRouter>);
 
@@ -202,6 +208,10 @@ describe('StrategyLab', { timeout: 15_000 }, () => {
     } } as never);
     render(<MemoryRouter><StrategyLab /></MemoryRouter>);
 
+    // The one-sentence rule entry starts collapsed so the form/results lead the page.
+    expect(screen.queryByLabelText('策略描述')).toBeNull();
+    await expandRuleEntry();
+
     expect(screen.getByText('尚未输入或解析策略描述')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('策略描述'), { target: { value: '明确的双均线策略' } });
     fireEvent.click(screen.getByRole('button', { name: '解析为有限 IR' }));
@@ -235,6 +245,7 @@ describe('StrategyLab', { timeout: 15_000 }, () => {
         requires_confirmation: ['start_date', 'initial_capital', 'commission_bps', 'benchmark'],
       } } } as never);
     render(<MemoryRouter><StrategyLab /></MemoryRouter>);
+    await expandRuleEntry();
 
     fireEvent.change(screen.getByLabelText('策略描述'), { target: { value: '明确策略' } });
     fireEvent.click(screen.getByRole('button', { name: '解析为有限 IR' }));
@@ -259,6 +270,7 @@ describe('StrategyLab', { timeout: 15_000 }, () => {
       } } as never)
       .mockRejectedValueOnce(new Error('解析服务暂时不可用'));
     render(<MemoryRouter><StrategyLab /></MemoryRouter>);
+    await expandRuleEntry();
     const input = screen.getByLabelText('策略描述');
 
     fireEvent.change(input, { target: { value: '缺少执行时点' } });

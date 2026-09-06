@@ -863,6 +863,44 @@ body { overflow-x: hidden; background: var(--fq-bg-page); }
 .discover-page > .ant-alert { margin: 0; }
 .portfolio-decision-space { margin-bottom: 16px; padding: 16px; border: 1px solid var(--fq-border); border-radius: var(--fq-radius-md); background: var(--fq-surface-1); }
 .strategy-result-tabs { margin-top: 12px; }
+.strategy-lab-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  column-gap: 18px;
+  row-gap: 18px;
+  align-items: start;
+}
+.strategy-lab-layout__setup { min-width: 0; }
+.strategy-lab-layout__results { min-width: 0; }
+/* Inside the fixed 360px setup column, collapse the form grid to single-column
+   so fields never squeeze or overflow the narrow column on desktop. */
+@media (min-width: 900px) {
+  .strategy-lab-layout__setup .ant-col {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+@media (max-width: 899.98px) {
+  .strategy-lab-layout { grid-template-columns: minmax(0, 1fr); }
+}
+.strategy-ir-entry {
+  border: 1px solid var(--fq-border);
+  border-radius: var(--fq-radius-md);
+  background: var(--fq-surface-1);
+  box-shadow: var(--fq-shadow-soft);
+}
+.strategy-ir-entry > .ant-collapse-item > .ant-collapse-header {
+  align-items: center;
+  padding: 14px 18px;
+  color: var(--fq-text-primary);
+  font-size: 15px;
+  font-weight: 650;
+}
+.strategy-ir-entry > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box { padding: 4px 18px 18px; }
+.strategy-ir-entry__title { white-space: nowrap; }
+.strategy-ir-entry .ant-collapse-header .ant-collapse-header-text { min-width: 0; flex: 1; }
+.strategy-ir-entry .ant-collapse-header .ant-collapse-header-text .ant-space { width: 100%; min-width: 0; }
+.strategy-ir-entry__panel { color: var(--fq-text-primary); }
 @media (max-width: 600px) {
   .discover-search__footer { grid-template-columns: 1fr; }
   .discover-search__footer > .ant-btn { width: 100%; }
