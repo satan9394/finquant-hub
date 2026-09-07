@@ -4,6 +4,13 @@
 
 ---
 
+## [READY] BACKLOG-035b: B9 挂载收口——LocalCapabilityBanner 接入 Dashboard 首屏 + E2E mock 同步
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-035b.md`
+**范围**: BACKLOG-035 已做组件双状态但 Banner 未挂载（仅导出+单测，用户首屏看不到）——本卡授权挂载：Dashboard stats 就绪后渲染 `<LocalCapabilityBanner capabilities onNavigate>`（stats null/加载态不渲染）；`dashboard.spec.ts` stats mock 补 capabilities 字段（**仅补字段不改既有断言**）；必要渲染断言。**禁止**：后端、e2e 除 dashboard.spec 外一切、依赖、删除、改 LocalCapabilityBanner 组件本身。门禁：build + Vitest + 4173 50 + 8000 21 + i18n parity 0。
+
+---
+
 ## [DONE] BACKLOG-035: B9 首用能力引导——LocalCapabilityBanner 双状态（model_ai + market_data）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-035.md`
