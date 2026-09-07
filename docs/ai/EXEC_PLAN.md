@@ -4,6 +4,13 @@
 
 ---
 
+## [READY] BACKLOG-035: B9 首用能力引导——LocalCapabilityBanner 双状态（model_ai + market_data）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-035.md`
+**范围**: Astra B9（部分证实）+ 维护者核实：Dashboard 已有 LocalCapabilityBanner 处理 model_ai（配置/测试引导），但忽略 capabilities.market_data（RUNTIME_CHECK_REQUIRED/UNKNOWN）。本卡扩 Banner 为双状态：model_ai 行保留 + market_data 行诚实提示（行情源待检查/不可用 + 动作）。**禁止**：后端（判定逻辑只消费不改造）、E2E/playwright config、依赖、删除、model_ai 既有文案/行为改动、"干净机器深度引导"（另行记录）。门禁：build + Vitest 全量 + 4173 50 + 8000 21 + i18n parity 0。
+
+---
+
 ## [DONE] BACKLOG-033: A6 主编降级诚实展示 + B8 文案术语收敛（Astra 遗留记录项，DSH Worker）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-033.md`
