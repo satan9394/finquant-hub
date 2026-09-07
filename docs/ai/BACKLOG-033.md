@@ -43,11 +43,30 @@
 - 现状：`report_builder.py:331`（model_output_status 已记）、`Research.tsx:66-86`（reportToMarkdown 两形态）、`BacktestSummary.tsx:30-45`（专业区英文）
 - 文案锁定：`回测结论摘要` heading、chat-paths/core-paths 依赖项（只换专业区 label，不动 E2E 依赖）
 
-## 完成证据模板
+## 完成证据模板（2026-09-06 DSH Worker 填写，详情见 `docs/ai/tasks/BACKLOG-033.md`）
+
 ```
-- report_builder diff（lead_review_status 顶层）+ 后端测试
-- Research reportToMarkdown 降级提示 diff（两形态处理）+ 测试
-- BacktestSummary 专业指标 key 化 diff + i18n parity 0
-- 全量门禁：backend/cov/ruff、build、Vitest、4173、8000
-- git diff --check、删除 0、未 commit
+- A6-1 report_builder diff（lead_review_status 顶层）+ 后端测试
+  - report_builder.py build_unified_report 返回 dict 顶层新增 "lead_review_status": "audited" if lead else "degraded"
+    （team_lead_review.model_output_status parsed/unknown 的同源映射，仅展示不改状态机语义）。
+  - 落库路径实证：research_orch._build_report → done_payload["report"] → research.py _complete_report
+    UPDATE research_reports SET report_data=?（json.dumps 全量）；scheduler.py L128-133 计划任务同路径；
+    GET /research/{id} _load_report json.loads 整体返回 → 顶层字段随报告持久化并回前端。
+    research_orch/scheduler/research router 编排零改动。
+  - test_report_builder.py：audited/parsed 与 degraded/unknown 两映射断言（+3 行），聚焦 4/4。
+- A6-2 Research reportToMarkdown 降级提示 diff（两形态处理）+ 测试
+  - reportToMarkdown 具名导出；report.lead_review_status==='degraded' 时 markdown 顶部前缀
+    **{deep.report.degradedNotice}**\n\n---\n\n（chapters 与 legacy 两形态统一 prefix+body）；
+    audited/缺省空前缀不回归；空正文 degraded 提示仍保留。
+  - 新测试 ResearchReportToMarkdown.test.tsx 4 用例（chapters/legacy degraded、audited/缺省、空正文）全绿。
+  - 状态机/通知/编排零改动（最小方案：报告查看处提示，列表/通知不改）。
+- B8 BacktestSummary 专业指标 key 化 diff + i18n parity 0
+  - professional/p1Diagnostics 硬编码 'Sharpe'/'Sortino'/'Calmar'/'Beta'/'R²'/'Tracking Error' →
+    t('strategy.metric.{sharpe,sortino,calmar,beta,rSquared,trackingError}')；label 文本换 key，metric-* testId/
+    折叠结构/Help/E2E 依赖文案（回测结论摘要、metric-total-return）零改动。
+  - 新增 6 label key + deep.report.degradedNotice 共 7 key，zh/en 各 2285 keys parity 0、重复 0。
+  - E2E/测试预核：e2e+e2e-8000 对英文 label/metric-* 0 引用；BacktestSummary.test 仅 testId/数值/Help 断言 → 零改动。
+- 全量门禁：backend 853/853 cov 92.53%（92.52→ 不降）、ruff 本卡文件全过（全量见诚实声明）、
+  build ✓、Vitest 124 files/386 tests 全绿（+4）、4173 E2E 见回传、8000 E2E 见回传、i18n parity 0
+- git diff --check 通过、删除 0、未 commit（交维护者复核合入）
 ```

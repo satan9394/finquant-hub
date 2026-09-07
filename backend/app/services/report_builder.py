@@ -362,6 +362,10 @@ def build_unified_report(
         "company_name": company_name or ticker,
         "timestamp": datetime.now().astimezone().isoformat(timespec="minutes"),
         "status": status,
+        # Astra A6 诚实展示：主编评审是否成功解析（parsed→audited / unknown→degraded）。
+        # 与 team_lead_review.model_output_status 同源（同一 lead 真值），只做展示，
+        # 不改 completed/failed 状态机语义；顶层冗余便于前端直接读取。
+        "lead_review_status": "audited" if lead else "degraded",
         "chapters": chapters,
         **chapter_map,
         "executive_summary": executive_summary,

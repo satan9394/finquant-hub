@@ -54,6 +54,8 @@ def test_unified_report_has_13_chapters_and_structured_assessments():
     )
 
     assert report["schema_version"] == 2
+    assert report["lead_review_status"] == "audited"
+    assert report["team_lead_review"]["model_output_status"] == "parsed"
     assert len(report["chapters"]) == 13
     assert [chapter["order"] for chapter in report["chapters"]] == list(range(1, 14))
     assert report["company_overview"].startswith("FACT")
@@ -73,6 +75,7 @@ def test_unified_report_has_13_chapters_and_structured_assessments():
 def test_invalid_lead_output_preserves_unknown_instead_of_inventing_scores():
     report = build_unified_report("usTEST", "", {}, lead_content="invalid")
 
+    assert report["lead_review_status"] == "degraded"
     assert report["team_lead_review"]["model_output_status"] == "unknown"
     assert report["long_term_score"]["score"] is None
     assert report["short_term_score"]["status"] == "unknown"

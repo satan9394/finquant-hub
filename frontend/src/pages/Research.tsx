@@ -63,9 +63,12 @@ type ResearchStreamData = {
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-function reportToMarkdown(report: Record<string, unknown>, t: Translate): string {
+export function reportToMarkdown(report: Record<string, unknown>, t: Translate): string {
+  const degradedPrefix = report.lead_review_status === 'degraded'
+    ? `**${t('deep.report.degradedNotice')}**\n\n---\n\n`
+    : '';
   if (Array.isArray(report.chapters)) {
-    return report.chapters
+    return degradedPrefix + report.chapters
       .filter((chapter): chapter is { title: string; content: string } => (
         typeof chapter === 'object' && chapter !== null
         && typeof (chapter as { title?: unknown }).title === 'string'
@@ -79,10 +82,11 @@ function reportToMarkdown(report: Record<string, unknown>, t: Translate): string
     [t('deep.section.financial'), 'financial_analysis'], [t('deep.section.industry'), 'industry_analysis'],
     [t('deep.section.risk'), 'risk_analysis'], [t('deep.section.technical'), 'technical_analysis'], [t('deep.section.verdict'), 'verdict'],
   ];
-  return sections
+  const body = sections
     .map(([title, key]) => report[key] ? `## ${title}\n${String(report[key])}` : '')
     .filter(Boolean)
     .join('\n\n');
+  return degradedPrefix + body;
 }
 
 function renderInlineMarkdown(text: string) {
