@@ -3,6 +3,14 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-07
+- **BACKLOG-035（DSH Worker）——B9 首用能力引导：LocalCapabilityBanner 双状态（model_ai + market_data）**
+  - What changed: `frontend/src/pages/Dashboard.tsx`（LocalCapabilityBanner 单 Alert → `workbench-capabilities` 双 Alert：model_ai 行原样保留 + market_data 行仅当 quality_status !== 'OK' 渲染 warning 诚实提示 + 动作落 /discover）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +3 key：today.capability.marketPending/marketPendingDescription/marketExplore，2285→2288 parity 0）；`frontend/src/app.css`（+`.ant-alert + .ant-alert { margin-top: 8px }` 双行分层）；`frontend/tests/Dashboard.test.tsx`（LocalCapabilityBanner +2 用例：pending 显示诚实提示+动作、OK 隐藏市场行，model_ai 断言零改动）。
+  - Why: Astra B9——Dashboard Banner 已引导 model_ai 但完全忽略 capabilities.market_data（后端恒发 RUNTIME_CHECK_REQUIRED/UNKNOWN），本地首用双击 start.bat 后若行情源异常（无网络/源挂）应看到诚实提示而非静默。
+  - Docs updated: `docs/ai/tasks/BACKLOG-035.md`（新证据）、`docs/ai/BACKLOG-035.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+  - Verification: build ✓；聚焦 Dashboard 7/7；全量 Vitest 124 files/388 tests；4173 E2E 50/50；8000 E2E 21/21（均 --retries=0）；i18n 2288/2288 parity 0；git diff --check 通过、删除 0。
+  - Risk: low（展示层组件扩展 + i18n + 单测；后端/依赖/E2E/playwright/既有文案零改动；Banner 未挂载进 Dashboard 渲染，变更只被单测直接验证，诚实声明见证据文档）。
+
 ## 2026-09-06
 - **BACKLOG-033（DSH）——A6 主编降级诚实展示 + B8 专业指标文案中文化（Astra 遗留项）**
   - What changed: `backend/app/services/report_builder.py`（build_unified_report 返回顶层 +`lead_review_status: audited|degraded`，与 team_lead_review.model_output_status 同源同真值，仅展示不改状态机语义）；`frontend/src/pages/Research.tsx`（reportToMarkdown 具名导出，`lead_review_status==='degraded'` 时 markdown 顶部前缀诚实提示，chapters/legacy 两形态统一）；`frontend/src/components/strategy/BacktestSummary.tsx`（Professional/P1 折叠区 6 硬编码英文指标 Sharpe/Sortino/Calmar/Beta/R²/Tracking Error 换 strategy.metric.* key，testId/结构/E2E 文案零改动）；i18n zh/en +7 key（deep.report.degradedNotice + 6 指标 label，2285/2285 parity 0）；新增 `frontend/tests/ResearchReportToMarkdown.test.tsx` 4 例 + `backend/tests/test_report_builder.py` 断言强化。

@@ -28,7 +28,15 @@ export function DecisionInboxPanel({ items, loading, error, onRetry, onNavigate 
 export function LocalCapabilityBanner({ capabilities, onNavigate }: { capabilities: DashboardStats['capabilities']; onNavigate: (path: string) => void }) {
   const { t } = useLanguage();
   const modelConfigured = capabilities.model_ai.status === 'CONFIGURED_UNVERIFIED';
-  return <Alert type={modelConfigured ? 'info' : 'warning'} showIcon className="workbench-capabilities" message={t(modelConfigured ? 'today.capability.configured' : 'today.capability.unconfigured')} description={<Space direction="vertical" size={4}><Text>{t('today.capability.status', { model: capabilities.model_ai.status })}</Text><Text type="secondary">{t(modelConfigured ? 'today.capability.configuredDescription' : 'today.capability.unconfiguredDescription')}</Text></Space>} action={<Button onClick={() => onNavigate(capabilities.model_ai.action_path)}>{t(modelConfigured ? 'today.capability.test' : 'today.capability.configure')}</Button>} />;
+  // market_data 可用性以 quality_status 为准：仅 OK 视为已运行时确认可用；
+  // 默认 RUNTIME_CHECK_REQUIRED / UNKNOWN 及非 OK/UNKNOWN 质量态都按"待检查/暂不可用"诚实提示。
+  // 当前契约类型只声明了 UNKNOWN 字面量；经 string 宽化后比较，未来后端放宽为 OK 等值时本行逻辑依然成立。
+  const marketDataQuality: string = capabilities.market_data.quality_status;
+  const marketReady = marketDataQuality === 'OK';
+  return <div className="workbench-capabilities">
+    <Alert type={modelConfigured ? 'info' : 'warning'} showIcon message={t(modelConfigured ? 'today.capability.configured' : 'today.capability.unconfigured')} description={<Space direction="vertical" size={4}><Text>{t('today.capability.status', { model: capabilities.model_ai.status })}</Text><Text type="secondary">{t(modelConfigured ? 'today.capability.configuredDescription' : 'today.capability.unconfiguredDescription')}</Text></Space>} action={<Button onClick={() => onNavigate(capabilities.model_ai.action_path)}>{t(modelConfigured ? 'today.capability.test' : 'today.capability.configure')}</Button>} />
+    {!marketReady ? <Alert type="warning" showIcon message={t('today.capability.marketPending')} description={<Space direction="vertical" size={4}><Text type="secondary">{t('today.capability.marketPendingDescription')}</Text></Space>} action={<Button onClick={() => onNavigate('/discover')}>{t('today.capability.marketExplore')}</Button>} /> : null}
+  </div>;
 }
 
 export function MarketSignalAvailability({ onNavigate }: { onNavigate: (path: string) => void }) {

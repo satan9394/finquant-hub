@@ -711,6 +711,7 @@ body { overflow-x: hidden; background: var(--fq-bg-page); }
 .latest-news__errors { display: block; margin-top: 10px; }
 .workbench-context-block { margin-bottom: 16px; }
 .workbench-capabilities { margin-bottom: 16px; }
+.workbench-capabilities .ant-alert + .ant-alert { margin-top: 8px; }
 .workbench-footer-actions { margin: 16px 0; padding-top: 4px; }
 .workbench-disclaimer { margin-top: 18px; color: var(--fq-text-tertiary); text-align: center; font-size: 11px; }
 @media (max-width: 820px) { .workbench-page { padding: 16px; } .workbench-brief-grid, .workbench-context-grid { grid-template-columns: 1fr; } }

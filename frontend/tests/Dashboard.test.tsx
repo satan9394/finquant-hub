@@ -87,6 +87,34 @@ describe('LocalCapabilityBanner', () => {
     expect(screen.getByText(/配置存在不等于上游可用/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '去模型管理测试' })).toBeTruthy();
   });
+
+  it('keeps the model row intact when market data is pending and adds an honest pending row', () => {
+    const navigate = vi.fn();
+    render(<LocalCapabilityBanner capabilities={capabilities} onNavigate={navigate} />);
+
+    // model_ai 行保留现状（文案/按钮/导航不变）。
+    expect(screen.getByText('本地核心已可用，AI 模型尚未配置')).toBeTruthy();
+    expect(screen.getByText(/模型：UNCONFIGURED \/ UNKNOWN/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '配置模型' }));
+    expect(navigate).toHaveBeenCalledWith('/models');
+
+    // market_data 行：RUNTIME_CHECK_REQUIRED → 诚实提示 + 动作。
+    expect(screen.getByText(/行情源状态待检查/)).toBeTruthy();
+    expect(screen.getByText(/检查网络后重试/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '去行情检索试试' }));
+    expect(navigate).toHaveBeenCalledWith('/discover');
+  });
+
+  it('hides the market-data pending row once quality_status is confirmed OK', () => {
+    render(<LocalCapabilityBanner
+      capabilities={{ ...capabilities, market_data: { status: 'RUNTIME_CHECK_REQUIRED', quality_status: 'OK' } }}
+      onNavigate={vi.fn()}
+    />);
+
+    expect(screen.getByText('本地核心已可用，AI 模型尚未配置')).toBeTruthy();
+    expect(screen.queryByText(/行情源状态待检查/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '去行情检索试试' })).toBeNull();
+  });
 });
 
 describe('MarketSignalAvailability', () => {

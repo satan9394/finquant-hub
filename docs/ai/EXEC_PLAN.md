@@ -4,10 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-035: B9 首用能力引导——LocalCapabilityBanner 双状态（model_ai + market_data）
+## [DONE] BACKLOG-035: B9 首用能力引导——LocalCapabilityBanner 双状态（model_ai + market_data）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-035.md`
 **范围**: Astra B9（部分证实）+ 维护者核实：Dashboard 已有 LocalCapabilityBanner 处理 model_ai（配置/测试引导），但忽略 capabilities.market_data（RUNTIME_CHECK_REQUIRED/UNKNOWN）。本卡扩 Banner 为双状态：model_ai 行保留 + market_data 行诚实提示（行情源待检查/不可用 + 动作）。**禁止**：后端（判定逻辑只消费不改造）、E2E/playwright config、依赖、删除、model_ai 既有文案/行为改动、"干净机器深度引导"（另行记录）。门禁：build + Vitest 全量 + 4173 50 + 8000 21 + i18n parity 0。
+
+**证据（2026-09-07，DSH Worker，代码完成待维护者复核）**: 单 Alert → `workbench-capabilities` 双 Alert：model_ai 行逐字段原样 + market_data 行（quality_status !== 'OK' 时 warning"行情源状态待检查——行情数据可能暂不可用" + 描述 + 动作落 /discover）。i18n zh/en 各 +3 key（marketPending/marketPendingDescription/marketExplore，2288 parity 0，既有 model_ai key 未动）；app.css +1 行（`.ant-alert + .ant-alert` 8px 分层）；Dashboard.test +2 用例（RUNTIME_CHECK_REQUIRED 显示诚实提示+动作、OK 隐藏市场行，model 行零回归）。门禁实测：build ✓；聚焦 Dashboard 7/7；全量 Vitest 124/388；4173 E2E 50/50；8000 E2E 21/21（均 --retries=0）；i18n parity 0；git diff --check 通过、删除 0；未 commit。诚实声明：Banner 自 8a0be88 后未挂载进 Dashboard 渲染（仅导出+单测覆盖），挂载需改 E2E mock 属禁止范围，本卡按 §允许 落成组件级。详见 `docs/ai/tasks/BACKLOG-035.md`。
 
 ---
 
