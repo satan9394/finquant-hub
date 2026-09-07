@@ -4,6 +4,20 @@
 
 ---
 
+## [READY] BACKLOG-033: A6 主编降级诚实展示 + B8 文案术语收敛（Astra 遗留记录项，DSH Worker）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-033.md`
+**范围**: Astra 遗留项 A6（主编 LLMError 后仍 completed，内部 model_output_status 已记但前端不消费→修复=报告查看处诚实提示降级，不改状态机语义）+ B8（BacktestSummary 专业区英文指标 Sharpe/Sortino/Beta/R² 换中文 key）。A6 含 report_builder 顶层加 lead_review_status + Research reportToMarkdown 顶部降级提示；B8 只换 label 不换 testId/E2E 依赖文案。**禁止**：改状态机/通知、E2E/playwright config、依赖、删除、B9/B12。门禁：backend 851+ cov、build/Vitest/4173 50/8000 21、i18n parity 0。
+
+---
+
+## [READY] BACKLOG-034: A7 重启恢复事务收口（scheduler 报告 INSERT + run 回填原子化）
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-034.md`
+**范围**: Astra A7 机制项——scheduler.py `_run_and_persist_target` report INSERT 与 run.report_id 回填原分两次 commit（崩溃留半链接），用 A2 建的 `database.exclusive_transaction()` 收口原子化 + 回归测试（异常无半链接/正常双落）。**禁止**：碰后端其他文件（recover/heartbeat 等另行记录）、前端/E2E/依赖/删除。门禁：backend pytest 851+、cov 不降、ruff、build 确认。
+
+---
+
 ## [DONE] BACKLOG-030: B12 重做②低风险批——顶部 MetricStrip 删除 + FinancialMetric 空值直传 + MDD 语义复核
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-030.md`
