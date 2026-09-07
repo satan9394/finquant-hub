@@ -26,4 +26,18 @@ describe('CommandComposer', () => {
     expect(onSubmit).toHaveBeenCalledWith('核验现金流');
     expect((input as HTMLTextAreaElement).value).toBe('');
   });
+
+  test('renders as a follow-up bar carrying the current research object', () => {
+    // BACKLOG-032 Step B：研究对象语境下的追问条——contextLabel 呈现当前对象，
+    // 提交透传原问题（去向由调用方按对象拼装，App 层导航到 /research/:symbol?prompt=）。
+    const onSubmit = vi.fn();
+    render(<LanguageProvider><CommandComposer contextLabel="600519" onSubmit={onSubmit} /></LanguageProvider>);
+    const input = screen.getByRole('textbox', { name: '就 600519 继续追问…（原问题会带进研究页）' });
+
+    expect(screen.getByText('600519')).toBeTruthy();
+    fireEvent.change(input, { target: { value: '现金流质量如何？' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', shiftKey: false });
+    expect(onSubmit).toHaveBeenCalledWith('现金流质量如何？');
+    expect((input as HTMLTextAreaElement).value).toBe('');
+  });
 });

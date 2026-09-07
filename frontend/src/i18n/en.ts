@@ -76,6 +76,7 @@ const en: Record<string, string> = {
   'agent.open': 'Open Agent Rail',
   'agent.close': 'Close Agent Rail',
   'composer.placeholder': 'Ask about the current entity, or create a research, compare, or monitor task…',
+  'composer.followupPlaceholder': 'Follow up on {object}…（your question carries into the research page）',
   'composer.submit': 'Send to research workspace',
   'discover.title': 'Discover',
   'discover.eyebrow': 'DISCOVER · EVIDENCE BOUNDED',

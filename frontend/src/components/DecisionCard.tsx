@@ -37,7 +37,6 @@ export default function DecisionCard({
       <Typography.Title level={5}>{title}</Typography.Title>
       <Typography.Paragraph>{whyNow}</Typography.Paragraph>
       {evidence.length ? <div className="decision-card__evidence">{evidence.map((item, index) => <EvidenceChip key={item.id || index} evidence={item} />)}</div> : null}
-      {evidence.map((item, index) => <Typography.Text type="secondary" className="decision-card__provenance" key={`provenance-${item.id || index}`}>{item.id || 'evidence'} · {item.source || 'UNKNOWN'} · {item.asOf || 'UNKNOWN'} · {item.quality || 'UNKNOWN'}</Typography.Text>)}
       <div className="decision-card__footer">
         <Typography.Text type="secondary">{t('decision.footer', { dueAt: dueAt || 'UNKNOWN', quality: quality || 'UNKNOWN' })}</Typography.Text>
         {actionLabel && onAction ? <Button type="primary" size="small" onClick={onAction}>{actionLabel}</Button> : null}

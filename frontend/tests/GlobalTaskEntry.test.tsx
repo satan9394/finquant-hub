@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import GlobalTaskEntry from '../src/components/GlobalTaskEntry';
+import GlobalTaskEntry, { GLOBAL_TASK_OPEN_EVENT } from '../src/components/GlobalTaskEntry';
 import { globalCommandIntent, globalTaskPath, isLikelyTicker } from '../src/features/globalTaskEntry';
 import { searchStocks } from '../src/services/stockApi';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
@@ -54,5 +54,21 @@ describe('global task entry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '分析股票' }));
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('/analysis/600519?autorun=0'));
+  }, 15_000);
+
+  it('opens from the single global event and no longer self-registers the ⌘K listener', () => {
+    // BACKLOG-032 Step A：⌘K 的注册上收到 App 层一次。这里验证——
+    // ① 组件不再自带 keydown listener：直接派发 Ctrl+K 不会打开弹窗
+    //   （App 层 listener 不在此测试作用域内，不打开即证明组件未自注册）；
+    // ② 作为唯一弹窗实例，收到 GLOBAL_TASK_OPEN_EVENT（App ⌘K / hero 触发
+    //   按钮都会 dispatch）时打开自身。
+    const onNavigate = vi.fn();
+    render(<LanguageProvider><GlobalTaskEntry onNavigate={onNavigate} /></LanguageProvider>);
+
+    fireEvent.keyDown(window, { key: 'k', code: 'KeyK', metaKey: true });
+    expect(screen.queryByRole('dialog', { name: '全局命令栏' })).toBeNull();
+
+    act(() => { window.dispatchEvent(new Event(GLOBAL_TASK_OPEN_EVENT)); });
+    expect(screen.getByRole('dialog', { name: '全局命令栏' })).toBeTruthy();
   }, 15_000);
 });

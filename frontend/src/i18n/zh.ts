@@ -76,6 +76,7 @@ const zh: Record<string, string> = {
   'agent.open': '打开 Agent Rail',
   'agent.close': '关闭 Agent Rail',
   'composer.placeholder': '询问当前对象，或创建研究、比较、监控任务…',
+  'composer.followupPlaceholder': '就 {object} 继续追问…（原问题会带进研究页）',
   'composer.submit': '发送到研究工作区',
   'discover.title': '发现',
   'discover.eyebrow': '发现 · 证据边界明确',

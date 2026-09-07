@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentModeSelector from '../src/components/AgentModeSelector';
 import AgentRun from '../src/components/AgentRun';
+import AgentStatusCard from '../src/components/AgentStatusCard';
 import CompareGrid from '../src/components/CompareGrid';
 import EntityHeader from '../src/components/EntityHeader';
 import EvidenceCard from '../src/components/EvidenceCard';
@@ -42,6 +43,21 @@ describe('Research OS components', () => {
     expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(4);
     expect((screen.getByRole('button', { name: /暂\s*停/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: '调整范围' }) as HTMLButtonElement).disabled).toBe(true);
+  }, 15_000);
+
+  it('presents real per-agent stages with AgentStatusCard in the content area', () => {
+    // BACKLOG-032 Step C：空 AgentRail 默认折叠后，有真实阶段的页面在内容区
+    // 用 AgentStatusCard 呈现（deep 模式 Research.tsx 四 Agent），信息不随 Rail
+    // 折叠丢失。此处冒烟 AgentStatusCard 承载 running 阶段/证据数/失败态。
+    wrap(<>
+      <AgentStatusCard name="估值 Agent" role="价值分析" status="running" stage="读取财报" evidenceCount={3} />
+      <AgentStatusCard name="风控 Agent" status="failed" error="上游不可用" />
+    </>);
+    expect(screen.getByText('正在核对')).toBeTruthy();
+    expect(screen.getByText('读取财报')).toBeTruthy();
+    expect(screen.getByText('3 条证据')).toBeTruthy();
+    expect(screen.getByText('失败，可继续')).toBeTruthy();
+    expect(screen.getByText('上游不可用')).toBeTruthy();
   }, 15_000);
 
   it('disables evidence actions that have no real callback or document URL', () => {

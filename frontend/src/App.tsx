@@ -29,6 +29,7 @@ import { useModelStore } from './store/modelStore';
 import ModelSelector from './components/ModelSelector';
 import NotificationCenter from './components/NotificationCenter';
 import CommandBar from './components/CommandBar';
+import GlobalTaskEntry, { GLOBAL_TASK_OPEN_EVENT } from './components/GlobalTaskEntry';
 import AgentRail from './components/AgentRail';
 import CommandComposer from './components/CommandComposer';
 import LangSwitcher from './components/LangSwitcher';
@@ -185,7 +186,11 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const [collapsed, setCollapsed] = useState(false);
-  const [agentRailOpen, setAgentRailOpen] = useState(() => typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 820px)').matches);
+  // Astra B12（BACKLOG-032 Step C）：AgentRail 四标签空态默认折叠——桌面也不再
+  // 默认展开占 376px 右栏。真实阶段由内容区呈现（deep 研究 AgentStatusCard、
+  // analyst SwarmStatusCard 等），右侧收起经 .research-os-shell--rail-closed
+  // 列宽归 0，空 Rail 不占宽。header Robot 按钮仍可手动打开。
+  const [agentRailOpen, setAgentRailOpen] = useState(false);
   const [systemHealth, setSystemHealth] = useState<SystemHealthStatus>('checking');
   const translatedNavigation = useMemo(() => buildNavigationGroups(lang), [lang]);
 
@@ -195,6 +200,21 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       .then((res) => setModels(res.data.items))
       .catch(() => {});
   }, [setModels]);
+
+  // BACKLOG-032 Step A：⌘K 注册收敛到 App 层一次（header 内是唯一常驻
+  // GlobalTaskEntry 实例）。此前 GlobalTaskEntry 每实例向 window 注册
+  // keydown，首页 header+hero 并存两份监听。现在只有这一个 listener，
+  // dispatch 全局打开事件，让唯一实例弹窗。
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        window.dispatchEvent(new Event(GLOBAL_TASK_OPEN_EVENT));
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -213,6 +233,13 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   const systemTool = isSystemToolPath(location.pathname);
   const commandContext = location.pathname.startsWith('/portfolio') ? t('nav.portfolio') : location.pathname.startsWith('/strategy-lab') ? t('nav.strategy') : location.pathname.startsWith('/analysis') || location.pathname.startsWith('/research') ? t('nav.research') : undefined;
 
+  // BACKLOG-032 Step B：底部 Composer 不再是"全局恒在"的第二提问入口，只作为
+  // 研究语境的追问条：仅在当前对象语境（/research/:symbol、/analysis/:ticker）
+  // 渲染，携带当前对象；提交把原问题导航到 /research/:symbol?prompt=…，
+  // 首页只保留 hero/header 的单一全局提问弹窗（Step A）。
+  const objectMatch = location.pathname.match(/^\/(?:research|analysis)\/([^/]+)/);
+  const followupSymbol = objectMatch && objectMatch[1] !== 'reports' ? decodeURIComponent(objectMatch[1]) : undefined;
+
   return (
     <ProLayout
       title={t('app.title')}
@@ -220,7 +247,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       layout="side"
       navTheme={isDark ? 'realDark' : 'light'}
       contentStyle={{ background: 'var(--fq-bg-page)', minHeight: 'calc(100dvh - 48px)', padding: 0 }}
-      headerContentRender={() => <CommandBar onNavigate={navigate} context={commandContext} />}
+      headerContentRender={() => <CommandBar onNavigate={navigate} context={commandContext} triggerOnly />}
       actionsRender={() => [
         <div className="app-header-actions" key="app-header-actions">
           <SystemStatusIndicator status={systemHealth} onOpen={() => navigate('/settings')} />
@@ -315,10 +342,20 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>
-      <CommandComposer onSubmit={(prompt) => navigate(`/research?prompt=${encodeURIComponent(prompt)}`)} />
+      {followupSymbol ? (
+        <CommandComposer
+          contextLabel={followupSymbol}
+          onSubmit={(prompt) => navigate(`/research/${encodeURIComponent(followupSymbol)}?prompt=${encodeURIComponent(prompt)}`)}
+        />
+      ) : null}
       </main>
       <AgentRail open={agentRailOpen} onClose={() => setAgentRailOpen(false)} />
       </div>
+      {/* BACKLOG-032 Step A：唯一全局提问弹窗宿主（hideTrigger，不自带触发按钮）。
+          实际触发入口=header CommandBar + Dashboard hero 的 triggerOnly 按钮与
+          App 层 ⌘K——三者都 dispatch GLOBAL_TASK_OPEN_EVENT，由本宿主单实例
+          弹起同一 Modal。放 ProLayout children 顶层保证任何路由都挂载。 */}
+      <GlobalTaskEntry hideTrigger onNavigate={navigate} />
     </ProLayout>
   );
 }

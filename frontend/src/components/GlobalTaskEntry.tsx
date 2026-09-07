@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Empty, Input, List, Modal, Space, Tag, Typography, message } from 'antd';
 import {
   BellOutlined, ExperimentOutlined, FileTextOutlined, FundOutlined, MessageOutlined,
@@ -15,8 +15,20 @@ import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
 
+// BACKLOG-032 Step A：全局提问弹窗收敛为单实例（header 常驻的那一个）。
+// 任何来源（⌘K 由 App 层注册、hero 触发按钮、其他入口）都 dispatch 本事件，
+// 唯一监听者是 header 内嵌的这个 GlobalTaskEntry。组件自身不再注册 ⌘K，
+// 避免"每实例一个 window keydown"在首页并存两份。
+export const GLOBAL_TASK_OPEN_EVENT = 'finquant:open-global-entry';
+
 interface GlobalTaskEntryProps {
   onNavigate: (path: string) => void;
+  /**
+   * BACKLOG-032 Step A：作为纯弹窗宿主时隐藏自带触发按钮（触发入口由
+   * header/hero 的 CommandBar triggerOnly 按钮承担，全部 dispatch 全局事件，
+   * 本宿主只响应打开）。false 时仍渲染自带 trigger（可独立使用）。
+   */
+  hideTrigger?: boolean;
 }
 
 const targetActions: Array<{ action: GlobalTaskAction; labelKey: string; icon: React.ReactNode }> = [
@@ -28,9 +40,8 @@ const targetActions: Array<{ action: GlobalTaskAction; labelKey: string; icon: R
   { action: 'alert', labelKey: 'command.alert', icon: <BellOutlined /> },
 ];
 
-export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
+export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: GlobalTaskEntryProps) {
   const { t } = useLanguage();
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -48,14 +59,12 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
   };
 
   useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        triggerRef.current?.click();
-      }
-    };
-    window.addEventListener('keydown', handleShortcut);
-    return () => window.removeEventListener('keydown', handleShortcut);
+    // ⌘K 的注册已上收到 App 层（单实例）。这里只作为"唯一弹窗实例"响应
+    // 全局打开事件：App 层 ⌘K 与 hero 触发按钮都 dispatch GLOBAL_TASK_OPEN_EVENT。
+    const openFromGlobal = () => show();
+    window.addEventListener(GLOBAL_TASK_OPEN_EVENT, openFromGlobal);
+    return () => window.removeEventListener(GLOBAL_TASK_OPEN_EVENT, openFromGlobal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const runSearch = async () => {
@@ -115,16 +124,17 @@ export default function GlobalTaskEntry({ onNavigate }: GlobalTaskEntryProps) {
 
   return (
     <>
-      <Button
-        ref={triggerRef}
-        className="global-task-entry-trigger"
-        icon={<SearchOutlined />}
-        aria-label={t('command.open')}
-        onClick={show}
-      >
-        <span className="global-task-entry-trigger__label">{t('command.placeholder')}</span>
-        <span className="global-task-entry-trigger__shortcut" aria-hidden="true">⌘K</span>
-      </Button>
+      {!hideTrigger ? (
+        <Button
+          className="global-task-entry-trigger"
+          icon={<SearchOutlined />}
+          aria-label={t('command.open')}
+          onClick={show}
+        >
+          <span className="global-task-entry-trigger__label">{t('command.placeholder')}</span>
+          <span className="global-task-entry-trigger__shortcut" aria-hidden="true">⌘K</span>
+        </Button>
+      ) : null}
       <Modal
         title={t('command.title')}
         open={open}

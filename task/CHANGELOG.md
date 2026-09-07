@@ -4,7 +4,14 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-06
-- **BACKLOG-031（DSH）——B12 重做②布局与 IR 折叠：360px 设置栏 + 弹性结果栏 + "一句话填规则"**
+- **BACKLOG-032（DSH）——B12 重做① 首页→研究连续工作面：单 ⌘K + Composer 语境化 + 空 Rail 折叠 + DecisionCard 瘦身**
+  - What changed: `frontend/src/App.tsx`（agentRailOpen 初始 false 默认折叠；⌘K 注册收敛 AppLayout 一次 dispatch `GLOBAL_TASK_OPEN_EVENT`；header CommandBar triggerOnly；ProLayout children 顶层唯一 `GlobalTaskEntry hideTrigger` 弹窗宿主；全局底部 CommandComposer 移除，改仅 /research/:symbol、/analysis/:ticker 渲染追问条并携带对象提交 /research/:symbol?prompt=）；`components/GlobalTaskEntry.tsx`（移除组件内 ⌘K 自注册、新增导出 GLOBAL_TASK_OPEN_EVENT + hideTrigger 纯宿主模式）；`components/CommandBar.tsx`（新增 triggerOnly 变体 dispatch 全局事件）；`components/CommandComposer.tsx`（新增 contextLabel 追问条形态）；`components/DecisionCard.tsx`（删卡面平铺 provenance 行，证据 chip 点击进既有 EvidenceDrawer）；`pages/Dashboard.tsx`（hero CommandBar triggerOnly）；`app.css`（删 .decision-card__provenance 死规则、新增 .command-composer__box/__context 观感）；`i18n/zh.ts`+`en.ts`（+composer.followupPlaceholder，2278 parity 0）；tests（CommandBar/GlobalTaskEntry/CommandComposer/Dashboard/ResearchOSComponents 同步语义不放松）。
+  - Why: B12 设计重做①（§1.2 Step A-D、§1.4 验收 A1-A6、§5 风险表）——消除"提问入口分散、首页双 ⌘K 监听并存、空右栏占宽、卡面平铺证据、全局底部 Composer 无去向"的产品割裂；首页→研究连成单工作面。
+  - Docs updated: `docs/ai/tasks/BACKLOG-032.md`（新建证据）、`docs/ai/BACKLOG-032.md`（完成证据模板）、`docs/ai/EXEC_PLAN.md`（证据摘要）。
+  - Verification: build ✓；聚焦 C 11/11、A 6/6、B 3/3、D 10/10（迁移后 10 files/32 tests）；全量 Vitest 123 files/382 tests（×2 全绿）；4173 E2E 50/50（×2）；8000 E2E 21/21（--retries=0，首轮 5 fail 定位修复后 ticker-input 6/6 + 全量绿）；i18n 2278/2278 parity 0；git diff --check 通过、删除 0、backend/依赖/playwright config/E2E 零改动。
+  - Risk: medium（提问入口收敛改动全局 shell；⌘K/弹窗宿主经 GlobalTaskEntry.test + 8000 ticker-input 真实入口验证；三宽度人工走查受截图策略限制时如实记录）。
+
+
   - What changed: `frontend/src/pages/StrategyLab.tsx`（②-A `.strategy-lab-layout` 两栏 grid——左 360px setup 栏含 IR 入口/watchlist/references/StrategySetup/表单卡，右弹性 results 栏含实验台/已保存/失败/进度/结果；②-B IR 大卡改 Collapse 折叠入口默认收起，展开保留 parse/apply 全流程，逻辑零改动）；`frontend/src/app.css`（grid 布局 + @media<900px 单栏回退 + 栏内 .ant-col 单列防溢出 + .strategy-ir-entry 折叠观感）；`frontend/src/i18n/zh.ts`+`en.ts`（strategy.ir.title 换新文案"用一句话填写规则"、新增 appliedTag/setup.pane/resultPane 4 key 同步，parity 0）；`frontend/tests/StrategyLab.test.tsx`（expandRuleEntry helper + 默认折叠断言，语义不放松）。
   - Why: B12 设计②-A/②-B——普通用户先看清"我测试了什么规则"再看结果；消除首屏 IR 大卡抢位与 "IR" 实现术语；设置与结果同视野（B12 设计 §2.2 Step A/B、§2.4 验收 B1/B2）。
   - Docs updated: `docs/ai/tasks/BACKLOG-031.md`（证据文档）、`docs/ai/BACKLOG-031.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`（[READY]→[DONE]）。

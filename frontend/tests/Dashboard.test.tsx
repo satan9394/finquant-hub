@@ -39,13 +39,17 @@ describe('DecisionInboxPanel', () => {
     expect(screen.getByText('今天没有需要复核的用户对象变化')).toBeTruthy();
   });
 
-  it('shows why-now, provenance, quality, and a keyboard-native next action', () => {
+  it('shows why-now and routes evidence detail through the chip-opened drawer', () => {
     const navigate = vi.fn();
     render(<DecisionInboxPanel items={[item]} loading={false} error="" onRetry={vi.fn()} onNavigate={navigate} />);
 
     expect(screen.getByText('价格越过已保存阈值')).toBeTruthy();
     expect(screen.getByText('OK')).toBeTruthy();
-    expect(screen.getByText(/ev_price_current · fixture.market · 2026-08-12 · OK/)).toBeTruthy();
+    // BACKLOG-032 Step D：卡面不再平铺逐条 provenance（id/source/asOf/quality）；
+    // 证据细节移入既有 EvidenceDrawer——点证据 chip 打开抽屉并展示同一信息。
+    expect(screen.queryByText(/ev_price_current · fixture\.market · 2026-08-12 · OK/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /FACT，点击查看证据/ }));
+    expect(screen.getByText(/fixture\.market/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '复核论文与证据' }));
     expect(navigate).toHaveBeenCalledWith('/thesis?id=7');
   });

@@ -142,6 +142,26 @@ body { overflow-x: hidden; background: var(--fq-bg-page); }
   background: color-mix(in srgb, var(--fq-surface-1) 94%, transparent);
   backdrop-filter: blur(12px);
 }
+.command-composer__box {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.command-composer__context {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 1px 9px;
+  color: var(--fq-ai-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--fq-ai-primary) 35%, var(--fq-border));
+  border-radius: 999px;
+  background: var(--fq-bg-subtle);
+}
 .command-composer textarea { resize: none !important; }
 
 .global-task-entry-trigger {
@@ -742,7 +762,6 @@ body { overflow-x: hidden; background: var(--fq-bg-page); }
 .decision-card h5 { margin: 10px 0 5px; }
 .decision-card p { margin-bottom: 8px; }
 .decision-card__footer { padding-top: 10px; font-size: 12px; border-top: 1px solid var(--fq-border); }
-.decision-card__provenance { display: block; margin-top: 4px; font-size: 12px; }
 
 .financial-metric { min-width: 0; padding: 13px 14px; border: 1px solid var(--fq-border); border-radius: var(--fq-radius-sm); background: var(--fq-surface-1); }
 .financial-metric__label, .financial-metric__quality { display: block; color: var(--fq-text-secondary); font-size: 12px; }

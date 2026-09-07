@@ -1,7 +1,8 @@
 # BACKLOG-032 — B12 重做① 首页→研究连续工作面：单 ⌘K + Composer 语境化 + 空 Rail 折叠 + DecisionCard 瘦身
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：— ｜ 执行：DSH
+> 状态：`[READY]`（代码完成待维护者复核合入，2026-09-06）｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：— ｜ 执行：DSH
 > 背景：B12 设计（`docs/ai/astra-review/b12-design-2026-09-05.md`）已审阅通过。本卡为 B12 拆分第三张，执行设计重做① Step C→A→B→D（建议序）。不依赖 030/031 完成即可独立执行（同为前端独立改动；若同批执行注意提交隔离）。
+> 证据：`docs/ai/tasks/BACKLOG-032.md`（完整改动清单/⌘K 单实例/AgentStatusCard 接线/DecisionCard 瘦身/门禁结果）
 
 ## 目标（按建议顺序，每步独立 commit）
 
@@ -57,10 +58,18 @@
 
 ## 完成证据模板
 ```
-- 四步各自 diff 与独立 commit（C→A→B→D）
-- ⌘K 单实例验证（首页/header）、hero 触发同一弹窗
-- 空 Rail 不占宽、AgentStatusCard 接线证据
-- DecisionCard 瘦身 + chip→抽屉；dashboard.spec 复跑结果
-- 全量门禁：build、Vitest x/x、4173 x/x、8000 x/x、backend 851、i18n parity
-- git diff --check、删除 0、工作树干净
+- 四步各自改动清单与 diff 摘要 → 见 docs/ai/tasks/BACKLOG-032.md（C→A→B→D 逐项）
+- ⌘K 单实例验证（首页/header）、hero 触发同一弹窗 → Step A：App.tsx 唯一 keydown listener dispatch
+  GLOBAL_TASK_OPEN_EVENT；唯一 hideTrigger GlobalTaskEntry 宿主（ProLayout children 顶层）弹起同一 Modal；
+  header/hero CommandBar 均 triggerOnly dispatch；GlobalTaskEntry.test/CommandBar.test 新用例实证；
+  8000 ticker-input 6/6 真实入口验证
+- 空 Rail 不占宽、AgentStatusCard 接线证据 → Step C：agentRailOpen 初始 false +
+  .research-os-shell--rail-closed 列宽 0；deep 模式 Research.tsx×4 AgentStatusCard + analyst SwarmStatusCard
+  呈现真实阶段；ResearchOSComponents.test 新增 AgentStatusCard 冒烟
+- DecisionCard 瘦身 + chip→抽屉；dashboard.spec 复跑结果 → Step D：删平铺 provenance 行（DecisionCard.tsx L40）
+  与 .decision-card__provenance 死 CSS；EvidenceChip 自带 EvidenceDrawer（B3 主题已修，复用回归核对）；
+  Dashboard.test 同步为点 chip 断言抽屉（语义不放松）；dashboard.spec 复跑 50/50 全绿
+- 全量门禁：build 通过、Vitest 123 files/382 tests 全绿、4173 E2E 50/50（×2）、8000 E2E 21/21、
+  backend 851 不受影响（零后端改动）、i18n parity 0（zh/en 2278/2278 差集 0 重复 0）
+- git diff --check 通过、删除 0、工作树 14 修改文件全在允许范围、未 commit（交维护者复核分步合入）
 ```

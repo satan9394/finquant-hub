@@ -24,6 +24,7 @@
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-032.md`
 **范围**: B12 第 3 张卡（前端独立，可并行排期），执行重做① Step C→A→B→D（每步独立 commit）：AgentRail 默认折叠（376px 空右栏归零，真实阶段用 AgentStatusCard）；⌘K 收敛 App 层单例 + CommandBar triggerOnly（hero/header 共用一弹窗）；CommandComposer 仅研究语境追问（携带对象+原问题）；DecisionCard 卡面瘦身（provenance 平铺入抽屉，B3 主题已修）。**保留** hero task-launchpad 试用按钮（dashboard.spec 依赖）。**禁止**：E2E/playwright config/后端/依赖/删除/重做②（030/031）。门禁：build + Vitest + 4173 50 + 8000 21 + backend 851 + i18n parity 0 + 三宽度走查。
+**证据（2026-09-06，代码完成待维护者复核）**: Step C agentRailOpen 初始 false（桌面默认折叠，rail-closed 列宽 0 不占宽；deep 模式 Research.tsx×4 AgentStatusCard + analyst SwarmStatusCard 呈现真实阶段）；Step A ⌘K 注册收敛 App 层一次（dispatch GLOBAL_TASK_OPEN_EVENT）+ CommandBar triggerOnly（header/hero 均为纯触发）+ 唯一 hideTrigger GlobalTaskEntry 宿主（ProLayout children 顶层，任何路由挂载）——全站单弹窗单实例；Step B 全局底部 Composer 移除，仅 /research/:symbol、/analysis/:ticker 渲染追问条（携带当前对象，提交 → /research/:symbol?prompt= 原问题保留）；Step D DecisionCard 删平铺 provenance 行与死 CSS，证据 chip 点击进既有 EvidenceDrawer（B3 主题已修回归核对），Dashboard.test 同步为点 chip 断言抽屉（语义不放松）。i18n +composer.followupPlaceholder（zh/en 2278 parity 0）。门禁：build ✓；聚焦 C 11/11、A 6/6、B 3/3、D 10/10、迁移后 10 files/32 tests；全量 Vitest 123/382（×2 全绿）；4173 E2E 50/50（×2）；8000 E2E 21/21（--retries=0；首轮 5 fail 为 hero triggerOnly aria + 宿主挂载问题，修复后 ticker-input 6/6 + 全量 21/21）；backend 851 零改动；git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-032.md`。
 
 ---
 
