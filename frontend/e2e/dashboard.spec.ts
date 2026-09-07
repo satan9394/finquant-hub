@@ -24,6 +24,18 @@ async function mockDashboardApi(page: Page) {
         message_count: 5,
         recent_conversations: [],
         recent_rooms: [],
+        // BACKLOG-035b：与后端 dashboard/stats capabilities 契约（local-capabilities/v1）
+        // 及 frontend types/index.ts DashboardStats.capabilities 一致——仅补字段，不改既有断言。
+        capabilities: {
+          contract_version: 'local-capabilities/v1',
+          runtime_mode: 'LOCAL_ONLY',
+          local_core: { status: 'AVAILABLE', quality_status: 'OK' },
+          model_ai: {
+            status: 'UNCONFIGURED', quality_status: 'UNKNOWN',
+            credential_source: 'none', model_id: 1, action_path: '/models',
+          },
+          market_data: { status: 'RUNTIME_CHECK_REQUIRED', quality_status: 'UNKNOWN' },
+        },
       },
       '/api/dashboard/decision-inbox': {
         engine_version: 'decision-inbox/v1',

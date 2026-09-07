@@ -4,10 +4,12 @@
 
 ---
 
-## [READY] BACKLOG-035b: B9 挂载收口——LocalCapabilityBanner 接入 Dashboard 首屏 + E2E mock 同步
+## [DONE] BACKLOG-035b: B9 挂载收口——LocalCapabilityBanner 接入 Dashboard 首屏 + E2E mock 同步
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-035b.md`
 **范围**: BACKLOG-035 已做组件双状态但 Banner 未挂载（仅导出+单测，用户首屏看不到）——本卡授权挂载：Dashboard stats 就绪后渲染 `<LocalCapabilityBanner capabilities onNavigate>`（stats null/加载态不渲染）；`dashboard.spec.ts` stats mock 补 capabilities 字段（**仅补字段不改既有断言**）；必要渲染断言。**禁止**：后端、e2e 除 dashboard.spec 外一切、依赖、删除、改 LocalCapabilityBanner 组件本身。门禁：build + Vitest + 4173 50 + 8000 21 + i18n parity 0。
+
+**证据（2026-09-07，DSH Worker，代码完成待维护者复核）**: hero 后决策区前挂载 `{stats?.capabilities ? <LocalCapabilityBanner capabilities={stats.capabilities} onNavigate={navigate} /> : null}`（stats 非 null 才渲染、null/加载态整块不渲染不闪 banner；组件本身零改动仅接线）；`dashboard.spec.ts` stats mock 补 capabilities（model_ai UNCONFIGURED + market_data RUNTIME_CHECK_REQUIRED/UNKNOWN，与后端契约 & types/index.ts:351-362 一致，仅加字段既有断言零改动）；Dashboard.test 新增整页渲染 describe +3（含 capabilities → Banner 全可见；stats 悬挂 → 不渲染；quality OK → 市场行隐藏 model 行保留）。门禁实测：build ✓；聚焦 Dashboard 10/10；全量 Vitest 124 files/391 tests（388+3）；4173 E2E 50/50；8000 E2E 21/21（均 --retries=0）；i18n 0 新增 parity 2288/2288；git diff --check 通过、删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-035b.md`。
 
 ---
 

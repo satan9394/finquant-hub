@@ -81,6 +81,8 @@ export default function Dashboard() {
   return <main className="workbench-page">
     <Title level={4} className="workbench-page__title">{t('today.title')}</Title>
     <section className="dashboard-hero" aria-labelledby="dashboard-hero-title"><Text className="dashboard-hero__eyebrow">{t('today.eyebrow')}</Text><Title id="dashboard-hero-title" level={2}>{t('today.hero')}</Title><Text className="dashboard-hero__subtitle">{t('today.heroDescription')}</Text><CommandBar onNavigate={navigate} variant="hero" triggerOnly /></section>
+    {/* BACKLOG-035b：stats 就绪（非 null）后首屏渲染 LocalCapabilityBanner 能力引导；null/加载态不渲染、不闪 banner。 */}
+    {stats?.capabilities ? <LocalCapabilityBanner capabilities={stats.capabilities} onNavigate={navigate} /> : null}
     <TodayNeedAttention attention={attentionCount} running={runningRooms} changes={majorChangeCount} events="UNKNOWN">
       <DecisionInboxPanel items={decisionItems} loading={decisionLoading} error={decisionError} onRetry={() => void loadDecisionInbox()} onNavigate={navigate} />
     </TodayNeedAttention>

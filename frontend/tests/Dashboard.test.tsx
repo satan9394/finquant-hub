@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
+import Dashboard, {
   DecisionInboxPanel, LocalCapabilityBanner, MarketSignalAvailability, type DecisionInboxItem,
 } from '../src/pages/Dashboard';
+import apiClient from '../src/services/api';
 import type { DashboardStats } from '../src/types';
+
+vi.mock('../src/services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
 
 const item: DecisionInboxItem = {
@@ -127,5 +131,98 @@ describe('MarketSignalAvailability', () => {
     expect(screen.getByText(/UNKNOWN 不代表近期没有信号/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '分析示例 600519' }));
     expect(navigate).toHaveBeenCalledWith('/analysis/600519');
+  });
+});
+
+// ==================== BACKLOG-035b：Dashboard 首屏挂载 LocalCapabilityBanner ====================
+
+const statsFixture: DashboardStats = {
+  model_count: 1,
+  conversation_count: 1,
+  discussion_count: 1,
+  message_count: 1,
+  default_model: null,
+  recent_conversations: [],
+  recent_rooms: [],
+  capabilities,
+};
+
+const pulseFixture = {
+  as_of: '2026-08-08T10:30:00+08:00', market: 'cn', scope: 'public_market_dimensions',
+  status: 'ok', sources: ['eastmoney'],
+  sections: {
+    breadth: { status: 'ok', advancers: 10, decliners: 5, unchanged: 2 },
+    movers: { status: 'ok', gainers: [], decliners: [] },
+    industry: { status: 'ok', items: [] },
+    concept: { status: 'ok', items: [] },
+    sector_flow: { status: 'ok', items: [] },
+    stock_flow: { status: 'ok', items: [] },
+    weekly: { status: 'ok', items: [] },
+    popular: { status: 'ok', items: [] },
+  },
+};
+
+function mockDashboardApis(statsImpl: () => Promise<{ data: DashboardStats }>) {
+  vi.mocked(apiClient.get).mockImplementation((url) => {
+    if (String(url) === '/dashboard/stats') return statsImpl() as never;
+    if (String(url) === '/dashboard/decision-inbox') return Promise.resolve({ data: { items: [] } }) as never;
+    if (String(url) === '/dashboard/news') {
+      return Promise.resolve({ data: {
+        queried_at: '2026-08-08T10:30:00Z', as_of: '2026-08-08T10:30:00Z',
+        providers_attempted: [], providers_used: [], errors: {}, data_status: 'OK', news: [],
+      } }) as never;
+    }
+    if (String(url) === '/market/pulse') return Promise.resolve({ data: pulseFixture }) as never;
+    return Promise.resolve({ data: {} }) as never;
+  });
+}
+
+describe('Dashboard page mount of LocalCapabilityBanner (BACKLOG-035b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('keeps the banner hidden while stats are loading (stats null → no flash)', async () => {
+    mockDashboardApis(() => new Promise(() => {}) as never);
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    // 等其它数据源落定后再断言：stats 未返回时 Banner 整块不渲染。
+    expect(await screen.findByText('今天没有需要复核的用户对象变化')).toBeTruthy();
+    expect(screen.queryByText('本地核心已可用，AI 模型尚未配置')).toBeNull();
+    expect(screen.queryByText(/行情源状态待检查/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '配置模型' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '去行情检索试试' })).toBeNull();
+  });
+
+  it('renders the LocalCapabilityBanner on first paint once stats resolve with capabilities', async () => {
+    mockDashboardApis(() => Promise.resolve({ data: statsFixture }));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    // stats 就绪 → 首屏渲染 Banner：model_ai 行（未配置）+ market_data 行（UNKNOWN 诚实提示）。
+    expect(await screen.findByText('本地核心已可用，AI 模型尚未配置')).toBeTruthy();
+    expect(screen.getByText(/模型：UNCONFIGURED \/ UNKNOWN/)).toBeTruthy();
+    expect(screen.getByText(/行情源状态待检查/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '配置模型' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '去行情检索试试' })).toBeTruthy();
+  });
+
+  it('hides the market-data pending row at page level once quality_status is OK', async () => {
+    mockDashboardApis(() => Promise.resolve({
+      data: {
+        ...statsFixture,
+        capabilities: {
+          ...capabilities,
+          market_data: { status: 'RUNTIME_CHECK_REQUIRED', quality_status: 'OK' },
+        },
+      },
+    }));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    expect(await screen.findByText('本地核心已可用，AI 模型尚未配置')).toBeTruthy();
+    expect(screen.queryByText(/行情源状态待检查/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '去行情检索试试' })).toBeNull();
+    // model_ai 行动作仍可用。
+    expect(screen.getByRole('button', { name: '配置模型' })).toBeTruthy();
   });
 });

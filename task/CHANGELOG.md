@@ -4,6 +4,13 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-07
+- **BACKLOG-035b（DSH Worker）——B9 挂载收口：LocalCapabilityBanner 接入 Dashboard 首屏 + E2E mock 同步**
+  - What changed: `frontend/src/pages/Dashboard.tsx`（hero 后决策区前挂载 `{stats?.capabilities ? <LocalCapabilityBanner capabilities={stats.capabilities} onNavigate={navigate} /> : null}`——stats 就绪非 null 才首屏渲染、null/加载态不渲染不闪 banner；组件本身零改动，仅接线）；`frontend/e2e/dashboard.spec.ts`（`/api/dashboard/stats` mock 补 `capabilities` 字段：model_ai UNCONFIGURED + market_data RUNTIME_CHECK_REQUIRED/UNKNOWN，与后端契约 & types/index.ts:351-362 一致——仅加字段、既有断言零改动）；`frontend/tests/Dashboard.test.tsx`（新增整页渲染 describe +3：stats 含 capabilities → Banner 全可见；stats 悬挂 → 不渲染；market_data quality OK → 市场行隐藏 model 行保留）。
+  - Why: BACKLOG-035 已把 Banner 扩展为 model_ai + market_data 双状态，但自 8a0be88 重构后从未挂载进 Dashboard 渲染区（仅导出+单测覆盖），用户首屏看不到 B9 首用引导——本卡授权挂载 + E2E mock 同步（测试夹具更新，非放宽断言）。
+  - Docs updated: `docs/ai/tasks/BACKLOG-035b.md`（新证据）、`docs/ai/BACKLOG-035b.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+  - Verification: build ✓；聚焦 Dashboard 10/10（7 既有 + 3 新增渲染级）；全量 Vitest 124 files/391 tests（388+3）；4173 E2E 50/50；8000 E2E 21/21（均 --retries=0）；i18n 0 新增 parity 2288/2288；git diff --check 通过、删除 0。
+  - Risk: low（展示层接线 + mock 补字段 + 渲染断言；后端/e2e 除 dashboard.spec 外/依赖/LocalCapabilityBanner 组件/i18n 零改动）。
+
 - **BACKLOG-035（DSH Worker）——B9 首用能力引导：LocalCapabilityBanner 双状态（model_ai + market_data）**
   - What changed: `frontend/src/pages/Dashboard.tsx`（LocalCapabilityBanner 单 Alert → `workbench-capabilities` 双 Alert：model_ai 行原样保留 + market_data 行仅当 quality_status !== 'OK' 渲染 warning 诚实提示 + 动作落 /discover）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +3 key：today.capability.marketPending/marketPendingDescription/marketExplore，2285→2288 parity 0）；`frontend/src/app.css`（+`.ant-alert + .ant-alert { margin-top: 8px }` 双行分层）；`frontend/tests/Dashboard.test.tsx`（LocalCapabilityBanner +2 用例：pending 显示诚实提示+动作、OK 隐藏市场行，model_ai 断言零改动）。
   - Why: Astra B9——Dashboard Banner 已引导 model_ai 但完全忽略 capabilities.market_data（后端恒发 RUNTIME_CHECK_REQUIRED/UNKNOWN），本地首用双击 start.bat 后若行情源异常（无网络/源挂）应看到诚实提示而非静默。
