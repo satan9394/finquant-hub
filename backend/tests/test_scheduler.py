@@ -165,3 +165,74 @@ async def test_scheduled_cycle_runs_research_even_when_alert_scan_fails(monkeypa
     assert calls[0][1] is market
     assert calls[1] == ("market_review", market, 1)
     assert calls[2] == ("research",)
+
+
+async def _insert_scheduled_job_and_run() -> tuple[int, int]:
+    """插一条 scheduled job + running run（A7 原子性回归用最小列）。"""
+    job_id = await database.execute(
+        "INSERT INTO scheduled_research_jobs (name, ticker, company_name, cron_expr, user_id) "
+        "VALUES ('job', 'usAAPL', 'Apple Inc.', '0 18 * * *', 1)"
+    )
+    run_id = await database.execute(
+        "INSERT INTO scheduled_research_runs (user_id, job_id, run_key, attempt, status, started_at) "
+        "VALUES (1, ?, ?, 1, 'running', '2026-09-06 10:00:00')",
+        (job_id, "a" * 64),
+    )
+    return int(job_id), int(run_id)
+
+
+@pytest.mark.asyncio
+async def test_scheduled_run_report_insert_and_backfill_rollback_together(monkeypatch):
+    """A7：report INSERT 与 run.report_id 回填之间抛异常 → 两写都回滚（无半链接）。
+
+    BACKLOG-034：此前两写各自隐式提交，回填失败会留下"报告存在但 run 无
+    report_id"的不完整记录；包进 exclusive_transaction 后异常统一回滚。
+    """
+    _, run_id = await _insert_scheduled_job_and_run()
+    real_execute = database.execute
+    calls = {"n": 0}
+
+    async def failing_execute(sql, params=()):
+        calls["n"] += 1
+        if calls["n"] == 2:  # 第二次 execute = run.report_id 回填 → 模拟两写之间崩溃
+            raise RuntimeError("crash between report insert and backfill")
+        return await real_execute(sql, params)
+
+    monkeypatch.setattr(database, "execute", failing_execute)
+
+    with pytest.raises(RuntimeError, match="crash between report insert and backfill"):
+        await scheduler._run_and_persist_target(
+            "usAAPL", "Apple Inc.", 1, scheduled_run_id=run_id,
+        )
+
+    assert await database.query_one("SELECT COUNT(*) AS n FROM research_reports") == {"n": 0}
+    run = await database.query_one(
+        "SELECT report_id FROM scheduled_research_runs WHERE id=? AND user_id=?", (run_id, 1)
+    )
+    assert run["report_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_scheduled_run_report_insert_and_backfill_commit_together(monkeypatch):
+    """A7：正常路径 → 报告与 run.report_id 在同一事务统一提交、同步落盘。"""
+    _, run_id = await _insert_scheduled_job_and_run()
+
+    async def fake_research(ticker, company_name, model_id=None, *, user_id):
+        yield "agent_started", {}
+        yield "done", {"ticker": ticker}
+
+    monkeypatch.setattr(scheduler, "run_research", fake_research)
+
+    report_id = await scheduler._run_and_persist_target(
+        "usAAPL", "Apple Inc.", 1, scheduled_run_id=run_id,
+    )
+
+    report = await database.query_one(
+        "SELECT id, status FROM research_reports WHERE id=?", (report_id,)
+    )
+    assert report["status"] == "completed"
+    run = await database.query_one(
+        "SELECT report_id, evidence_status FROM scheduled_research_runs WHERE id=? AND user_id=?",
+        (run_id, 1),
+    )
+    assert run["report_id"] == report_id

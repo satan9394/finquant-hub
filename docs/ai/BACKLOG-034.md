@@ -1,6 +1,6 @@
 # BACKLOG-034 — A7 重启恢复事务收口：scheduler 报告 INSERT + run 回填合并 exclusive_transaction
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-06 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-06 ｜ 完成：2026-09-06 ｜ 执行：DSH Worker（e2de7f57）+ 维护者接手补完验证
 > 背景：Astra A7 断言（机制已证实、无受损实例）+ BACKLOG-029 核验表记录项。`scheduler.py` `_run_and_persist_target` 中 report INSERT（L97-105，`database.execute` 独立隐式提交）与 `UPDATE scheduled_research_runs SET report_id=…`（L105-106，又一次提交）**分两次 commit**——两写之间进程崩溃/取消会留下"报告存在但 run 无 report_id 反向链接"的不完整记录。BACKLOG-029 A2 已建 `database.exclusive_transaction()`（统一 BEGIN IMMEDIATE → 事务内 execute 不隐式提交 → 成功统一 commit/异常统一 rollback），本卡把该基建用于此处收口。
 
 ## 目标

@@ -27,6 +27,24 @@ from .research_jobs import (
 
 LOGGER = logging.getLogger(__name__)
 
+# 串行化 scheduler 发起的全部数据库写（report INSERT+run 回填事务段及其余 execute），
+# A7/BACKLOG-034。单 aiosqlite 连接下 exclusive_transaction 的 BEGIN IMMEDIATE 不能被
+# 并发进入；且 database.execute 的 INSERT 与 commit 是 aiosqlite 两个分离 await，若在
+# 另一 target 的 BEGIN IMMEDIATE 之间插入会把后者撞成 "cannot start a transaction
+# within a transaction"（research_jobs 用 _RUNTIME_LOCK 全串行杜绝同一问题，此处把
+# scheduler 内所有 execute 与事务段收敛到同一把锁）。锁只覆盖短写段，LLM/研究 io
+# 等待不持锁，并发保留。按 event loop 惰性取锁（同 notifications._current_wakeup 模式）：
+# 生产单 loop 常驻即单锁，测试多 loop 下各自隔离，避免模块锁绑定旧 loop。
+_RUN_TX_LOCKS: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+def _run_tx_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _RUN_TX_LOCKS.get(loop)
+    if lock is None:
+        lock = _RUN_TX_LOCKS[loop] = asyncio.Lock()
+    return lock
+
 
 def seconds_until_next_run(
     now: datetime | None = None,
@@ -63,27 +81,35 @@ async def _append_research_event(
     payload: dict[str, Any],
     user_id: int,
 ) -> None:
-    await database.execute(
-        "INSERT INTO research_events (research_id, event_type, agent_role_key, payload, user_id) VALUES (?, ?, ?, ?, ?)",
-        (
-            report_id,
-            event,
-            payload.get("role_key") or payload.get("agent"),
-            json.dumps(payload, ensure_ascii=False),
-            user_id,
-        ),
-    )
+    # execute 的 INSERT 与 commit 是 aiosqlite 两个分离 await，若与并发 target 的
+    # exclusive_transaction（BEGIN IMMEDIATE）交错会撞 "cannot start a transaction
+    # within a transaction"——与事务段共享写锁（A7/BACKLOG-034）。
+    async with _run_tx_lock():
+        await database.execute(
+            "INSERT INTO research_events (research_id, event_type, agent_role_key, payload, user_id) VALUES (?, ?, ?, ?, ?)",
+            (
+                report_id,
+                event,
+                payload.get("role_key") or payload.get("agent"),
+                json.dumps(payload, ensure_ascii=False),
+                user_id,
+            ),
+        )
 
 
 async def _mark_research_failed(report_id: int, message: str, user_id: int, *, record_event: bool = True) -> None:
     if record_event:
         await _append_research_event(report_id, "error", {"error": message}, user_id)
-    await database.execute(
-        "UPDATE research_reports SET status='failed', updated_at=datetime('now') "
-        "WHERE id=? AND status='running' AND user_id=?",
-        (report_id, user_id),
-    )
-    await publish_research_status(report_id, "failed", message, user_id=user_id)
+    async with _run_tx_lock():
+        await database.execute(
+            "UPDATE research_reports SET status='failed', updated_at=datetime('now') "
+            "WHERE id=? AND status='running' AND user_id=?",
+            (report_id, user_id),
+        )
+    # publish 内部 notifications.execute+commit 若插进并发事务段会把部分状态提前提交，
+    # 与写锁串行（A7/BACKLOG-034）。
+    async with _run_tx_lock():
+        await publish_research_status(report_id, "failed", message, user_id=user_id)
 
 
 async def _run_and_persist_target(
@@ -94,17 +120,35 @@ async def _run_and_persist_target(
     scheduled_run_id: int | None = None,
 ) -> int:
     """Run one scheduled research target and persist its full lifecycle."""
-    report_id = await database.execute(
-        "INSERT INTO research_reports "
-        "(ticker, company_name, report_data, agent_results, model_id, status, updated_at, user_id, scheduled_run_id) "
-        "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'), ?, ?)",
-        (ticker, company_name, model_id, user_id, scheduled_run_id),
-    )
+    # Astra A7（BACKLOG-034）：scheduled run 场景下 report INSERT 与 run.report_id
+    # 回填必须原子落盘——此前两写各自独立隐式提交，两写之间进程崩溃/取消会留下
+    # "报告存在但 run 无 report_id 反向链接"的半链接记录。exclusive_transaction 内
+    # execute 不隐式提交，成功统一 commit、异常统一回滚；模块锁把并发 target 的
+    # 短事务串行化（单连接下 BEGIN IMMEDIATE 不可并发进入，research_jobs 的
+    # _RUNTIME_LOCK 同一理由），锁只覆盖开头短事务段，研究执行仍在锁外并发。
+    # post-market 路径（scheduled_run_id=None）只有单 INSERT 一写、无回填，无
+    # 半链接风险，保持原样不进事务，避免与并发 target 的研究写交错。
     if scheduled_run_id is not None:
-        await database.execute(
-            "UPDATE scheduled_research_runs SET report_id=? WHERE id=? AND user_id=?",
-            (report_id, scheduled_run_id, user_id),
-        )
+        async with _run_tx_lock():
+            async with database.exclusive_transaction():
+                report_id = await database.execute(
+                    "INSERT INTO research_reports "
+                    "(ticker, company_name, report_data, agent_results, model_id, status, updated_at, user_id, scheduled_run_id) "
+                    "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'), ?, ?)",
+                    (ticker, company_name, model_id, user_id, scheduled_run_id),
+                )
+                await database.execute(
+                    "UPDATE scheduled_research_runs SET report_id=? WHERE id=? AND user_id=?",
+                    (report_id, scheduled_run_id, user_id),
+                )
+    else:
+        async with _run_tx_lock():
+            report_id = await database.execute(
+                "INSERT INTO research_reports "
+                "(ticker, company_name, report_data, agent_results, model_id, status, updated_at, user_id, scheduled_run_id) "
+                "VALUES (?, ?, '{}', '{}', ?, 'running', datetime('now'), ?, ?)",
+                (ticker, company_name, model_id, user_id, scheduled_run_id),
+            )
     terminal = False
     failure: str | None = None
     research_stream = None
@@ -126,16 +170,17 @@ async def _run_and_persist_target(
                 break
             if event == "done":
                 report_data = payload.get("report", {})
-                await database.execute(
-                    "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', "
-                    "updated_at=datetime('now') WHERE id=? AND status='running' AND user_id=?",
-                    (
-                        json.dumps(report_data, ensure_ascii=False),
-                        json.dumps(payload.get("agent_results", {}), ensure_ascii=False),
-                        report_id,
-                        user_id,
-                    ),
-                )
+                async with _run_tx_lock():
+                    await database.execute(
+                        "UPDATE research_reports SET report_data=?, agent_results=?, status='completed', "
+                        "updated_at=datetime('now') WHERE id=? AND status='running' AND user_id=?",
+                        (
+                            json.dumps(report_data, ensure_ascii=False),
+                            json.dumps(payload.get("agent_results", {}), ensure_ascii=False),
+                            report_id,
+                            user_id,
+                        ),
+                    )
                 memory_ids = await persist_research_candidates(report_id, ticker, report_data, user_id)
                 evidence_candidates: set[str] = set()
 
@@ -165,16 +210,18 @@ async def _run_and_persist_target(
                         evidence_status = (
                             "OK" if len(evidence_ids) == len(evidence_candidates) else "PARTIAL"
                         )
-                    await database.execute(
-                        "UPDATE scheduled_research_runs SET evidence_status=?, "
-                        "evidence_ids_json=?, memory_record_ids_json=? "
-                        "WHERE id=? AND user_id=?",
-                        (
-                            evidence_status,
-                            json.dumps(evidence_ids), json.dumps(memory_ids), scheduled_run_id, user_id,
-                        ),
-                    )
-                await publish_research_status(report_id, "completed", user_id=user_id)
+                    async with _run_tx_lock():
+                        await database.execute(
+                            "UPDATE scheduled_research_runs SET evidence_status=?, "
+                            "evidence_ids_json=?, memory_record_ids_json=? "
+                            "WHERE id=? AND user_id=?",
+                            (
+                                evidence_status,
+                                json.dumps(evidence_ids), json.dumps(memory_ids), scheduled_run_id, user_id,
+                            ),
+                        )
+                async with _run_tx_lock():
+                    await publish_research_status(report_id, "completed", user_id=user_id)
                 terminal = True
                 break
     except asyncio.CancelledError:
