@@ -1,6 +1,6 @@
 # BACKLOG-032 — B12 重做① 首页→研究连续工作面：单 ⌘K + Composer 语境化 + 空 Rail 折叠 + DecisionCard 瘦身
 
-> 状态：`[READY]`（代码完成待维护者复核合入，2026-09-06）｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：— ｜ 执行：DSH
+> 状态：`[DONE]` ｜ 优先级：P1 ｜ 创建：2026-09-05 ｜ 完成：2026-09-06 ｜ 执行：DSH（Worker 5eb5e9de 执行 + 维护者复核合入）
 > 背景：B12 设计（`docs/ai/astra-review/b12-design-2026-09-05.md`）已审阅通过。本卡为 B12 拆分第三张，执行设计重做① Step C→A→B→D（建议序）。不依赖 030/031 完成即可独立执行（同为前端独立改动；若同批执行注意提交隔离）。
 > 证据：`docs/ai/tasks/BACKLOG-032.md`（完整改动清单/⌘K 单实例/AgentStatusCard 接线/DecisionCard 瘦身/门禁结果）
 
