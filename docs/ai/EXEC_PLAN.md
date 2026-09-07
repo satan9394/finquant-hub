@@ -4,17 +4,19 @@
 
 ---
 
-## [READY] BACKLOG-033: A6 主编降级诚实展示 + B8 文案术语收敛（Astra 遗留记录项，DSH Worker）
+## [DONE] BACKLOG-033: A6 主编降级诚实展示 + B8 文案术语收敛（Astra 遗留记录项，DSH Worker）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-033.md`
 **范围**: Astra 遗留项 A6（主编 LLMError 后仍 completed，内部 model_output_status 已记但前端不消费→修复=报告查看处诚实提示降级，不改状态机语义）+ B8（BacktestSummary 专业区英文指标 Sharpe/Sortino/Beta/R² 换中文 key）。A6 含 report_builder 顶层加 lead_review_status + Research reportToMarkdown 顶部降级提示；B8 只换 label 不换 testId/E2E 依赖文案。**禁止**：改状态机/通知、E2E/playwright config、依赖、删除、B9/B12。门禁：backend 851+ cov、build/Vitest/4173 50/8000 21、i18n parity 0。
+**证据（2026-09-06，维护者复核通过并合入）**: A6-1 report_builder 顶层 lead_review_status（audited|degraded 同源映射，落库实证 research_orch done→research.py/scheduler UPDATE report_data + GET 整体返回，编排零改动）+ 后端测试两映射断言；A6-2 Research reportToMarkdown 具名导出 degraded 顶部提示（chapters/legacy 两形态，audited/缺省不回归）+ 新测试 4 例；B8 BacktestSummary 6 硬编码英文 label 换 strategy.metric.* key（testId/结构/E2E 文案零改动）；i18n +7 key zh/en 2285 parity 0。维护者独立复核 + 全量门禁：backend 853/853 cov 92.53%、ruff 全过、build ✓、全量 Vitest 124 files/386 tests、4173 50/50、8000 21/21、diff check 通过、删除 0。详见 `docs/ai/tasks/BACKLOG-033.md`。
 
 ---
 
-## [READY] BACKLOG-034: A7 重启恢复事务收口（scheduler 报告 INSERT + run 回填原子化）
+## [DONE] BACKLOG-034: A7 重启恢复事务收口（scheduler 报告 INSERT + run 回填原子化）
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-034.md`
 **范围**: Astra A7 机制项——scheduler.py `_run_and_persist_target` report INSERT 与 run.report_id 回填原分两次 commit（崩溃留半链接），用 A2 建的 `database.exclusive_transaction()` 收口原子化 + 回归测试（异常无半链接/正常双落）。**禁止**：碰后端其他文件（recover/heartbeat 等另行记录）、前端/E2E/依赖/删除。门禁：backend pytest 851+、cov 不降、ruff、build 确认。
+**证据（2026-09-06，维护者接手补完验证并合入）**: scheduler.py 定时研究路径（scheduled_run_id 非 None）report INSERT + run.report_id 回填包进 `_run_tx_lock()` + `exclusive_transaction()` 原子落盘（post-market 单 INSERT 无半链接保持原样）；写锁 `_RUN_TX_LOCKS` 为必要范围扩展（scheduler gather 并发 + 单连接 BEGIN IMMEDIATE 不可嵌套，锁覆盖短写段不损并发）；test_scheduler 新增 2 回归（异常回滚无半链接 + 正常双落）。Worker（e2de7f57）于并发探针阶段终止，维护者接手：5 个 _probe_*a7 调试探针回收站清理、补证据文档、全量门禁独立复跑。验证: 聚焦 14/14（scheduler+transaction）；backend 853/853 cov 92.53%、ruff 全过；build ✓；git diff --check 通过；删除 0。详见 `docs/ai/tasks/BACKLOG-034.md`。
 
 ---
 

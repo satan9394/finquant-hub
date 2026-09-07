@@ -4,6 +4,27 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-06
+- **BACKLOG-033（DSH）——A6 主编降级诚实展示 + B8 专业指标文案中文化（Astra 遗留项）**
+  - What changed: `backend/app/services/report_builder.py`（build_unified_report 返回顶层 +`lead_review_status: audited|degraded`，与 team_lead_review.model_output_status 同源同真值，仅展示不改状态机语义）；`frontend/src/pages/Research.tsx`（reportToMarkdown 具名导出，`lead_review_status==='degraded'` 时 markdown 顶部前缀诚实提示，chapters/legacy 两形态统一）；`frontend/src/components/strategy/BacktestSummary.tsx`（Professional/P1 折叠区 6 硬编码英文指标 Sharpe/Sortino/Calmar/Beta/R²/Tracking Error 换 strategy.metric.* key，testId/结构/E2E 文案零改动）；i18n zh/en +7 key（deep.report.degradedNotice + 6 指标 label，2285/2285 parity 0）；新增 `frontend/tests/ResearchReportToMarkdown.test.tsx` 4 例 + `backend/tests/test_report_builder.py` 断言强化。
+  - Why: Astra A6 断言——主编 LLMError 后研究仍 completed 且成功通知，report_data 内 model_output_status 已记但前端不消费，用户不知报告未经主编审计；最小诚实方案=报告查看处降级提示（不改 completed/failed 状态机与通知语义）。B8——专业区英文指标对 zh 用户暴露实现术语。
+  - Docs updated: `docs/ai/tasks/BACKLOG-033.md`（新证据）、`docs/ai/BACKLOG-033.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+  - Verification: backend 853/853 cov 92.53%、ruff 全过；build ✓；全量 Vitest 124/386；4173 E2E 50/50；8000 E2E 21/21；i18n 2285 parity 0；git diff --check 通过、删除 0。
+  - Risk: low（报告结构加只读字段 + 展示层提示 + label key 化；状态机/通知/编排零改动）。
+- **BACKLOG-034（DSH）——A7 scheduler 报告 INSERT + run 回填原子化（Astra 遗留项）**
+  - What changed: `backend/app/services/scheduler.py` `_run_and_persist_target` 定时路径 report INSERT 与 run.report_id 回填包进 `_run_tx_lock()` + `database.exclusive_transaction()`（原子落盘，崩溃无半链接）；新增 `_RUN_TX_LOCKS` 按 event loop 惰性写锁（必要范围扩展：scheduler gather 并发 + 单连接 BEGIN IMMEDIATE 不可嵌套，锁覆盖短写段不损并发）；`backend/tests/test_scheduler.py` +2 回归（异常回滚无半链接/正常双落）。
+  - Why: Astra A7——两写分两次 commit，崩溃留"报告在但 run 无 report_id"半链接；用 A2 建的 exclusive_transaction 基建收口。
+  - Docs updated: `docs/ai/tasks/BACKLOG-034.md`（新证据）、`docs/ai/BACKLOG-034.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。
+  - Verification: 聚焦 scheduler+transaction 14/14；backend 853/853 cov 92.53%、ruff 全过；build ✓；git diff --check 通过、删除 0。
+  - Risk: low（写锁仅串行 scheduler 短写段，研究 io 并发保留；heartbeat 失租等其他 A7 部分未做另行记录）。
+
+## 2026-09-06
+- **BACKLOG-033（DSH Worker）——A6 主编降级诚实展示 + B8 专业指标中文 label**
+  - What changed: `backend/app/services/report_builder.py`（build_unified_report 返回 dict 顶层新增 `lead_review_status: "audited" if lead else "degraded"`——与 team_lead_review.model_output_status 同源映射，仅展示不改状态机语义；落库路径实证：research_orch done_payload["report"]→research.py `_complete_report` UPDATE research_reports SET report_data、scheduler.py 计划任务同路径、GET /research/{id} json.loads 整体返回）；`frontend/src/pages/Research.tsx`（reportToMarkdown 具名导出，degraded 时 markdown 顶部前缀 `**deep.report.degradedNotice**\n\n---\n\n`，chapters/legacy 两形态统一 prefix+body，audited/缺省不回归、空正文提示保留）；`frontend/src/components/strategy/BacktestSummary.tsx`（Professional/P1 折叠区硬编码 'Sharpe'/'Sortino'/'Calmar'/'Beta'/'R²'/'Tracking Error' 换 `t('strategy.metric.*')` 6 个 label key，metric-* testId/折叠结构/Help/E2E 依赖文案零改动）；`frontend/src/i18n/zh.ts`+`en.ts`（+deep.report.degradedNotice + 6 指标 label，共 7 key，zh/en 各 2285 keys parity 0）；`backend/tests/test_report_builder.py`（audited/parsed、degraded/unknown 两映射断言）；`frontend/tests/ResearchReportToMarkdown.test.tsx`（新建 4 用例）。
+  - Why: Astra A6 断言（主编 LLMError 后研究仍 completed，model_output_status 已记但前端不消费）→ 报告查看处诚实提示降级；Astra B8 断言（BacktestSummary 专业区英文指标名 zh 用户首屏见英文）→ 换中文 i18n key。均不改状态机/通知语义（最小方案）。
+  - Docs updated: `docs/ai/tasks/BACKLOG-033.md`（新建证据）、`docs/ai/BACKLOG-033.md`（卡尾完成证据模板填写，卡顶状态交维护者复核转 DONE）、`task/CHANGELOG.md`、`HANDOFF.md`。
+  - Verification: backend 853/853 cov 92.53%（92.52→ 不降）、ruff 本卡文件全过；build ✓；聚焦 8/8；全量 Vitest 124 files/386 tests 全绿；4173 E2E 50/50；8000 E2E 见 HANDOFF 完成记录；i18n 2285/2285 parity 0；git diff --check 通过、删除 0、未 commit。
+  - Risk: low（后端仅加展示字段 + 前端 label/提示文案；E2E 预核 0 引用）。
+
 - **BACKLOG-032（DSH）——B12 重做① 首页→研究连续工作面：单 ⌘K + Composer 语境化 + 空 Rail 折叠 + DecisionCard 瘦身**
   - What changed: `frontend/src/App.tsx`（agentRailOpen 初始 false 默认折叠；⌘K 注册收敛 AppLayout 一次 dispatch `GLOBAL_TASK_OPEN_EVENT`；header CommandBar triggerOnly；ProLayout children 顶层唯一 `GlobalTaskEntry hideTrigger` 弹窗宿主；全局底部 CommandComposer 移除，改仅 /research/:symbol、/analysis/:ticker 渲染追问条并携带对象提交 /research/:symbol?prompt=）；`components/GlobalTaskEntry.tsx`（移除组件内 ⌘K 自注册、新增导出 GLOBAL_TASK_OPEN_EVENT + hideTrigger 纯宿主模式）；`components/CommandBar.tsx`（新增 triggerOnly 变体 dispatch 全局事件）；`components/CommandComposer.tsx`（新增 contextLabel 追问条形态）；`components/DecisionCard.tsx`（删卡面平铺 provenance 行，证据 chip 点击进既有 EvidenceDrawer）；`pages/Dashboard.tsx`（hero CommandBar triggerOnly）；`app.css`（删 .decision-card__provenance 死规则、新增 .command-composer__box/__context 观感）；`i18n/zh.ts`+`en.ts`（+composer.followupPlaceholder，2278 parity 0）；tests（CommandBar/GlobalTaskEntry/CommandComposer/Dashboard/ResearchOSComponents 同步语义不放松）。
   - Why: B12 设计重做①（§1.2 Step A-D、§1.4 验收 A1-A6、§5 风险表）——消除"提问入口分散、首页双 ⌘K 监听并存、空右栏占宽、卡面平铺证据、全局底部 Composer 无去向"的产品割裂；首页→研究连成单工作面。
