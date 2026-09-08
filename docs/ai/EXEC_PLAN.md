@@ -4,6 +4,13 @@
 
 ---
 
+## [READY] BACKLOG-041: 模型供应商预设模板库（CC Switch 式独立模块 + 扩常用供应商）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-041.md`
+**范围**: 用户指令"模型模块做好"+ CC Switch 预设精神。现状 Models.tsx 有内联 3 预设（openai/deepseek/openrouter）。本卡新建 `frontend/src/features/modelPresets.ts` 预设库（保留 3 + 扩国内常用 ≥5：通义/智谱/Kimi/豆包/硅基流动等，base_url 全部核实，拿不准宁可不加）+ Models.tsx 改用模块（custom 保留）+ i18n + 测试。**禁止**：后端、E2E config、依赖、删除、臆造 base_url。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
+
+---
+
 ## [DONE] BACKLOG-040: Token 用量面板增强（按日趋势 + 会话级明细，对齐 CC Switch Usage Query）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-040.md`
