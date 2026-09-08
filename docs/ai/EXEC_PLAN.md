@@ -4,6 +4,13 @@
 
 ---
 
+## [READY] BACKLOG-042: MCP 供应商兼容——补 stdio transport（本地 command+args+env）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-042.md`
+**范围**: 用户指令"MCP 兼容任何 MCP"+ CC Switch 统一 MCP 面板。现状后端 MCP 只 HTTP（SSE）（mcp_server_configs 仅 name/url、mcp.py connect_http only），前端 mcpApi 已预留 transport 'http'|'stdio'。本卡补 **stdio transport**：表加 transport/command/args_json/env_json 列（SAVEPOINT 迁移，旧 http 行兼容）+ create/update 两 transport 校验 + connect 按 transport 分派（stdio 用 asyncio 子进程走 MCP stdio 协议，**零新依赖**，实现到能拉起进程发现工具深度）+ 前端 MCPServerSettingsPanel 流式切换（http url / stdio command+args）+ 契约/测试。**禁止**：加依赖、存 env 敏感明文、E2E config、删除、他域。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
+
+---
+
 ## [DONE] BACKLOG-041: 模型供应商预设模板库（CC Switch 式独立模块 + 扩常用供应商）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-041.md`
