@@ -59,4 +59,15 @@ describe('LimitPool research links', () => {
 
     expect(screen.getByTestId('research-location').textContent).toBe('/research/600519');
   });
+
+  it('explains queued buy/sell orders and limit statistics accessibly', async () => {
+    renderPool();
+    expect(await screen.findByText(/涨停池：当日价格达到/)).toBeTruthy();
+    fireEvent.focus(screen.getByRole('button', { name: '封单额：查看释义' }));
+    expect(await screen.findByText(/尚未成交的买单资金量/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: '跌停池' }));
+    expect(await screen.findByText(/尚未成交的卖单金额/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '涨停统计：查看释义' }));
+    expect(await screen.findByText(/不一定连续/)).toBeTruthy();
+  });
 });

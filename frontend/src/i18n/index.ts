@@ -9,7 +9,7 @@ export const translations: Record<Language, Record<string, string>> = { zh, en }
 export function detectLanguage(): Language {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
   if (saved === 'zh' || saved === 'en') return saved;
-  return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  return 'zh';
 }
 
 export function translate(lang: Language, key: string, values?: Record<string, string | number>): string {

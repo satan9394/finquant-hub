@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Button, Card, DatePicker, Empty, Segmented, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, DatePicker, Empty, Segmented, Space, Table, Tooltip, Typography } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 
 import TaskPageHeader from '../components/TaskPageHeader';
@@ -35,6 +35,16 @@ export default function LimitPool() {
 
   useEffect(() => { void loadPool(); }, [loadPool]);
 
+  // Same reading/pitfall pattern as indicatorKnowledge explanation cards.
+  const explain = (key: string) => <Tooltip trigger={['hover', 'focus', 'click']} title={<>
+    <p>{t(`limitPool.help.${key}${key === 'sealAmount' ? `.${pool}` : ''}`)}</p>
+    <p>{t('limitPool.help.pitfall')}</p>
+  </>}>
+    <Button type="text" size="small" aria-label={t('limitPool.help.label', { name: t(`limitPool.column.${key}`) })}>
+      {t(`limitPool.column.${key}`)} ⓘ
+    </Button>
+  </Tooltip>;
+
   const columns = [
     {
       title: <span title={t('limitPool.openResearch')}>{t('limitPool.column.code')}</span>,
@@ -44,25 +54,25 @@ export default function LimitPool() {
     },
     { title: t('limitPool.column.name'), dataIndex: 'name', key: 'name' },
     {
-      title: t('limitPool.column.limitUpCount'),
+      title: explain('limitUpCount'),
       dataIndex: 'limit_up_count',
       key: 'limit_up_count',
       render: (value: number | null) => pool === 'limit_down' ? '—' : value ?? '—',
     },
     {
-      title: t('limitPool.column.sealAmount'),
+      title: explain('sealAmount'),
       dataIndex: 'seal_amount',
       key: 'seal_amount',
       render: (value: number | null) => formatWan(value),
     },
     {
-      title: t('limitPool.column.breakTimes'),
+      title: explain('breakTimes'),
       dataIndex: 'break_times',
       key: 'break_times',
       render: (value: number | null) => pool === 'limit_down' ? '—' : value ?? '—',
     },
     { title: t('limitPool.column.industry'), dataIndex: 'industry', key: 'industry', render: (value: string) => value || '—' },
-    { title: t('limitPool.column.limitStat'), dataIndex: 'limit_stat', key: 'limit_stat', render: (value: string) => value || '—' },
+    { title: explain('limitStat'), dataIndex: 'limit_stat', key: 'limit_stat', render: (value: string) => value || '—' },
   ];
 
   const status = loading
@@ -83,6 +93,7 @@ export default function LimitPool() {
       />
 
       <Card className="surface-card">
+        <Typography.Paragraph>{t(`limitPool.help.${pool}`)}</Typography.Paragraph>
         <Space wrap size="middle">
           <DatePicker
             aria-label={t('limitPool.date')}

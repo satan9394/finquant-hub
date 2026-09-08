@@ -13,6 +13,15 @@ function Probe() {
 describe('language context', () => {
   beforeEach(() => localStorage.clear());
 
+  it('defaults to Chinese on first use and honors a saved English preference', () => {
+    const first = render(<LanguageProvider><Probe /></LanguageProvider>);
+    expect(screen.getByText('研究')).toBeTruthy();
+    first.unmount();
+    localStorage.setItem('finquant_lang', 'en');
+    render(<LanguageProvider><Probe /></LanguageProvider>);
+    expect(screen.getByText('Research')).toBeTruthy();
+  });
+
   it('switches immediately and persists the selected language', () => {
     localStorage.setItem('finquant_lang', 'zh');
     render(<LanguageProvider><Probe /><LangSwitcher /></LanguageProvider>);
