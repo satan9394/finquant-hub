@@ -4,6 +4,13 @@
 
 ---
 
+## [READY] BACKLOG-040: Token 用量面板增强（按日趋势 + 会话级明细，对齐 CC Switch Usage Query）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-040.md`
+**范围**: 用户指令"token 消耗模块做好"+ 参考 CC Switch Usage Query。现状已有 llm_usage 表+/api/usage+Settings 汇总；本卡补 Settings 用量区**按日趋势图**（复用现有图表 hook）+**会话级明细**（session_type/时间/model/总量，后端缺 records 端点则补，用户隔离）+ i18n parity 0 + 诚实空态。**禁止**：E2E config、依赖、删除、改 llm_usage 表/记录链路、动 context.py（043 域）。门禁：build + Vitest + 4173 50 + 8000 21。
+
+---
+
 ## [DONE] BACKLOG-036: 模型管理后端契约重构（api_key 加密存/URL 归一/拉模型列表，commit 97636bc）（api_key 加密存 + URL 不二次拼接 + 拉模型列表 + 报错可行动）
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-036.md`
