@@ -7,6 +7,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CheckCircleOut
 import apiClient from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translate } from '../i18n';
+import { MODEL_PRESETS, presetBaseUrl } from '../features/modelPresets';
 import { useModelStore } from '../store/modelStore';
 import type { ModelConfig, ModelTestResult } from '../types';
 
@@ -222,13 +223,11 @@ export default function Models() {
           </Form.Item>
           <Form.Item name="provider" label={t('models.column.provider')}>
             <Select onChange={(provider) => {
-              const presets: Record<string, string> = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', openrouter: 'https://openrouter.ai/api/v1' };
-              if (presets[provider]) form.setFieldValue('base_url', presets[provider]);
+              const baseUrl = presetBaseUrl(provider);
+              if (baseUrl) form.setFieldValue('base_url', baseUrl);
               setModelOptions([]);
             }} options={[
-              { label: t('models.provider.openai'), value: 'openai' },
-              { label: t('models.provider.deepseek'), value: 'deepseek' },
-              { label: t('models.provider.openrouter'), value: 'openrouter' },
+              ...MODEL_PRESETS.map((preset) => ({ label: t(preset.labelKey), value: preset.id })),
               { label: t('models.provider.custom'), value: 'custom' },
             ]} />
           </Form.Item>

@@ -4,10 +4,11 @@
 
 ---
 
-## [READY] BACKLOG-041: 模型供应商预设模板库（CC Switch 式独立模块 + 扩常用供应商）
+## [DONE] BACKLOG-041: 模型供应商预设模板库（CC Switch 式独立模块 + 扩常用供应商）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-041.md`
 **范围**: 用户指令"模型模块做好"+ CC Switch 预设精神。现状 Models.tsx 有内联 3 预设（openai/deepseek/openrouter）。本卡新建 `frontend/src/features/modelPresets.ts` 预设库（保留 3 + 扩国内常用 ≥5：通义/智谱/Kimi/豆包/硅基流动等，base_url 全部核实，拿不准宁可不加）+ Models.tsx 改用模块（custom 保留）+ i18n + 测试。**禁止**：后端、E2E config、依赖、删除、臆造 base_url。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
+**证据（2026-09-11，DSH Worker，代码完成待维护者复核）**: 新增 `frontend/src/features/modelPresets.ts`（`MODEL_PRESETS` 8 项 = 现有 3 国际 openai/deepseek/openrouter + 新增 5 国内 dashscope/glm/kimi/doubao/siliconflow，base_url 逐一核实——siliconflow/kimi/glm 官方文档直证，dashscope 官方 compatible-mode 路径 + CC Switch 参考项目预设交叉核实，doubao 官方「Base URL 及鉴权」页客户端渲染经 CC Switch 预设交叉核实；百度千帆因未能当场核实**未加入**，诚实声明）；Models.tsx provider Select 选项与 base_url 自动填充改用模块（删内联 presets），custom 保留且不自动填逻辑不变；i18n zh/en +5 key 各 2336 parity 0；新增 modelPresets.test.ts 6 用例 + ModelsForm.test.tsx +1 provider 切换自动填用例。门禁实测：build ✓；聚焦 10/10；全量 Vitest 128 files/414 tests（基线 127/407）；4173 E2E 50/50；8000 E2E 21/21；git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-041.md`。
 
 ---
 

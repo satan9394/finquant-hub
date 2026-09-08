@@ -4,6 +4,14 @@
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
 ## 2026-09-11
+- **BACKLOG-041（DSH Worker）——模型供应商预设模板库：独立模块 + 扩常用供应商（CC Switch 式）**
+  - What changed: 新增 `frontend/src/features/modelPresets.ts`（`MODEL_PRESETS` 8 项 = 现有 3 国际 openai/deepseek/openrouter + 新增 5 国内 dashscope/glm/kimi/doubao/siliconflow，`{id,labelKey,baseUrl,remarkKey?}` + `presetBaseUrl(id)`，纯数据零依赖）；`frontend/src/pages/Models.tsx`（provider Select 选项与 base_url 自动填充改用模块，删除内联 presets 对象，custom 保留且不自动填逻辑不变）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +5 key：models.provider.dashscope/glm/kimi/doubao/siliconflow，2336 parity 0）；新增 `frontend/tests/modelPresets.test.ts`（6 用例：3 国际预设 base_url 断言/新增 ≥5 国内存在/结构完整+合法 http(s)/id 唯一/labelKey zh+en 均有/未知 id 返回 undefined）+ `frontend/tests/ModelsForm.test.tsx`（+1 provider 切换自动填 base_url 用例：DeepSeek/通义千问/硅基流动自动填 + custom 不覆盖手动值）。
+  - Why: 用户指令"模型模块做好"+ 对齐 CC Switch 预设精神——Models.tsx 原只有内联 3 预设且数据在组件内不可扩展维护；抽独立数据模块并按需扩高频国内供应商。
+  - Docs updated: `docs/ai/tasks/BACKLOG-041.md`（新证据）、`docs/ai/BACKLOG-041.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`、`HANDOFF.md`。
+  - Verification: build ✓；聚焦 Vitest 10/10（modelPresets 6 + ModelsForm 2 + Models 2）；全量 Vitest 128 files/414 tests（基线 127/407）；4173 E2E 50/50（--retries=0）；8000 E2E 21/21（--retries=0）；i18n zh/en 各 2336 key 差集 0；git diff --check 通过、删除 0、未 commit。
+  - Risk: low（纯前端数据模块抽取 + 展示层接线 + i18n + 测试；后端/E2E/playwright config/依赖/锁文件/reference 零改动、无删除、不加依赖；036/037 api_key/URL 契约与 custom 逻辑原样）。诚实声明：百度千帆因官方文档客户端渲染未能当场核实端点未加入；火山方舟 base_url 经 CC Switch 参考项目预设交叉核实。
+
+## 2026-09-11
 - **BACKLOG-040（DSH Worker）——Token 用量面板增强：按日趋势 + 会话级明细（对齐 CC Switch Usage Query）**
   - What changed: `frontend/src/pages/Settings.tsx`（UsagePanel 汇总后新增「按日趋势」`<UsageTrendChart>` + 「按日」表后新增「用量明细」`<UsageRecordsPanel>`）；新增 `frontend/src/components/settings/UsageTrendChart.tsx`（复用 `useLightweightCharts.switchToArea`，`data-testid="usage-trend-chart"`，空态诚实占位，独立组件不抽象）、`frontend/src/components/settings/UsageRecordsPanel.tsx`（拉 `/api/usage/records?limit=50`，time/model/总量/会话 id，诚实空态）、`frontend/src/utils/usageChart.ts`（纯函数 `usageToAreaData`，无效日/非法总数丢弃不补造）；`backend/app/routers/usage.py`（新增 `GET /api/usage/records`：用户隔离、created_at DESC、limit 1-200、可选 session_type 过滤）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +11 key，2331 parity 0）；`frontend/tests/UsageComponents.test.tsx`（新 7 用例）+`frontend/tests/Settings.test.tsx`（用量 tab 渲染用例）+`backend/tests/test_usage_records.py`（新 httpx ASGI 确定性测试，用户隔离/newest-first/limit/session_type 过滤）。
   - Why: 用户指令"token 消耗模块做好"+ 对齐 CC Switch Usage Query——Settings 用量区原只有汇总数字，补按日趋势可视化与会话级明细浏览。
