@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import ModelSelector from '../src/components/ModelSelector';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
@@ -16,17 +16,16 @@ describe('ModelSelector', () => {
   it('shows an explicit unconfigured advanced selector', () => {
     render(<LanguageProvider><ModelSelector /></LanguageProvider>);
 
-    expect(screen.getByRole('combobox', { name: '研究模式' })).toBeTruthy();
-    expect((screen.getByRole('combobox', { name: '高级：覆盖模型' }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole('combobox', { name: '研究模式' })).toBeNull();
+    expect((screen.getByRole('combobox', { name: '高级：覆盖模型', hidden: true }) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText('前往设置添加模型配置')).toBeTruthy();
   });
 
-  it('updates research mode through the selector callback', async () => {
+  it('does not expose a second research mode control in the global shell', () => {
     render(<LanguageProvider><ModelSelector /></LanguageProvider>);
 
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: '研究模式' }));
-    fireEvent.click(await screen.findByText('深度研究'));
-    await waitFor(() => expect(useModelStore.getState().researchMode).toBe('deep'));
-    expect(localStorage.getItem('finquant_research_mode')).toBe('deep');
+    expect(screen.queryByText('深度研究')).toBeNull();
+    expect(screen.queryByText('快速分析')).toBeNull();
+    expect(localStorage.getItem('finquant_research_mode')).toBeNull();
   });
 });

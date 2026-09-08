@@ -10,23 +10,10 @@ export default function ModelSelector() {
   const models = useModelStore((s) => s.models);
   const currentModelId = useModelStore((s) => s.currentModelId);
   const setCurrentModelId = useModelStore((s) => s.setCurrentModelId);
-  const researchMode = useModelStore((s) => s.researchMode);
-  const setResearchMode = useModelStore((s) => s.setResearchMode);
   const current = models.find((model) => model.id === currentModelId);
 
   return (
     <div className="model-selector">
-      <Select
-        aria-label={t('model.label')}
-        value={researchMode}
-        onChange={setResearchMode}
-        placement="topLeft"
-        options={[
-          { label: t('model.fast'), value: 'fast' },
-          { label: t('model.analyst'), value: 'analyst' },
-          { label: t('model.deep'), value: 'deep' },
-        ]}
-      />
       <details className="model-selector__advanced">
         <summary>{t('model.advanced')}</summary>
         <Select

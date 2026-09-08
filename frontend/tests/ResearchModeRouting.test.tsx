@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -64,5 +64,15 @@ describe('Research mode routing', () => {
     expect(JSON.parse(localStorage.getItem('finquant_watchlist') || '[]')).toEqual([
       { code: 'usAAPL', name: 'Apple' },
     ]);
+  });
+
+  it('switches depth inside Research while keeping the company context', () => {
+    renderMode('/research/600519?mode=fast');
+    expect(screen.getByTestId('fast-capability').textContent).toContain('600519');
+    fireEvent.click(screen.getByRole('radio', { name: '深度研究' }));
+    expect(screen.getByTestId('deep-capability').textContent).toBe('600519');
+    expect(screen.queryByTestId('fast-capability')).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '审查' }));
+    expect(screen.getByTestId('review-capability').textContent).toContain('600519');
   });
 });
