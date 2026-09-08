@@ -173,6 +173,13 @@ export interface ModelConfigUpdate {
   max_tokens?: number | null;
 }
 
+export interface ModelDiscoveryIn {
+  base_url: string;
+  api_key?: string | null;
+  api_key_env?: string | null;
+  model_id?: number | null;
+}
+
 export interface MonitorTargetInput {
   target_type: "thesis" | "portfolio" | "strategy";
   target_id: number;

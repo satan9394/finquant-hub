@@ -6,13 +6,41 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException
 
 from .. import database
-from ..models import ModelConfigIn, ModelConfigUpdate
+from ..models import ModelBaseURL, ModelConfigIn, ModelConfigUpdate
 from ..services import model_router
-from ..services.credential_store import delete_credential, put_credential
-from ..services.llm_client import LLMError
+from ..services.credential_store import CredentialDecryptionError, delete_credential, get_credential, put_credential
+from ..services.llm_client import LLMClient, LLMError
+from .. import config
+from pydantic import BaseModel
 from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(authenticated_context)])
+
+
+class ModelDiscoveryIn(BaseModel):
+    base_url: ModelBaseURL
+    api_key: str | None = None
+    api_key_env: str | None = None
+    model_id: int | None = None
+
+
+@router.post("/discover")
+async def discover_models(body: ModelDiscoveryIn, user: CurrentUser) -> dict[str, Any]:
+    """Test unsaved form values; only reuse credentials owned by the current user."""
+    try:
+        stored = ""
+        if body.model_id is not None:
+            await model_router.get_model_config(body.model_id, user_id=int(user["id"]))
+            stored = await get_credential(int(user["id"]), f"model:{body.model_id}") or ""
+        key = body.api_key or stored or (os.getenv(body.api_key_env, "") if body.api_key_env else "")
+        if not key:
+            raise LLMError("请先填写 API Key。")
+        client = LLMClient(body.base_url, key, "", timeout=20, proxy_url=config.LLM_PROXY_URL or None)
+        items = await client.list_models()
+        return {"ok": bool(items), "items": items,
+                "message": "已拉取模型列表" if items else "供应商未返回模型，请手动填写模型名。"}
+    except (LLMError, CredentialDecryptionError) as exc:
+        return {"ok": False, "items": [], "message": f"{exc} 若供应商不支持模型列表，请手动填写模型名。"}
 
 
 def _public_model(row: dict[str, Any]) -> dict[str, Any]:
@@ -106,7 +134,7 @@ async def test_model(model_id: int, user: CurrentUser) -> dict[str, Any]:
         )
         latency = int((time.perf_counter() - start) * 1000)
         return {"ok": True, "latency_ms": latency, "message": "连通成功", "reply": reply[:100]}
-    except LLMError as e:
+    except (LLMError, CredentialDecryptionError) as e:
         latency = int((time.perf_counter() - start) * 1000)
         return {"ok": False, "latency_ms": latency, "message": str(e)}
 

@@ -1,7 +1,7 @@
 /* Models management page. */
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Card, Table, Button, Modal, Form, Input, InputNumber, Select, Popconfirm, Tag, message, Typography,
+  Alert, AutoComplete, Card, Table, Button, Modal, Form, Input, InputNumber, Select, Popconfirm, Tag, message, Typography,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, CheckCircleOutlined, StarOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
@@ -36,6 +36,9 @@ export default function Models() {
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [form] = Form.useForm();
   const [testLoading, setTestLoading] = useState<number | null>(null);
+  const [modelOptions, setModelOptions] = useState<Array<{ value: string }>>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverMessage, setDiscoverMessage] = useState('');
   const [testResult, setTestResult] = useState<{ id: number; result: ModelTestResult } | null>(null);
 
   const loadModels = useCallback(async () => {
@@ -53,6 +56,9 @@ export default function Models() {
   useEffect(() => { loadModels(); }, [loadModels]);
 
   const openModal = (model?: ModelConfig) => {
+    form.resetFields();
+    setModelOptions([]);
+    setDiscoverMessage('');
     if (model) {
       setEditingModel(model);
       form.setFieldsValue(model);
@@ -61,6 +67,24 @@ export default function Models() {
       form.resetFields();
     }
     setModalOpen(true);
+  };
+
+  const fetchModels = async () => {
+    await form.validateFields(['base_url']);
+    setDiscoverLoading(true);
+    setModelOptions([]);
+    try {
+      const { base_url, api_key, api_key_env } = form.getFieldsValue();
+      const { data } = await apiClient.post('/models/discover', {
+        base_url, api_key, api_key_env, model_id: editingModel?.id,
+      });
+      setModelOptions(data.items.map((value: string) => ({ value })));
+      setDiscoverMessage(data.message);
+    } catch (error: any) {
+      setDiscoverMessage(error.message);
+    } finally {
+      setDiscoverLoading(false);
+    }
   };
 
   const handleSave = async () => {
@@ -96,7 +120,8 @@ export default function Models() {
     try {
       const res = await apiClient.post(`/models/${id}/test`);
       setTestResult({ id, result: res.data });
-      message.success(res.data.message);
+      if (res.data.ok) message.success(res.data.message);
+      else message.error(res.data.message);
     } catch (e: any) {
       setTestResult({ id, result: { ok: false, latency_ms: null, message: e.message } });
       message.error(e.message);
@@ -120,14 +145,14 @@ export default function Models() {
       <span>{v} {r.is_default === 1 && <Tag color="gold" icon={<StarOutlined />}>{t('models.default')}</Tag>}</span>
     )},
     { title: t('models.column.provider'), dataIndex: 'provider', key: 'provider', width: 100 },
-    { title: 'Endpoint', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
+    { title: t('models.form.baseUrl'), dataIndex: 'base_url', key: 'base_url', ellipsis: true },
     { title: t('models.column.model'), dataIndex: 'model_name', key: 'model_name' },
     { title: t('models.column.credentials'), key: 'credentials', width: 150, render: (_: unknown, record: ModelConfig) => (
       <Text type={record.has_api_key ? undefined : 'danger'}>
         {modelCredentialLabel(record, t)}
       </Text>
     ) },
-    { title: 'Temperature', dataIndex: 'temperature', key: 'temperature', width: 110, render: (v: number) => v?.toFixed(1) },
+    { title: t('models.form.temperature'), dataIndex: 'temperature', key: 'temperature', width: 110, render: (v: number) => v?.toFixed(1) },
     { title: t('models.column.actions'), key: 'actions', width: 280, render: (_: any, record: ModelConfig) => (
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>{t('models.action.edit')}</Button>
@@ -196,31 +221,39 @@ export default function Models() {
             <Input placeholder={t('models.placeholder.name')} />
           </Form.Item>
           <Form.Item name="provider" label={t('models.column.provider')}>
-            <Select options={[
+            <Select onChange={(provider) => {
+              const presets: Record<string, string> = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', openrouter: 'https://openrouter.ai/api/v1' };
+              if (presets[provider]) form.setFieldValue('base_url', presets[provider]);
+              setModelOptions([]);
+            }} options={[
               { label: t('models.provider.openai'), value: 'openai' },
               { label: t('models.provider.deepseek'), value: 'deepseek' },
               { label: t('models.provider.openrouter'), value: 'openrouter' },
               { label: t('models.provider.custom'), value: 'custom' },
             ]} />
           </Form.Item>
-          <Form.Item name="base_url" label="Endpoint" rules={[{ required: true }]}>
-            <Input placeholder="https://api.deepseek.com" />
+          <Form.Item name="base_url" label={t('models.form.baseUrl')} extra={t('models.form.baseUrlHelp')} rules={[{ required: true }, { type: 'url' }]}>
+            <Input placeholder="https://api.openai.com/v1" onChange={() => { setModelOptions([]); setDiscoverMessage(''); }} />
           </Form.Item>
-          <Form.Item name="model_name" label={t('models.column.model')} rules={[{ required: true }]}>
-            <Input placeholder="deepseek-v4-flash" />
-          </Form.Item>
-          <Form.Item name="api_key" label={t('models.form.apiKey')}>
+          <Form.Item name="api_key" label={t('models.form.apiKey')} extra={t('models.form.keyHelp')}>
             <Input.Password placeholder={t('models.placeholder.apiKey')} />
           </Form.Item>
+          <Button loading={discoverLoading} onClick={() => void fetchModels()}>{t('models.form.fetchModels')}</Button>
+          {discoverMessage && <Alert style={{ marginTop: 8 }} type={modelOptions.length ? 'success' : 'warning'} message={discoverMessage} />}
+          <Form.Item name="model_name" label={t('models.column.model')} rules={[{ required: true }]}>
+            <AutoComplete options={modelOptions} placeholder={t('models.form.modelHelp')} filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())} />
+          </Form.Item>
+          <details><summary>{t('models.form.advanced')}</summary>
           <Form.Item name="api_key_env" label={t('models.form.apiKeyEnv')}>
             <Input placeholder={t('models.placeholder.apiKeyEnv')} />
           </Form.Item>
-          <Form.Item name="temperature" label="Temperature">
+          <Form.Item name="temperature" label={t('models.form.temperature')}>
             <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="max_tokens" label="Max Tokens">
+          <Form.Item name="max_tokens" label={t('models.form.maxTokens')}>
             <InputNumber min={1} max={32768} style={{ width: '100%' }} />
           </Form.Item>
+          </details>
         </Form>
       </Modal>
     </div>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from functools import lru_cache
 from typing import Any
@@ -12,8 +13,6 @@ from .. import config, database
 
 LOGGER = logging.getLogger(__name__)
 _SERVICE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
-_LOCAL_MASTER_KEY = Fernet.generate_key().decode()
-_warned_local_key = False
 
 
 class CredentialDecryptionError(RuntimeError):
@@ -28,18 +27,21 @@ def normalize_service(service: str) -> str:
 
 
 def _master_key() -> str:
-    global _warned_local_key
     if config.MASTER_KEY:
         return config.MASTER_KEY
     if config.APP_ENV == "production":
         raise RuntimeError("生产环境必须配置 MASTER_KEY")
-    if not _warned_local_key:
-        LOGGER.warning(
-            "Using ephemeral local credential key; encrypted credentials will not survive restart",
-            extra={"event": "credentials.master_key.ephemeral"},
-        )
-        _warned_local_key = True
-    return _LOCAL_MASTER_KEY
+    # Local installs keep the encryption key beside the ignored database, across restarts.
+    path = config.DB_PATH.parent / ".credential-key"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return path.read_text(encoding="ascii").strip()
+    with os.fdopen(descriptor, "w", encoding="ascii") as stream:
+        key = Fernet.generate_key().decode()
+        stream.write(key)
+    return key
 
 
 @lru_cache(maxsize=8)

@@ -107,6 +107,28 @@ async def test_credential_api_encrypts_and_never_returns_plaintext(credential_us
     assert model_secret not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_model_edit_retains_replaces_and_deletes_owned_key(credential_users):
+    client, auth, first_id, second_id = credential_users
+    created = await client.post("/api/models", headers=auth(first_id), json={
+        "name": "direct", "base_url": "https://model.test/v1/chat/completions/",
+        "model_name": "model", "api_key": "original-key",
+    })
+    assert created.status_code == 201
+    model_id = created.json()["id"]
+    assert created.json()["base_url"] == "https://model.test/v1"
+    path = f"/api/models/{model_id}"
+    assert (await client.put(path, headers=auth(second_id), json={"api_key": "other-key"})).status_code == 404
+    edited = await client.put(path, headers=auth(first_id), json={"api_key": "", "name": "renamed"})
+    assert edited.json()["credential_source"] == "stored"
+    assert await credential_store.get_credential(first_id, f"model:{model_id}") == "original-key"
+    edited = await client.put(path, headers=auth(first_id), json={"api_key": "replacement-key"})
+    assert "replacement-key" not in edited.text
+    assert await credential_store.get_credential(first_id, f"model:{model_id}") == "replacement-key"
+    assert (await client.delete(path, headers=auth(first_id))).status_code == 200
+    assert await credential_store.get_credential(first_id, f"model:{model_id}") is None
+
+
 def test_production_requires_valid_master_key(monkeypatch):
     monkeypatch.setattr(config, "APP_ENV", "production")
     monkeypatch.setattr(config, "MASTER_KEY", "")

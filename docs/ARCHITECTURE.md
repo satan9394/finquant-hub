@@ -196,7 +196,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 **实现位置**：`backend/app/routers/backtests.py` + `backend/app/backtest/ma_crossover.py`，组合回测复用 `backtest/portfolio.py`。
 
-BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；全应用 OpenAPI 为 135 路径、169 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
+BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；2026-09-07 新增模型列表发现接口后，全应用 OpenAPI 为 136 路径、170 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
 
 Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，解析工具文件保留；无外部引用的 `BacktestResultCard` 及其同名测试已在 BACKLOG-022 回收至回收站。
 
@@ -259,6 +259,7 @@ AIOS-064 提供离线维护 runner，以 SQLite backup API 从只读 source 创�
 ### 前端
 - **不存在每个服务的独立 API 客户端**：所有前端请求通过单一 `api.ts` 的 axios 实例。
 - **邮箱免密认证**：验证码 + HttpOnly Cookie 会话，无密码存储；42 张用户业务表强制 `user_id` 归属，`user_credentials` 也按用户隔离且使用 Fernet 加密。目录/系统表按设计共享。详见 `docs/ai/AUTH_DESIGN.md`。
+- **本地模型凭据**：直接输入的模型 Key 使用现有 `user_credentials` 的 `model:{id}`，不新增表或 schema 版本。显式 `MASTER_KEY` 优先；开发模式缺省时在数据库旁保存 `.credential-key` 以支持重启，生产模式仍要求显式主密钥。密钥文件需与数据库一起私下备份。
 - **本地单用户模式**：显式设置 `LOCAL_ONLY_MODE=true` 时，development 自动使用单一内部所有者，不创建登录会话、不提供邮箱验证码；production 启动会拒绝该开关。该模式仍保留 `user_id` 归属和凭据加密，只能通过绑定 `127.0.0.1` 的本地 Docker 入口使用。
 - **不存在服务端渲染**：纯 CSR，Vite 仅作开发代理和生产构建。
 

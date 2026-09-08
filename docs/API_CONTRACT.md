@@ -96,10 +96,19 @@
 |------|------|------|------|
 | `/api/models` | GET | 列出所有模型配置（API Key 不返回明文） | MVP |
 | `/api/models` | POST | 创建新模型配置 | MVP |
+| `/api/models/discover` | POST | 使用未保存表单地址及密钥拉取供应商 `/models` 列表 | UX-20260907 |
 | `/api/models/{id}` | PUT | 更新模型配置字段子集 | MVP |
 | `/api/models/{id}` | DELETE | 删除模型配置 | MVP |
 | `/api/models/{id}/test` | POST | 测试模型连通性，返回延迟和回复 | MVP |
 | `/api/models/{id}/set-default` | POST | 设为默认模型（互斥） | MVP |
+
+模型地址 `base_url` 为 HTTP(S) Base URL，允许粘贴 `/chat/completions` 完整地址并自动去掉该后缀；拒绝 URL 账号、查询参数、fragment。所有聊天（含工具与流式）统一归一化，避免二次拼接。
+
+创建/修改接受直接 `api_key`，加密写入现有 `user_credentials` 的 `model:{id}`；`api_key_env` 保留可选兼容。编辑时 Key 留空保留原值。响应只返回 `has_api_key/credential_source`，不回传密钥。无需 schema 迁移。
+
+`POST /api/models/discover` 请求 `{base_url, api_key?, api_key_env?, model_id?}`；仅复用当前用户拥有的 `model_id` 凭据。直接 Key 优先，其次已存 Key，再次环境变量。响应 `{ok, items: string[], message}`；上游不支持、空列表、无效响应或网络失败时返回 `ok:false` 与手动填写建议，不生成虚构模型。该操作不保存表单配置。
+
+测试接口保持 `{ok, latency_ms, message, reply?}`；上游失败在 `message` 内提供最多 300 字符的脱敏响应片段和中文建议（401/403 权限、404 地址或模型名、429 额度）。
 
 ---
 

@@ -1,12 +1,12 @@
-# Router Map — 22 APIRouter，169 个 OpenAPI 操作
+# Router Map — 22 APIRouter，170 个 OpenAPI 操作
 
-> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 135 个 `/api/*` 路径、169 个 HTTP 操作；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
+> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 136 个 `/api/*` 路径、170 个 HTTP 操作；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
 
 | Prefix | File | Stage |
 |--------|------|-------|
 | /api/auth | auth.py | 邮箱免密认证；local-only 模式下登录端点不可用 |
 | /api/me/credentials | credentials.py | 用户级加密凭据 |
-| /api/models | models_crud.py | MVP |
+| /api/models | models_crud.py | MVP + POST /discover 供应商模型列表（用户隔离） |
 | /api/agents | agents.py | MVP |
 | /api/chat | chat.py | MVP |
 | /api/discussion | discussion.py | MVP |

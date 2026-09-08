@@ -1,6 +1,6 @@
 """模型路由：按 ID / 默认配置解析出可调用的 LLMClient。
 
-API Key 解析优先级：数据库 api_key 字段 > 环境变量（api_key_env 指定的变量名）。
+API Key 解析优先级：用户加密凭据 > 旧数据库 api_key 字段 > 可选环境变量。
 """
 import os
 from typing import Any
@@ -38,7 +38,7 @@ async def get_client(model_id: int | None = None, *, user_id: int | None = None)
     if not api_key and cfg.get("api_key_env"):
         api_key = os.getenv(cfg["api_key_env"], "")
     if not api_key:
-        raise LLMError(f"模型「{cfg['name']}」未配置 API Key（数据库字段与环境变量 {cfg.get('api_key_env') or '-'} 均为空）")
+        raise LLMError(f"模型「{cfg['name']}」未配置 API Key，请在模型管理页粘贴供应商密钥并保存。")
     client = LLMClient(
         base_url=cfg["base_url"],
         api_key=api_key,

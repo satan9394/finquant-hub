@@ -38,7 +38,8 @@ class LLMClient:
     ):
         if context_budget < 256:
             raise ValueError("context_budget 不能小于 256")
-        self.base_url = base_url.rstrip("/")
+        # Accept pasted chat endpoints as well as provider base URLs, for every call path.
+        self.base_url = base_url.strip().rstrip("/").removesuffix("/chat/completions")
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
@@ -81,6 +82,32 @@ class LLMClient:
             trust_env=not bool(self.proxy_url),
         )
 
+    def _response_error(self, status: int, body: str) -> LLMError:
+        suggestion = {
+            401: "请检查 API Key 是否正确、有效。",
+            403: "请检查 API Key 的模型访问权限。",
+            404: "请核对 API 地址是否为供应商的 Base URL，以及模型名是否存在。",
+            429: "请检查账户额度或稍后重试。",
+        }.get(status, "请检查供应商服务状态后重试。")
+        snippet = body.replace(self.api_key, "[已隐藏]") if self.api_key else body
+        return LLMError(f"API 返回 {status}：{snippet[:300]}。{suggestion}")
+
+    async def list_models(self) -> list[str]:
+        """Discover only models actually returned by this OpenAI-compatible provider."""
+        try:
+            async with self._http_client() as http:
+                response = await http.get(f"{self.base_url}/models", headers=self._headers())
+            if response.status_code != 200:
+                raise self._response_error(response.status_code, response.text)
+            data = response.json()
+            items = data.get("data") if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                raise ValueError("invalid model list")
+            return sorted({item["id"] for item in items if isinstance(item, dict)
+                           and isinstance(item.get("id"), str) and item["id"].strip()})
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LLMError("无法读取模型列表，请核对 API 地址、网络连接或手动填写模型名。") from exc
+
     async def chat(self, messages: list[JSONDict]) -> tuple[str, int | None]:
         """非流式调用，返回 (全文, total_tokens)。"""
         url = f"{self.base_url}/chat/completions"
@@ -88,9 +115,9 @@ class LLMClient:
             async with self._http_client() as http:
                 resp = await http.post(url, json=self._payload(messages, False), headers=self._headers())
         except httpx.HTTPError as e:
-            raise LLMError(f"网络错误：{e}") from e
+            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
         if resp.status_code != 200:
-            raise LLMError(f"API 返回 {resp.status_code}：{resp.text[:300]}")
+            raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
         content = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage") or {}
@@ -119,9 +146,9 @@ class LLMClient:
             async with self._http_client() as http:
                 resp = await http.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as e:
-            raise LLMError(f"网络错误：{e}") from e
+            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
         if resp.status_code != 200:
-            raise LLMError(f"API 返回 {resp.status_code}：{resp.text[:300]}")
+            raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
@@ -166,9 +193,9 @@ class LLMClient:
             async with self._http_client() as http:
                 resp = await http.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as e:
-            raise LLMError(f"网络错误：{e}") from e
+            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
         if resp.status_code != 200:
-            raise LLMError(f"API 返回 {resp.status_code}：{resp.text[:300]}")
+            raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
@@ -317,7 +344,7 @@ class LLMClient:
                 ) as resp:
                     if resp.status_code != 200:
                         body = (await resp.aread()).decode("utf-8", "replace")
-                        raise LLMError(f"API 返回 {resp.status_code}：{body[:300]}")
+                        raise self._response_error(resp.status_code, body)
                     async for line in resp.aiter_lines():
                         if not line or not line.startswith("data:"):
                             continue
@@ -339,4 +366,4 @@ class LLMClient:
                             yield text
             record_llm_usage(self.model, usage)
         except httpx.HTTPError as e:
-            raise LLMError(f"网络错误：{e}") from e
+            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e

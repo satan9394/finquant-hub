@@ -1,11 +1,26 @@
 """Pydantic 请求模型（响应直接用 dict，见 API_CONTRACT.md）。"""
-from pydantic import BaseModel, Field
+from typing import Annotated
+from urllib.parse import urlsplit
+
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def validate_model_url(value: str) -> str:
+    value = value.strip().rstrip("/")
+    parsed = urlsplit(value)
+    _ = parsed.port  # Validate malformed/out-of-range ports before httpx is called.
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("请填写 http/https API 基础地址，不要包含账号、查询参数或锚点")
+    return value.removesuffix("/chat/completions")
+
+
+ModelBaseURL = Annotated[str, AfterValidator(validate_model_url)]
 
 
 class ModelConfigIn(BaseModel):
     name: str
     provider: str = "openai"
-    base_url: str
+    base_url: ModelBaseURL
     model_name: str
     api_key: str | None = None
     api_key_env: str | None = None
@@ -16,7 +31,7 @@ class ModelConfigIn(BaseModel):
 class ModelConfigUpdate(BaseModel):
     name: str | None = None
     provider: str | None = None
-    base_url: str | None = None
+    base_url: ModelBaseURL | None = None
     model_name: str | None = None
     api_key: str | None = None
     api_key_env: str | None = None
