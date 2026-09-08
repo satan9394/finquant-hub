@@ -3,8 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
-## 2026-09-07
-- **BACKLOG-035b（DSH Worker）——B9 挂载收口：LocalCapabilityBanner 接入 Dashboard 首屏 + E2E mock 同步**
+## 2026-09-11
+- **BACKLOG-040（DSH Worker）——Token 用量面板增强：按日趋势 + 会话级明细（对齐 CC Switch Usage Query）**
+  - What changed: `frontend/src/pages/Settings.tsx`（UsagePanel 汇总后新增「按日趋势」`<UsageTrendChart>` + 「按日」表后新增「用量明细」`<UsageRecordsPanel>`）；新增 `frontend/src/components/settings/UsageTrendChart.tsx`（复用 `useLightweightCharts.switchToArea`，`data-testid="usage-trend-chart"`，空态诚实占位，独立组件不抽象）、`frontend/src/components/settings/UsageRecordsPanel.tsx`（拉 `/api/usage/records?limit=50`，time/model/总量/会话 id，诚实空态）、`frontend/src/utils/usageChart.ts`（纯函数 `usageToAreaData`，无效日/非法总数丢弃不补造）；`backend/app/routers/usage.py`（新增 `GET /api/usage/records`：用户隔离、created_at DESC、limit 1-200、可选 session_type 过滤）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +11 key，2331 parity 0）；`frontend/tests/UsageComponents.test.tsx`（新 7 用例）+`frontend/tests/Settings.test.tsx`（用量 tab 渲染用例）+`backend/tests/test_usage_records.py`（新 httpx ASGI 确定性测试，用户隔离/newest-first/limit/session_type 过滤）。
+  - Why: 用户指令"token 消耗模块做好"+ 对齐 CC Switch Usage Query——Settings 用量区原只有汇总数字，补按日趋势可视化与会话级明细浏览。
+  - Docs updated: `docs/ai/tasks/BACKLOG-040.md`（新证据）、`docs/ai/BACKLOG-040.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`、`HANDOFF.md`。
+  - Verification: backend 870 passed cov 92.59%（基线 92.53%）、ruff 全过；build ✓；聚焦 UsageComponents 7/7 + Settings 4/4；全量 Vitest 127 files/407 tests；4173 E2E 50/50；8000 E2E 21/21（--retries=0）；i18n 2331/2331 parity 0；git diff --check 通过、删除 0、未 commit。
+  - Risk: low（展示层新增组件 + 新只读端点 + i18n + 确定性测试；未动 llm_usage 表/记录链路、未动 context.py、未加依赖、未改 E2E/playwright config、无删除）。诚实声明：新端点 `/api/usage/records` 属卡 §允许但 `docs/API_CONTRACT.md`/`docs/ROUTER_MAP.md` 不在卡 §允许清单，未改动，留维护者复核按 AGENTS.md doc-sync 补录。
   - What changed: `frontend/src/pages/Dashboard.tsx`（hero 后决策区前挂载 `{stats?.capabilities ? <LocalCapabilityBanner capabilities={stats.capabilities} onNavigate={navigate} /> : null}`——stats 就绪非 null 才首屏渲染、null/加载态不渲染不闪 banner；组件本身零改动，仅接线）；`frontend/e2e/dashboard.spec.ts`（`/api/dashboard/stats` mock 补 `capabilities` 字段：model_ai UNCONFIGURED + market_data RUNTIME_CHECK_REQUIRED/UNKNOWN，与后端契约 & types/index.ts:351-362 一致——仅加字段、既有断言零改动）；`frontend/tests/Dashboard.test.tsx`（新增整页渲染 describe +3：stats 含 capabilities → Banner 全可见；stats 悬挂 → 不渲染；market_data quality OK → 市场行隐藏 model 行保留）。
   - Why: BACKLOG-035 已把 Banner 扩展为 model_ai + market_data 双状态，但自 8a0be88 重构后从未挂载进 Dashboard 渲染区（仅导出+单测覆盖），用户首屏看不到 B9 首用引导——本卡授权挂载 + E2E mock 同步（测试夹具更新，非放宽断言）。
   - Docs updated: `docs/ai/tasks/BACKLOG-035b.md`（新证据）、`docs/ai/BACKLOG-035b.md`（[READY]→[DONE]）、`docs/ai/EXEC_PLAN.md`、`task/CHANGELOG.md`。

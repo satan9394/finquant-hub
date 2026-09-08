@@ -14,6 +14,8 @@ import SystemSettingsPanel from '../components/settings/SystemSettingsPanel';
 import FundamentalsSourcePanel from '../components/settings/FundamentalsSourcePanel';
 import ProfessionalPreferencesPanel from '../components/settings/ProfessionalPreferencesPanel';
 import { useLanguage } from '../i18n/LanguageContext';
+import UsageTrendChart from '../components/settings/UsageTrendChart';
+import UsageRecordsPanel from '../components/settings/UsageRecordsPanel';
 
 
 interface UsageSummary {
@@ -402,7 +404,9 @@ function UsagePanel() {
         <Col xs={12} lg={6}><Statistic title={t('settings.usage.output')} value={usage?.total.completion_tokens ?? 0} /></Col>
         <Col xs={12} lg={6}><Statistic title={t('settings.usage.requests')} value={usage?.total.request_count ?? 0} /></Col>
       </Row>
-      <Typography.Title level={5}>{t('settings.usage.byScenario')}</Typography.Title>
+      <Typography.Title level={5}>{t('settings.usage.trendTitle')}</Typography.Title>
+      <UsageTrendChart items={usage?.items ?? []} />
+      <Typography.Title level={5} style={{ marginTop: 20 }}>{t('settings.usage.byScenario')}</Typography.Title>
       <Table
         size="small"
         rowKey="session_type"
@@ -428,6 +432,9 @@ function UsagePanel() {
           { title: t('settings.usage.requestCount'), dataIndex: 'request_count' },
         ]}
       />
+      <div style={{ marginTop: 20 }}>
+        <UsageRecordsPanel />
+      </div>
     </Card>
   );
 }

@@ -42,6 +42,12 @@ vi.mock('../src/services/mcpApi', () => ({
   disconnectMCPServer: mocks.disconnect,
 }));
 
+vi.mock('../src/hooks/useLightweightCharts', () => ({
+  useLightweightCharts: () => ({
+    switchToArea: vi.fn(), clearAllSeries: vi.fn(), fitContent: vi.fn(),
+  }),
+}));
+
 const settings = {
   scheduler_enabled: false,
   scheduler_concurrency: 2,
@@ -136,4 +142,23 @@ describe('Settings configuration management', () => {
       expect(input?.value ?? '').toBe('');
     });
   }, 15_000);
+
+  test('usage tab renders the daily trend chart and session detail panel', async () => {
+    mocks.apiGet.mockResolvedValue({
+      data: {
+        days: 30,
+        items: [
+          { day: '2026-09-01', prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, request_count: 2 },
+        ],
+        total: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, request_count: 2 },
+        by_session_type: [{ session_type: 'research', total_tokens: 150, request_count: 2 }],
+      },
+    });
+    render(<Settings />);
+    fireEvent.click(screen.getByRole('tab', { name: 'LLM 用量' }));
+
+    expect(await screen.findByTestId('usage-trend-chart')).toBeTruthy();
+    expect(mocks.apiGet).toHaveBeenCalledWith('/usage', { params: { days: 30 } });
+    expect(mocks.apiGet).toHaveBeenCalledWith('/usage/records', { params: { limit: 50 } });
+  });
 });

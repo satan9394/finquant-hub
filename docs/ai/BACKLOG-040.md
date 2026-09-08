@@ -1,6 +1,6 @@
 # BACKLOG-040 — Token 用量面板增强（按日趋势 + 会话级明细，对齐 CC Switch Usage Query）
 
-> 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-08 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]`（代码完成待维护者复核合入）｜ 优先级：P2 ｜ 创建：2026-09-08 ｜ 完成：2026-09-11 ｜ 执行：DSH Worker
 > 背景：用户指令"token 消耗模块做好即可"+ 参考 CC Switch（farion1231/cc-switch）的 Usage Query 模块（用量查询/按计划展示/会话浏览）。现状核实（2026-09-08）：后端已有完整基础——`llm_usage` 表（prompt/completion/total_tokens + session_type/conversation_id + created_at）、`llm_usage.py`（set/reset context + record + lifespan flush）、`/api/usage`（按日/按 session_type 聚合，usage.py）、`context.py`（切分压缩）；前端 Settings.tsx:385 已调 `/usage?days=30` 显示汇总。**差距**：Settings 用量区只有汇总数字（UsageSummary），无按日趋势可视化、无会话级明细浏览——对齐 CC Switch 的"用量查询+会话浏览"补这两块。
 
 ## 目标
@@ -39,3 +39,10 @@
 - 全量门禁：build、Vitest、4173、8000
 - git diff --check、删除 0、未 commit
 ```
+
+## 完成证据（2026-09-11，DSH Worker，代码完成待维护者复核）
+- 前端用量区按日趋势（`data-testid="usage-trend-chart"`）+ 会话级明细面板；纯函数 `usageToAreaData` 映射 daily→AreaChartData。
+- 后端补 `GET /api/usage/records`（用户隔离/newest-first/limit/session_type 过滤）+ httpx ASGI 确定性测试。
+- i18n zh/en 各 2331 key parity 0。
+- 全量门禁：backend 870 passed cov 92.59%、ruff 全过、build ✓、全量 Vitest 127/407、聚焦 UsageComponents 7/7 + Settings 4/4、4173/8000 E2E 见任务卡。
+- git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-040.md`。

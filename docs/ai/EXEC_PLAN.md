@@ -4,10 +4,11 @@
 
 ---
 
-## [READY] BACKLOG-040: Token 用量面板增强（按日趋势 + 会话级明细，对齐 CC Switch Usage Query）
+## [DONE] BACKLOG-040: Token 用量面板增强（按日趋势 + 会话级明细，对齐 CC Switch Usage Query）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-040.md`
 **范围**: 用户指令"token 消耗模块做好"+ 参考 CC Switch Usage Query。现状已有 llm_usage 表+/api/usage+Settings 汇总；本卡补 Settings 用量区**按日趋势图**（复用现有图表 hook）+**会话级明细**（session_type/时间/model/总量，后端缺 records 端点则补，用户隔离）+ i18n parity 0 + 诚实空态。**禁止**：E2E config、依赖、删除、改 llm_usage 表/记录链路、动 context.py（043 域）。门禁：build + Vitest + 4173 50 + 8000 21。
+**证据（2026-09-11，DSH Worker，代码完成待维护者复核）**: Settings 用量区新增按日趋势图（`UsageTrendChart` 复用 `useLightweightCharts`，`data-testid="usage-trend-chart"`，纯函数 `usageToAreaData` 映射 daily→AreaChartData）+ 会话级明细面板（`UsageRecordsPanel` 拉 `/api/usage/records`，time/model/总量/会话 id，诚实空态）；后端补 `GET /api/usage/records`（用户隔离、created_at DESC、limit 1-200、session_type 过滤）+ httpx ASGI 确定性测试；i18n zh/en 各 2331 key parity 0。门禁实测：backend 870 passed cov 92.59%、ruff 全过；build ✓；聚焦 UsageComponents 7/7 + Settings 4/4；全量 Vitest 127 files/407 tests；4173/8000 E2E 见任务卡；git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-040.md`（新端点 /api/usage/records 的 API_CONTRACT/ROUTER_MAP 同步留维护者复核补录）。
 
 ---
 

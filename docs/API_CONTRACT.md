@@ -386,6 +386,7 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/usage?days=30&session_type=research` | GET | 查询 UTC 日期窗口内的 Token/请求数日聚合、总计和场景分组；`days` 范围 1-365，`session_type` 可省略 | 新增 |
+| `/api/usage/records?limit=50&session_type=research` | GET | 查询当前用户的会话级用量明细（时间倒序，含 model/总量/会话 id）；`limit` 1-200，`session_type` 可省略过滤 | 新增 |
 
 响应中的 `items` 为按日升序聚合，`total` 为窗口总计，`by_session_type` 为 `chat/research/swarm/discussion` 等调用场景汇总。用量写入采用 best-effort，不会因统计库写失败而改变已成功的模型响应。
 

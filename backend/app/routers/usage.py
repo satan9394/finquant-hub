@@ -53,3 +53,33 @@ async def get_usage(
         "total": total,
         "by_session_type": by_session_type,
     }
+
+
+@router.get("/records")
+async def get_usage_records(
+    user: CurrentUser,
+    limit: int = Query(default=50, ge=1, le=200),
+    session_type: str | None = Query(default=None, min_length=1, max_length=40),
+) -> dict[str, Any]:
+    """Return recent session-level LLM usage records for the current user.
+
+    Scoped to the authenticated user, newest first, bounded by ``limit``.
+    Optional ``session_type`` filters to a single scenario.
+    """
+    where = "user_id=?"
+    params: list[object] = [user["id"]]
+    if session_type:
+        where += " AND session_type = ?"
+        params.append(session_type)
+
+    items = await database.query_all(
+        "SELECT id, session_type, model_name, conversation_id, total_tokens, "
+        "prompt_tokens, completion_tokens, created_at "
+        f"FROM llm_usage WHERE {where} ORDER BY created_at DESC, id DESC LIMIT ?",
+        tuple(params + [limit]),
+    )
+    total = await database.query_one(
+        f"SELECT COUNT(*) AS count FROM llm_usage WHERE {where}",
+        tuple(params),
+    )
+    return {"items": items, "total": total["count"] if total else 0}
