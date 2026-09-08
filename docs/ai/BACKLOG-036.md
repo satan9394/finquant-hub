@@ -1,6 +1,6 @@
 # BACKLOG-036 — 模型管理后端契约重构（UX_ISSUES_20260907 问题一·后端）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-07 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]`（维护者复核 Codex 产物并合入，见 docs/ai/UX_FIX_EVIDENCE_20260907.md） ｜ 优先级：P1 ｜ 创建：2026-09-07 ｜ 完成：— ｜ 执行：DSH Worker
 > 背景：用户实测反馈（`docs/ai/UX_ISSUES_20260907.md` 问题一）+ 维护者代码根因核实（2026-09-07）：
 > - `model_configs.api_key_env` 存**环境变量名**（database.py L32），用户期望直接填 key 值。
 > - `llm_client.py:86/117/164` `url = f"{base_url}/chat/completions"`——用户填完整 endpoint 会被**二次拼接** → OpenAI 测试 404（HTML 响应）根因。

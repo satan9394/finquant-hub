@@ -4,28 +4,28 @@
 
 ---
 
-## [READY] BACKLOG-036: 模型管理后端契约重构（api_key 加密存 + URL 不二次拼接 + 拉模型列表 + 报错可行动）
+## [DONE] BACKLOG-036: 模型管理后端契约重构（api_key 加密存/URL 归一/拉模型列表，commit 97636bc）（api_key 加密存 + URL 不二次拼接 + 拉模型列表 + 报错可行动）
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-036.md`
 **范围**: UX_ISSUES_20260907 问题一后端。model_configs 加 api_key 列（Fernet 加密存，复用 credential_store；api_key_env 留兼容回退）；llm_client 拼接不二次（修 OpenAI 404）；新增 fetch-models 端点（GET {base}/models，失败诚实不 5xx）；test 端点报错含响应体+中文建议。**禁止**：前端（037）、E2E config、依赖、删除、明文 key 入日志/响应。门禁：backend 853+ cov 不降 + ruff；文档 API_CONTRACT/ARCHITECTURE SCHEMA 同步。
 
 ---
 
-## [READY] BACKLOG-037: 模型管理前端表单重排（直接填 key 值 + 拉模型按钮 + 报错可行动）
+## [DONE] BACKLOG-037: 模型管理前端表单重排（直接填 key/拉模型/报错可行动，commit 97636bc）（直接填 key 值 + 拉模型按钮 + 报错可行动）
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/BACKLOG-037.md` ｜ **依赖**: 036 先行合入
 **范围**: UX_ISSUES_20260907 问题一前端。Models.tsx 表单重排：名称/供应商预设/API 地址（中文帮助，base 与完整 Endpoint 双模式说明）/API Key 直接填值（password + has_api_key 不回显）/模型名 + 拉取列表按钮（调 fetch-models）/测试结果区可行动错误。i18n zh/en parity 0。**禁止**：后端、E2E config、依赖、删除。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
 
 ---
 
-## [READY] BACKLOG-038: 机会发现空态/自然语言/行业 + 涨停池术语外行可懂
+## [DONE] BACKLOG-038: 机会发现空态/自然语言/行业 + 涨停池术语（commit 39c1c61） + 涨停池术语外行可懂
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-038.md`
 **范围**: UX_ISSUES_20260907 问题二。Discover 无输入给默认推荐/引导（不空荡、不造假）、支持公司名/描述搜索、行业/概念分类（有据则接无据留注）；LimitPool 专业列（封单额/涨停统计等）加中文释义 tooltip 或改名 + 顶部"涨停/跌停"说明（复用 indicatorKnowledge 解释卡范式）。**禁止**：后端数据源新增、E2E config、依赖、删除、造假数据。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
 
 ---
 
-## [READY] BACKLOG-039: 导航冗余收口（研究模式入口合并）
+## [DONE] BACKLOG-039: 导航冗余收口（研究模式入口收敛，commit f43fefe）（研究模式入口合并）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-039.md`
 **范围**: UX_ISSUES_20260907 问题三。顶栏"研究模式"选择器与研究工作区入口合并：先定位现状组件，模式选择移入研究页内或收敛单主入口；旧路由/参数（/research、/research/:symbol、mode=*）兼容。**禁止**：后端、E2E config、依赖、删除、破坏旧路由。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。

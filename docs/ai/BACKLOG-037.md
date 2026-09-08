@@ -1,6 +1,6 @@
 # BACKLOG-037 — 模型管理前端表单重排（UX_ISSUES_20260907 问题一·前端）
 
-> 状态：`[READY]` ｜ 优先级：P1 ｜ 创建：2026-09-07 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]`（维护者复核 Codex 产物并合入，见 docs/ai/UX_FIX_EVIDENCE_20260907.md） ｜ 优先级：P1 ｜ 创建：2026-09-07 ｜ 完成：— ｜ 执行：DSH Worker
 > 依赖：BACKLOG-036（后端 api_key 字段 + fetch-models 端点）先行合入。
 > 背景：用户实测反馈（docs/ai/UX_ISSUES_20260907.md 问题一）：表单要求填"环境变量名"而非 key 值、Endpoint 字段语义混乱。本卡把 Models.tsx 表单重排为非技术中文用户可直接完成"填 key 用起来"。
 
