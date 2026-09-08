@@ -1,15 +1,15 @@
 # BACKLOG-042 — MCP 供应商兼容：补 stdio transport（本地 command+args+env，通用 MCP 客户端形态）
 
 > 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-08 ｜ 完成：— ｜ 执行：DSH Worker
-> 背景：用户指令"MCP 相关供应商兼容任何 MCP"+ 参考 CC Switch 统一 MCP 面板/通用 MCP 客户端。现状核实（2026-09-08）：后端 MCP 只支持 **HTTP（SSE）** transport——`mcp_server_configs` 表仅 `name/url`（database.py:203-211）、`mcp.py` 只 connect_http_mcp_server + HTTP CRUD/connect/disconnect；前端 `mcpApi.ts` 已预留 `transport: 'http' | 'stdio'` 类型但 create/update/config item 只发 url。**差距**：缺 stdio transport（本地 MCP 服务器 command + args + env，通用 MCP 客户端（Claude/CC Switch）的标准形态——大量本地 MCP 工具是 stdio 而非远程 HTTP）。
+> 背景：用户指令"MCP 相关供应商兼容任何 MCP"+ 参考 CC Switch 统一 MCP 面板/通用 MCP 客户端。现状核实（2026-09-08）：**MCP SDK（`mcp>=2,<3`）+ bridge 已支持 stdio**——`mcp_bridge.py` L11-12 import `StdioServerParameters`/`stdio_client`，`MCPServerConfig` L22-43 已支持 `url` 或 `command`（二选一校验），SDK stdio_client 实测可用。**缺口在"两端未接"**：`mcp_server_configs` 表只 `name/url`（database.py:203-211）、`mcp.py` create/update/connect 只收/发 url（connect_http_mcp_server only）、前端 `mcpApi.ts` 已预留 transport 'http'|'stdio' 但 create/config item 只发 url、`MCPServerSettingsPanel` 只 url 表单。**本卡只接通表/路由/前端，不重写 bridge/SDK。**
 
 ## 目标
 
-1. **表扩展**：`mcp_server_configs` 加列 `transport TEXT NOT NULL DEFAULT 'http'`、`command TEXT`、`args_json TEXT`（JSON 数组）、`env_json TEXT`（JSON 对象，可选，**不存敏感 env 明文**——如需存凭据用 credential 或标注）——手写增量迁移（SAVEPOINT 模式，`_SCHEMA_VERSION` 提升），旧行默认 http 兼容。
-2. **后端创建/更新**：`MCPServerCreate/Update` 支持 transport（http|stdio）；http 时校验 url、stdio 时校验 command（必填）+ args 数组；`validated_config()` 生成含 transport 的 config。
-3. **连接**：`mcp_runtime.py` 新增 stdio 连接（spawn command + args + env，走 MCP stdio protocol）；`connect_mcp_config` 按 transport 分派（http→connect_http、stdio→connect_stdio）。**零新依赖**——若项目已有 MCP SDK（检查 requirements/是否有 mcp client 库）则复用；若无则 stdio 连接用 asyncio 子进程 + 手动 MCP 协议（stdin/stdout JSON-RPC over stdio），并如实说明实现深度。
-4. **前端**：MCPServerSettingsPanel/mcpApi 支持 transport 切换（http 用 url 字段、stdio 用 command+args 字段组，env 可选）；新增字段中文提示（目标中文非技术用户）；config item transport 反映真实。
-5. **契约**：新端点/字段同步 API_CONTRACT/ROUTER_MAP；测试（确定性：表迁移、create/update 校验两 transport、connect 按 transport 分派 mock）。
+1. **表扩展**：`mcp_server_configs` 加列 `transport TEXT NOT NULL DEFAULT 'http'`、`command TEXT`、`args_json TEXT`（JSON 数组）、`env_json TEXT`（JSON 对象，可选，**不存敏感 env 明文**）——SAVEPOINT 增量迁移（`_SCHEMA_VERSION` 提升），旧行默认 http 兼容。
+2. **后端 create/update**：`MCPServerCreate/Update` 支持 transport（http|stdio）；http 校验 url、stdio 校验 command（必填）+ args 数组；`validated_config()` 生成含 transport 的 config 交给 bridge（bridge 的 MCPServerConfig 已支持 url/command 二选一，直接复用）。
+3. **connect 按 transport 分派**：`mcp_runtime.py` 按 config.command 有值则走 stdio（`stdio_client(StdioServerParameters(command=..., args=...))` 复用已有 string），否则 http（保留现状）；connect 端点按 transport 调。**零新依赖**（MCP SDK 已有）。
+4. **前端**：`MCPServerSettingsPanel`/`mcpApi` 支持 transport 切换（http url 组 / stdio command+args 组，env 可选）——中文提示（目标中文非技术用户）；config item transport 反映真实。
+5. **契约**：API_CONTRACT/ROUTER_MAP 同步；测试（表迁移/create/update 两 transport 校验/connect 分派 mock）。
 
 ## 允许修改
 - `backend/app/database.py`（mcp_server_configs 加列 + 迁移）、`backend/app/routers/mcp.py`、`backend/app/services/mcp_runtime.py`、`backend/app/tools/mcp_bridge.py`（若 config 结构变需同步）
