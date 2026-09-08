@@ -2,6 +2,12 @@
 
 > Harrison-style: no sugar, just signal. What works, what doesn't, what needs attention.
 
+## 2026-09-07 UX fixes (verification in progress)
+
+- Model setup: direct encrypted keys reused; Base URL/full chat URL normalization; unsaved provider model discovery; actionable redacted errors. No schema or dependency changes.
+- Local development without MASTER_KEY now persists the Fernet key at `backend/data/.credential-key` (beside the configured database). Back up this file with the database, keep it private, and never commit it. Explicit MASTER_KEY retains priority; production still requires it. Credentials encrypted with a previous process-only key must be saved again.
+- Deterministic tests and full gate evidence: `docs/ai/UX_FIX_EVIDENCE_20260907.md` (filled as each block finishes).
+
 ## 2026-08-08 Local Docker MVP
 
 - `docker-compose.local.yml` runs the built React frontend and FastAPI backend entirely in Docker at `http://127.0.0.1:5173`.

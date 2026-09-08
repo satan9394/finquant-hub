@@ -617,3 +617,10 @@
 - Docs updated: `CLAUDE.md`, `docs/HANDOVER.md`, `docs/ai/tasks/BACKLOG-028.md`, `docs/ai/EXEC_PLAN.md`, and `task/CHANGELOG.md`; known debt #1 is closed and BACKLOG-028 is DONE.
 - Verification: contract focus 57/57; backend 837/837 at 92.41% + Ruff; build 4,243 modules; Vitest 122/122 files and 374/374 tests; 8000 21/21 ×3 with retries 0 and proxy off/on/off; untouched 4173 E2E 50/50; i18n 2,274/2,274 with no duplicate/diff; final diff/scope/dependency/deletion gates passed.
 - Risk: low; unsupported segments now fail explicitly. No backend business file outside the two allowed services, frontend business file outside the five ticker-contract surfaces, existing 4173 E2E/config, Playwright config, dependency/lock file, reference file, or file deletion changed. No commit or push.
+
+## 2026-09-07 — UX 三块修复
+- What changed: 模型配置 `backend/app/{models.py,routers/models_crud.py,services/llm_client.py,services/model_router.py,services/credential_store.py}` 与 `frontend/src/pages/Models.tsx`；Discover 公司名/拼音与行业概念入口、LimitPool 术语说明；ModelSelector 全局模式收口、研究页内切换与中文默认。确定性回归见 UX_FIX_EVIDENCE_20260907.md。
+- Why: 非技术用户可直接填 Key、理解 API 地址、选择模型、理解涨跌停指标并从单一研究入口继续。
+- Docs updated: docs/API_CONTRACT.md、docs/ROUTER_MAP.md、docs/ARCHITECTURE.md、docs/HANDOVER.md、docs/ai/UX_FIX_EVIDENCE_20260907.md。
+- Verification: 最终门禁进行中，完成后以 UX_FIX_EVIDENCE_20260907.md 的最终结果为准。
+- Risk: medium；本地开发凭据主密钥改为持久化文件，需连同数据库私下备份。无 schema/依赖/E2E 配置变更，无文件删除。未 commit/push，按三块拆分提交。
