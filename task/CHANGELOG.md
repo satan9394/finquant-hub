@@ -11,6 +11,14 @@
   - Verification: backend ruff（app+tests）通过；test_mcp_transport 6 用例 + 迁移 2 场景（fresh / v24→25）经等价 driver 全绿（本会话委托沙箱下 pytest 进程化受 pytest tmp 目录枚举 WinError5 阻断，用 driver 等价覆盖）；frontend `tsc -b` 通过、openapi_tsgen `--check` fresh、i18n parity 0；`git diff --check` 通过、删除 0、单条 commit。
   - Risk: low（表迁移为幂等 ALTER + 独立 v25 SAVEPOINT，旧 http 行零影响；stdio env 列仅建列预留未接 UI/未存敏感值；未加依赖；未动 E2E/playwright config、模型/用量/context 域）。诚实声明：沙箱内 pytest/vite build/Vitest 进程化门禁未跑通（环境限制），建议维护者常规环境补跑 `backend pytest -q`、`bun run build`、`MCPServerSettingsPanel.test.tsx`；stdio 真启外部进程端到端未测。
 
+## 2026-09-13（主指挥会话收尾——Token 上限根因复盘 + BACKLOG-042 门禁补跑）
+- **What changed（记忆/纪律）**：新建 `memory/MAIN_SESSION_TOKEN_DISCIPLINE.md`（上一主会话 session-4fc2a0d7 反复触发 max-tokens 的根因诊断：①子代理隔离的是"它的推导"而非"进出它的文本"——工作证明/send_message/指令/todo 全表永久留主会话；②最大单项开销是"系统提示+工具 schema 每请求重发"（实测约 130KB×30 次≈3.9MB，占会话总量近 1/4）；③auto-compact 只是安全网，累积超压缩即周期性掐断；④大件逗留）+ 6 条纪律（子代理只回短证明、日志只留路径+摘要+指针、状态先落盘再前进、goal objective 一句话、阶段性 commit+复盘、大件切片/先摘要）+ 进主会话/必须落盘对照清单；新建 `memory/README.md` 索引。
+- **Why**: 用户指示"记录日志+自动压缩不能这样搞，要自己反馈经验"——把根因与后续词记录纪律沉淀为长期记忆，而非依赖自动压缩。
+- **BACKLOG-042 门禁补跑（指挥验收）**：上一条诚实声明"沙箱内未跑通"的 3 项，指挥在 danger-full-access 环境补跑全部通过：`pytest backend/tests/test_mcp_transport.py` **6/6 passed**（2.18s，-p no:cacheprovider）；`bun run build` **exit 0**（48.36s，全量 dist 产出）；i18n parity 0 已在子代理侧确认。残留临时目录 `backend/.tmp-pytest/`、`backend/.dsh-bt-816b76ff/` 已回收站清理。commit `ed02b20`（BACKLOG-042 16 文件）已验收；工作树仅剩 `memory/` 待提交。
+- **Docs updated**: `memory/`（新建）、`task/CHANGELOG.md`、`HANDOFF.md`。
+- **Verification**: BACKLOG-042 门禁补跑全绿（6/6 + build exit 0）；git status 干净（除 memory/）；BACKLOG-042 卡与 EXEC_PLAN 已 [DONE]。
+- **Risk**: low；纯文档/记忆变更 + 既有提交验收，无业务代码改动。
+
 ## 2026-09-11
 - **BACKLOG-041（DSH Worker）——模型供应商预设模板库：独立模块 + 扩常用供应商（CC Switch 式）**
   - What changed: 新增 `frontend/src/features/modelPresets.ts`（`MODEL_PRESETS` 8 项 = 现有 3 国际 openai/deepseek/openrouter + 新增 5 国内 dashscope/glm/kimi/doubao/siliconflow，`{id,labelKey,baseUrl,remarkKey?}` + `presetBaseUrl(id)`，纯数据零依赖）；`frontend/src/pages/Models.tsx`（provider Select 选项与 base_url 自动填充改用模块，删除内联 presets 对象，custom 保留且不自动填逻辑不变）；`frontend/src/i18n/zh.ts`+`en.ts`（各 +5 key：models.provider.dashscope/glm/kimi/doubao/siliconflow，2336 parity 0）；新增 `frontend/tests/modelPresets.test.ts`（6 用例：3 国际预设 base_url 断言/新增 ≥5 国内存在/结构完整+合法 http(s)/id 唯一/labelKey zh+en 均有/未知 id 返回 undefined）+ `frontend/tests/ModelsForm.test.tsx`（+1 provider 切换自动填 base_url 用例：DeepSeek/通义千问/硅基流动自动填 + custom 不覆盖手动值）。
