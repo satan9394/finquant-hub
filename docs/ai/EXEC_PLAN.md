@@ -4,6 +4,27 @@
 
 ---
 
+## [READY] BACKLOG-045: 使用统计详情模块（对齐 CC Switch Usage：范围选择 + 汇总卡 + 维度统计表）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-045.md` ｜ **依赖**: BACKLOG-044（费用列）
+**范围**: 用户质问"使用统计详情做了没有"——核实只做了极小子集（UsageTrendChart 1.4KB + UsageRecordsPanel 3.1KB + 固定 days=30），CC Switch `src/components/usage/` 有 7 个组件。本卡补：日期范围选择器（预设 7/30/90 + 自定义，后端 start/end 兼容 days）+ 汇总卡 UsageHero（总 token/调用次数/日均/最活跃模型/费用）+ 维度统计表（按模型 + 会话类型聚合可排序）+ 既有两组件零回归。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、动 044 计价域、E2E config、删除、臆造数据。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+
+---
+
+## [READY] BACKLOG-044: 计价模块（全新：模型单价配置 + 按 token 估算费用，对齐 CC Switch Pricing）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-044.md`
+**范围**: 用户质问"计价模块做了没有"——核实**完全为零**（llm_usage 只有 token，无任何 cost/price 字段）。CC Switch 有 `usage/PricingConfigPanel.tsx`+`PricingEditModal.tsx`+`lib/modelsDevPricing.ts`+`src-tauri/src/services/model_pricing.rs`。本卡从零建：`model_pricing` 表（SAVEPOINT 迁移 + `_SCHEMA_VERSION` 提升）+ CRUD 端点（用户隔离/校验）+ `/api/usage/cost` 费用估算（缺单价诚实 unpriced 不猜价）+ Settings 计价面板与编辑弹窗 + 用量区显示估算费用 + 契约同步。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、E2E config、臆造单价、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+
+---
+
+## [READY] BACKLOG-043: 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-043.md`
+**范围**: 用户质问"供应商模块做了没有"——核实**没有**（只有 36 行 8 条静态预设 + 简单表单）。CC Switch 有 `components/providers/` 12 文件 + `components/universal/` 3 文件 + `src/config/` 12 个预设文件。本卡补：预设库 8→≥15（每条 base_url 官方直证，拿不准不加）+ 供应商卡片管理 UI（列表/新增/编辑/删除/启停）+ 健康状态徽章（三态+最后检查时间）+ 分组预设选择器 + i18n/测试。**禁止**：加依赖、E2E config、臆造 base_url、改 036/037 契约、动用量/计价/context/MCP 域、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+
+---
+
 ## [DONE] BACKLOG-042: MCP 供应商兼容——补 stdio transport（本地 command+args+env）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-042.md`
@@ -16,7 +37,7 @@
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-041.md`
 **范围**: 用户指令"模型模块做好"+ CC Switch 预设精神。现状 Models.tsx 有内联 3 预设（openai/deepseek/openrouter）。本卡新建 `frontend/src/features/modelPresets.ts` 预设库（保留 3 + 扩国内常用 ≥5：通义/智谱/Kimi/豆包/硅基流动等，base_url 全部核实，拿不准宁可不加）+ Models.tsx 改用模块（custom 保留）+ i18n + 测试。**禁止**：后端、E2E config、依赖、删除、臆造 base_url。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
-**证据（2026-09-11，DSH Worker，代码完成待维护者复核）**: 新增 `frontend/src/features/modelPresets.ts`（`MODEL_PRESETS` 8 项 = 现有 3 国际 openai/deepseek/openrouter + 新增 5 国内 dashscope/glm/kimi/doubao/siliconflow，base_url 逐一核实——siliconflow/kimi/glm 官方文档直证，dashscope 官方 compatible-mode 路径 + CC Switch 参考项目预设交叉核实，doubao 官方「Base URL 及鉴权」页客户端渲染经 CC Switch 预设交叉核实；百度千帆因未能当场核实**未加入**，诚实声明）；Models.tsx provider Select 选项与 base_url 自动填充改用模块（删内联 presets），custom 保留且不自动填逻辑不变；i18n zh/en +5 key 各 2336 parity 0；新增 modelPresets.test.ts 6 用例 + ModelsForm.test.tsx +1 provider 切换自动填用例。门禁实测：build ✓；聚焦 10/10；全量 Vitest 128 files/414 tests（基线 127/407）；4173 E2E 50/50；8000 E2E 21/21；git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-041.md`。
+**证据（2026-09-11，DSH Worker，代码完成待维护者复核；2026-09-13 来源声明更正）**: 新增 `frontend/src/features/modelPresets.ts`（`MODEL_PRESETS` 8 项 = 现有 3 国际 openai/deepseek/openrouter + 新增 5 国内 dashscope/glm/kimi/doubao/siliconflow，base_url 逐一核实——siliconflow/kimi/glm 官方文档直证；**dashscope/doubao 原声称"经 CC Switch 预设交叉核实"已撤回**：2026-09-13 只读核实 CC Switch 源码，其 `src/config/piProviderPresets.ts` 无 doubao、全仓无 dashscope/DouBaoSeed 预设，且当时实际只读过其 GitHub README 未读源码，该两端点仅表述为生态公认值；百度千帆因未能当场核实**未加入**，诚实声明）；Models.tsx provider Select 选项与 base_url 自动填充改用模块（删内联 presets），custom 保留且不自动填逻辑不变；i18n zh/en +5 key 各 2336 parity 0；新增 modelPresets.test.ts 6 用例 + ModelsForm.test.tsx +1 provider 切换自动填用例。门禁实测：build ✓；聚焦 10/10；全量 Vitest 128 files/414 tests（基线 127/407）；4173 E2E 50/50；8000 E2E 21/21；git diff --check 通过、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-041.md`。
 
 ---
 

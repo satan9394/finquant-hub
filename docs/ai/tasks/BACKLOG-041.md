@@ -19,13 +19,13 @@
 | openai | models.provider.openai | https://api.openai.com/v1 | 既有预设保留（原内联值） |
 | deepseek | models.provider.deepseek | https://api.deepseek.com | 既有预设保留（原内联值） |
 | openrouter | models.provider.openrouter | https://openrouter.ai/api/v1 | 既有预设保留（原内联值） |
-| dashscope | models.provider.dashscope | https://dashscope.aliyuncs.com/compatible-mode/v1 | 阿里云百炼官方 OpenAI 兼容文档（compatible-mode/v1 路径）+ CC Switch 参考项目 pi 预设同值 |
+| dashscope | models.provider.dashscope | https://dashscope.aliyuncs.com/compatible-mode/v1 | 阿里云百炼官方 OpenAI 兼容文档（compatible-mode/v1 路径）。⚠️ 原写"CC Switch 参考项目 pi 预设同值"**已撤回**（2026-09-13 核实：CC Switch 无 dashscope 预设） |
 | glm | models.provider.glm | https://open.bigmodel.cn/api/paas/v4 | 智谱官方 docs.bigmodel.cn openai-sdk 页代码 `base_url="https://open.bigmodel.cn/api/paas/v4/"`（尾斜杠后端 llm_client 已 rstrip 归一） |
 | kimi | models.provider.kimi | https://api.moonshot.cn/v1 | 月之暗面官方 platform.moonshot.cn docs（curl 示例 `https://api.moonshot.cn/v1/chat/completions` + OpenAI 客户端 base_url 同值） |
-| doubao | models.provider.doubao | https://ark.cn-beijing.volces.com/api/v3 | 火山方舟官方文档「Base URL 及鉴权」（客户端渲染未能直取文本，取 CC Switch 参考项目 pi 预设 DouBaoSeed 同值 + 生态公认 OpenAI 兼容端点） |
+| doubao | models.provider.doubao | https://ark.cn-beijing.volces.com/api/v3 | 火山方舟官方文档「Base URL 及鉴权」。⚠️ 原写"取 CC Switch 参考项目 pi 预设 DouBaoSeed 同值"**已撤回**（2026-09-13 核实：CC Switch 无 doubao/DouBaoSeed 预设） |
 | siliconflow | models.provider.siliconflow | https://api.siliconflow.cn/v1 | 硅基流动官方 docs.siliconflow.cn 快速上手页代码 `base_url="https://api.siliconflow.cn/v1"` |
 
-**诚实声明**：所有新增 base_url 均有官方文档或参考项目（CC Switch）来源，未臆造。百度千帆（qianfan）因官方文档为 JS 客户端渲染未能当场核实准确端点，**未加入**（遵守"拿不准宁可不加"纪律）；火山方舟官方「Base URL 及鉴权」页同样为客户端渲染，但该端点经 CC Switch（本卡参考项目）preset 交叉核实。dashscope 新版官方文档展示的是业务空间级 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，经典默认空间端点 `https://dashscope.aliyuncs.com/compatible-mode/v1` 仍为官方兼容模式标准端点且与 CC Switch 预设一致，故采用经典值。
+**诚实声明（2026-09-13 更正）**：原"诚实声明"称"所有新增 base_url 均有官方文档或参考项目（CC Switch）来源"，其中 **dashscope 与 doubao 两行的"CC Switch pi 预设交叉核实"来源声明不成立，予以撤回**。核实方式与结论：只读核查 CC Switch 源码 `E:\DeepSeek_Harness\workspace\2026_08_17\cc-switch-src`（Tauri + React/TS，v3.16.x）——`src/config/piProviderPresets.ts` 仅含 Kimi/PackyCode/ZetaAPI/APINebula/AICodeMirror/FennoAI，**无 doubao**；全仓（含 docs）搜 `doubao|DouBaoSeed|volces` 只命中 release-notes 的模型计价条目 "Doubao Seed" 与 v3.15.0 新增供应商 "Volcengine Agentplan"，**无 DouBaoSeed 预设**；全仓搜 `dashscope|aliyuncs` 只命中 release-notes 的 usage 解析条目，**无 dashscope 预设**。此外本次核实发现：当时"参考 CC Switch"实际只经 web_fetch 读其 GitHub README，**从未读取其源码**。保留结论：glm/kimi/siliconflow 三行有官方文档直证；openai/deepseek/openrouter 为原内联既有值；dashscope/doubao 端点值为生态公认正确端点，但**其来源仅能表述为"生态公认/官方文档未能直取"，不再声称经 CC Switch 交叉核实**。百度千帆（qianfan）仍按"拿不准宁可不加"未加入。
 
 ## i18n parity
 - zh/en 各 2336 key，差集 0、重复 0（新增 5 key 一一对应）。
