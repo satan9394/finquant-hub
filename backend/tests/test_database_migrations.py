@@ -33,7 +33,8 @@ async def test_legacy_research_and_backtest_tickers_are_normalized(tmp_path, mon
         version = await (await database.get_db().execute("PRAGMA user_version")).fetchone()
         assert version[0] == database._SCHEMA_VERSION
         history = await database.query_all("SELECT version, name FROM schema_version ORDER BY version")
-        assert history == [
+        # v1..v24 是已固化的历史迁移：名字或顺序被改动、迁移被删除/跳号，都必须失败。
+        expected_history = [
             {"version": 1, "name": "normalize_legacy_tickers"},
             {"version": 2, "name": "install_memory_fts"},
             {"version": 3, "name": "install_notifications"},
@@ -59,6 +60,14 @@ async def test_legacy_research_and_backtest_tickers_are_normalized(tmp_path, mon
             {"version": 23, "name": "install_job_runtime"},
             {"version": 24, "name": "install_schema_cleanup"},
         ]
+        # v25 起从生产常量派生，避免每加一个版本就要改测试；但每个版本必须真的落库，
+        # 且必须在 _MIGRATION_NAMES 中登记（跳号/漏登记会 KeyError 或断言失败）。
+        expected_history += [
+            {"version": applied_version, "name": database._MIGRATION_NAMES[applied_version]}
+            for applied_version in range(25, database._SCHEMA_VERSION + 1)
+        ]
+        assert history == expected_history
+        assert history[-1]["version"] == database._SCHEMA_VERSION
         notification_table = await database.query_one(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='notifications'"
         )
@@ -568,7 +577,13 @@ async def test_job_runtime_migration_creates_pre_v23_backup_and_append_only_even
     await database.init_db()
     try:
         version = await (await database.get_db().execute("PRAGMA user_version")).fetchone()
-        assert version[0] == database._SCHEMA_VERSION == 24
+        assert version[0] == database._SCHEMA_VERSION
+        assert version[0] >= database._JOB_RUNTIME_VERSION
+        # v23 迁移必须被记录（不是只把 user_version 推到最新）
+        recorded = await database.query_one(
+            "SELECT name FROM schema_version WHERE version=?", (database._JOB_RUNTIME_VERSION,)
+        )
+        assert recorded == {"name": "install_job_runtime"}
         assert backup_path.exists()
         columns = await database.query_all("PRAGMA table_info(scheduled_research_runs)")
         assert {"idempotency_key", "lease_owner", "lease_expires_at", "heartbeat_at"} <= {
@@ -629,7 +644,13 @@ async def test_schema_cleanup_migration_creates_pre_v24_backup_and_drops_legacy_
     await database.init_db()
     try:
         version = await (await database.get_db().execute("PRAGMA user_version")).fetchone()
-        assert version[0] == database._SCHEMA_VERSION == 24
+        assert version[0] == database._SCHEMA_VERSION
+        assert version[0] >= database._SCHEMA_CLEANUP_VERSION
+        # v24 清理迁移必须被记录（不能只把 user_version 推到最新而跳过迁移）
+        recorded = await database.query_one(
+            "SELECT name FROM schema_version WHERE version=?", (database._SCHEMA_CLEANUP_VERSION,)
+        )
+        assert recorded == {"name": "install_schema_cleanup"}
         assert backup_path.exists()
         for table in ("portfolio_groups", "portfolio_items", "portfolio_trades"):
             row = await database.query_one(

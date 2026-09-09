@@ -1670,15 +1670,17 @@ class TestSettingsAndMCPConfiguration:
 
         connected: set[str] = set()
 
-        async def connect(name: str, url: str) -> int:
-            assert url.startswith("https://")
-            connected.add(name)
+        async def connect(config) -> int:
+            # HTTP 配置必须走 http 分派：有 url、无 command
+            assert config.command is None, "HTTP 服务器不应按 stdio 分派"
+            assert config.url.startswith("https://")
+            connected.add(config.name)
             return 3
 
         def remove(name: str) -> None:
             connected.discard(name)
 
-        monkeypatch.setattr(mcp_router, "connect_http_mcp_server", connect)
+        monkeypatch.setattr(mcp_router, "connect_mcp_server", connect)
         monkeypatch.setattr(mcp_router, "remove_mcp_server", remove)
         monkeypatch.setattr(mcp_router, "is_mcp_server_connected", connected.__contains__)
 
@@ -1727,13 +1729,13 @@ class TestSettingsAndMCPConfiguration:
         )
         restored: list[str] = []
 
-        async def connect(name: str, url: str) -> int:
-            if name == "broken":
+        async def connect(config) -> int:
+            if config.name == "broken":
                 raise TimeoutError("deadline")
-            restored.append(f"{name}:{url}")
+            restored.append(f"{config.name}:{config.url}")
             return 2
 
-        monkeypatch.setattr(mcp_runtime, "connect_http_mcp_server", connect)
+        monkeypatch.setattr(mcp_runtime, "connect_mcp_server", connect)
         await mcp_runtime.restore_enabled_mcp_servers()
 
         assert restored == ["working:https://working.example.test/mcp"]
@@ -1743,3 +1745,9 @@ class TestSettingsAndMCPConfiguration:
         )
         assert failed["is_enabled"] == 1
         assert failed["last_error"] == "TimeoutError: deadline"
+        # 失败服务器不得影响成功服务器：成功项必须被恢复且 last_error 清空
+        working = await database.query_one(
+            "SELECT is_enabled, last_error FROM mcp_server_configs WHERE name='working'"
+        )
+        assert working["is_enabled"] == 1
+        assert working["last_error"] is None
