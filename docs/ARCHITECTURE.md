@@ -54,7 +54,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 │  ToolRegistry 单例 + BaseTool 抽象基类                  │
 ├─────────────────────────────────────────────────────────┤
 │                     数据层                                │
-│  aiosqlite 单连接 + WAL + schema v24（49 张逻辑表）       │
+│  aiosqlite 单连接 + WAL + schema v26（50 张逻辑表）       │
 │  database.query_one/query_all/execute 直接 SQL 调用     │
 ├─────────────────────────────────────────────────────────┤
 │                     外部API                               │
@@ -247,7 +247,7 @@ AIOS-064 提供离线维护 runner，以 SQLite backup API 从只读 source 创�
 ### 数据库层
 - **不存在 ORM**：所有数据库操作为原生 SQL，没有 SQLAlchemy 或其他 ORM 层。
 - **不存在连接池**：`aiosqlite` 单连接，`get_db()` 断言全局 `_db` 不为 None。
-- **不存在 ORM 建模入口**：schema v24 的 49 张逻辑表由 `database.py` 的 `SCHEMA` 与集中迁移步骤创建，仍通过原生 SQL 管理；其中 `memory_fts` 是 FTS5 虚拟表。
+- **不存在 ORM 建模入口**：schema v26 的 50 张逻辑表由 `database.py` 的 `SCHEMA` 与集中迁移步骤创建，仍通过原生 SQL 管理；其中 `memory_fts` 是 FTS5 虚拟表。
 - **不存在外部迁移框架**：`_migrate_schema()` 按 `PRAGMA user_version` 顺序执行显式迁移；简单变更使用 `ALTER TABLE`，需要调整唯一约束时重建目标表。
 
 ### 服务层
@@ -432,7 +432,7 @@ Router → ticker.py → MarketDataService → 腾讯API
    - 方案：明确 canonical ticker 与 provider symbol 的边界，避免路由层新增第四套转换。
 
 2. **维持集中建表的版本化迁移纪律**
-   - 49 张逻辑表已集中到 `database.py`；当前目标 schema version 为 24，迁移入口仍是 `_migrate_schema()`。
+   - 50 张逻辑表已集中到 `database.py`；当前目标 schema version 为 26，迁移入口仍是 `_migrate_schema()`。
    - 方案：继续保持单入口，并为不可逆结构变化引入显式 schema version 步骤。
 
 3. **维持 SSE 可观测性纪律**
@@ -535,7 +535,11 @@ Router → ticker.py → MarketDataService → 腾讯API
 ### 8.8 投研证据与 LLM 用量闭环
 
 - **13 章基本面证据（TASK-014）**：Swarm 在 DAG 启动时通过统一 `InstrumentService.fundamentals()` 单次拉取，向各 Agent 注入原始字段，并由报告构建器确定性填充财务概览、盈利、成长、偿债和现金流章节。每条事实保留 provider/as-of/period；无法取得的章节继续使用 `unknown`。Yahoo 只从同口径原始字段派生毛利率、净利率与资产负债率，并公开组成字段。
-- **LLM 用量持久化（TASK-015）**：Chat Completions 的每个真实上游请求写一条 `llm_usage`，工具循环不追加汇总行以避免重复计数；ContextVar 为 chat/research/swarm/discussion 传播场景与业务 ID。写入异步 best-effort，应用退出前 drain；`GET /api/usage` 提供有界 UTC 日聚合。该表不承担计费账单或用户授权语义。
+- **LLM 用量持久化（TASK-015）**：Chat Completions 的每个真实上游请求写一条 `llm_usage`，工具循环不追加汇总行以避免重复计数；ContextVar 为 chat/research/swarm/discussion 传播场景与业务 ID。写入异步 best-effort，应用退出前 drain；`GET /api/usage` 提供有界 UTC 日聚合。该表不承担计费账单或用户授权语义；费用只由 `model_pricing` 在读取时派生（见 §2.13）。
+
+### 2.13 模型单价与费用估算（BACKLOG-044）
+
+`model_pricing`（schema v26）按 `(user_id, model_name)` 存 owner-scoped 单价：`input_per_1m`/`output_per_1m`（每 100 万 tokens 金额，≥ 0 且有限）、`currency`（仅展示字段，不做汇率换算）、`source`（固定 `manual`）与 `updated_at`。`/api/model-pricing` 提供列表/新增/更新/删除（非本 owner 行一律 404，同 owner 重复模型名 409）。费用是**派生值**：`GET /api/usage/cost` 与 `GET /api/usage/records` 用 `llm_usage` 的 token × 单价在读取时计算，不写回用量表、不改记录链路。未配置单价的模型返回 `priced: false` 与 `estimated_cost: null`（绝不返回 0 冒充免费），并单独汇总 `unpriced_models`/`unpriced_total_tokens`；多币种只按币种分组、不合并也不换算。本机**不内置任何单价**——无官方定价页直证时不臆造数字，只提供手工配置入口。
 
 ### 8.8 回测执行与验证（9.3 已完成）
 

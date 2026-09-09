@@ -273,7 +273,8 @@ _PAPER_PORTFOLIO_VERSION = 22
 _JOB_RUNTIME_VERSION = 23
 _SCHEMA_CLEANUP_VERSION = 24
 _MCP_STDIO_VERSION = 25
-_SCHEMA_VERSION = _MCP_STDIO_VERSION
+_MODEL_PRICING_VERSION = 26
+_SCHEMA_VERSION = _MODEL_PRICING_VERSION
 _OWNER_TABLES = (
     "model_configs", "conversations", "messages", "discussion_rooms",
     "research_reports", "research_events", "research_workspaces",
@@ -289,6 +290,7 @@ _OWNER_TABLES = (
     "product_metric_preferences", "product_metric_events",
     "paper_portfolios", "paper_portfolio_ledger",
     "scheduled_research_run_events",
+    "model_pricing",
 )
 _MIGRATION_NAMES = {
     _TICKER_NORMALIZATION_VERSION: "normalize_legacy_tickers",
@@ -316,6 +318,7 @@ _MIGRATION_NAMES = {
     _JOB_RUNTIME_VERSION: "install_job_runtime",
     _SCHEMA_CLEANUP_VERSION: "install_schema_cleanup",
     _MCP_STDIO_VERSION: "install_mcp_stdio_transport",
+    _MODEL_PRICING_VERSION: "install_model_pricing",
 }
 
 
@@ -698,6 +701,19 @@ async def _migrate_schema() -> None:
             await _db.execute("RELEASE SAVEPOINT install_mcp_stdio_transport")
             raise
         version = _MCP_STDIO_VERSION
+
+    if version < _MODEL_PRICING_VERSION:
+        await _db.execute("SAVEPOINT install_model_pricing")
+        try:
+            await _install_model_pricing()
+            await _db.execute(f"PRAGMA user_version={_MODEL_PRICING_VERSION}")
+            await _record_schema_version(_MODEL_PRICING_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_model_pricing")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_model_pricing")
+            await _db.execute("RELEASE SAVEPOINT install_model_pricing")
+            raise
+        version = _MODEL_PRICING_VERSION
 
     # Existing databases already tracked only PRAGMA user_version; backfill their audit trail.
     for applied_version in range(1, min(version, _SCHEMA_VERSION) + 1):
@@ -2161,6 +2177,36 @@ async def _install_mcp_stdio_transport() -> None:
         except Exception:
             # Column already exists (fresh schema or repeated init) — ignore.
             pass
+
+
+async def _install_model_pricing() -> None:
+    """schema v26 (BACKLOG-044): per-owner model unit prices.
+
+    Stores only user-maintained prices (``source='manual'``); no built-in price
+    is seeded because no official pricing page has been verified for this
+    project's models. ``llm_usage`` keeps storing tokens only — cost is derived
+    on read from this table.
+    """
+    await _db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS model_pricing (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL,
+            model_name    TEXT NOT NULL CHECK (length(trim(model_name)) > 0),
+            input_per_1m  REAL NOT NULL DEFAULT 0 CHECK (input_per_1m >= 0),
+            output_per_1m REAL NOT NULL DEFAULT 0 CHECK (output_per_1m >= 0),
+            currency      TEXT NOT NULL DEFAULT 'CNY' CHECK (length(trim(currency)) > 0),
+            source        TEXT NOT NULL DEFAULT 'manual'
+                          CHECK (source IN ('manual', 'builtin')),
+            updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (user_id, model_name)
+        )
+        """
+    )
+    await _db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_pricing_user_model "
+        "ON model_pricing(user_id, model_name)"
+    )
 
 
 async def claim_unowned_data(user_id: int) -> None:

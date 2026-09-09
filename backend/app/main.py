@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, database
 from .middleware.security import SecurityMiddleware
-from .routers import agents, alerts, analysis as analysis_router, auth, backtests, chat, credentials, dashboard, discussion, instruments, market, mcp as mcp_router, models_crud, notifications, portfolio as portfolio_router, research, screening, settings, swarm, thesis, usage, wq
+from .routers import agents, alerts, analysis as analysis_router, auth, backtests, chat, credentials, dashboard, discussion, instruments, market, mcp as mcp_router, model_pricing, models_crud, notifications, portfolio as portfolio_router, research, screening, settings, swarm, thesis, usage, wq
 from .services.market_data import MarketDataService
 from .services.logging import configure_logging
 from .services.auth import ensure_local_user
@@ -136,7 +136,8 @@ app.include_router(auth.router)
 for r in (credentials.router, models_crud.router, agents.router, chat.router, discussion.router, market.router, dashboard.router,
           analysis_router.router, portfolio_router.router, wq.router, research.router, screening.router,
           instruments.router, backtests.router, swarm.router, notifications.router,
-          alerts.router, mcp_router.router, settings.router, usage.router, thesis.router):
+          alerts.router, mcp_router.router, settings.router, usage.router, thesis.router,
+          model_pricing.router):
     app.include_router(r, dependencies=[Depends(auth.authenticated_context)])
 
 

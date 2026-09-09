@@ -184,6 +184,13 @@ export interface ModelDiscoveryIn {
   model_id?: number | null;
 }
 
+export interface ModelPricingInput {
+  model_name: string;
+  input_per_1m: number;
+  output_per_1m: number;
+  currency?: string;
+}
+
 export interface MonitorTargetInput {
   target_type: "thesis" | "portfolio" | "strategy";
   target_id: number;

@@ -1,9 +1,10 @@
-import { Alert, Button, Card, Empty, Spin, Table, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Spin, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useLanguage } from '../../i18n/LanguageContext';
 import apiClient from '../../services/api';
+import { formatCost } from '../../services/usageApi';
 
 export interface UsageRecord {
   id: number;
@@ -14,6 +15,10 @@ export interface UsageRecord {
   completion_tokens: number;
   total_tokens: number;
   created_at: string;
+  /** 后端按 owner 单价换算的估算费用；无单价时 false 且 estimated_cost 为 null。 */
+  priced?: boolean;
+  currency?: string | null;
+  estimated_cost?: number | null;
 }
 
 function formatTime(value?: string): string {
@@ -52,6 +57,12 @@ export default function UsageRecordsPanel({ limit = 50 }: { limit?: number }) {
     { title: t('settings.usage.records.time'), dataIndex: 'created_at', render: formatTime },
     { title: t('settings.usage.records.model'), dataIndex: 'model_name', render: (v?: string | null) => v || '-' },
     { title: t('settings.usage.records.total'), dataIndex: 'total_tokens' },
+    {
+      title: t('settings.usage.cost.estimated'),
+      key: 'estimated_cost',
+      render: (_value, record) =>
+        record.priced ? formatCost(record.estimated_cost, record.currency) : <Tag>{t('settings.usage.cost.unpriced')}</Tag>,
+    },
     { title: t('settings.usage.records.conversation'), dataIndex: 'conversation_id', render: (v?: number | null) => (v == null ? '-' : `#${v}`) },
   ];
 

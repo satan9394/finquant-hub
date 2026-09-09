@@ -388,13 +388,29 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
 | `/api/usage?days=30&session_type=research` | GET | 查询 UTC 日期窗口内的 Token/请求数日聚合、总计和场景分组；`days` 范围 1-365，`session_type` 可省略 | 新增 |
-| `/api/usage/records?limit=50&session_type=research` | GET | 查询当前用户的会话级用量明细（时间倒序，含 model/总量/会话 id）；`limit` 1-200，`session_type` 可省略过滤 | 新增 |
+| `/api/usage/records?limit=50&session_type=research` | GET | 查询当前用户的会话级用量明细（时间倒序，含 model/总量/会话 id）；`limit` 1-200，`session_type` 可省略过滤；每条另带 `priced`/`currency`/`estimated_cost` | 新增 |
+| `/api/usage/cost?days=30&session_type=research` | GET | 按 owner 配置的模型单价估算费用：逐模型返回 token 汇总、单价来源与 `estimated_cost`；`days` 1-365 | 新增 |
 
 响应中的 `items` 为按日升序聚合，`total` 为窗口总计，`by_session_type` 为 `chat/research/swarm/discussion` 等调用场景汇总。用量写入采用 best-effort，不会因统计库写失败而改变已成功的模型响应。
 
+`/api/usage/cost` 与 `/api/usage/records` 的费用字段都是**派生值**（token × `model_pricing` 单价），不写回 `llm_usage`。未配置单价的模型返回 `priced: false`、`estimated_cost: null`（绝不返回 0 冒充免费），并计入 `total.unpriced_models` / `total.unpriced_total_tokens` / `total.unpriced_model_names`。币种只作展示字段、不做汇率换算：`total.cost_by_currency` 按币种分组，只有全部已计价模型币种一致时才填 `total.currency` 与 `total.estimated_cost`，否则 `mixed_currency: true` 且两者为 `null`。
+
 ---
 
-## 21. 投资论文 `/api/thesis`
+## 21. 模型单价 `/api/model-pricing`
+
+| 路径 | 方法 | 功能 | 阶段 |
+|------|------|------|------|
+| `/api/model-pricing` | GET | 列出当前用户的模型单价（按 model_name 升序，只返回本 owner 行） | 新增 |
+| `/api/model-pricing` | POST | 新增单价；`model_name` 非空、`input_per_1m`/`output_per_1m` ≥ 0 且有限、`currency` 非空（默认 `CNY`）；同 owner 重复 `model_name` 返回 409 | 新增 |
+| `/api/model-pricing/{id}` | PUT | 更新本 owner 的单价；非本 owner 或不存在返回 404，改名撞同 owner 已有模型返回 409 | 新增 |
+| `/api/model-pricing/{id}` | DELETE | 删除本 owner 的单价；非本 owner 或不存在返回 404 | 新增 |
+
+`model_pricing` 唯一键为 `(user_id, model_name)`，因此不同用户可以各自为同一个模型名配置不同单价。写入的 `source` 固定为 `manual`：**本机不内置任何模型单价**（无官方定价页直证时不臆造数字），币种仅作展示、不做汇率换算。
+
+---
+
+## 22. 投资论文 `/api/thesis`
 
 | 路径 | 方法 | 功能 |
 |------|------|------|
@@ -443,8 +459,9 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 19 | `/api/alerts` | alerts.py | 0 | 8 |
 | 20 | `/api/mcp` | mcp.py | 0 | 8 |
 | 21 | `/api/settings` | settings.py | 0 | 12 |
-| 22 | `/api/usage` | usage.py | 0 | 1 |
+| 22 | `/api/usage` | usage.py | 0 | 3 |
 | 23 | `/api/thesis` | thesis.py | 0 | 14 |
-| | **合计** | | **39** | **125** |
+| 24 | `/api/model-pricing` | model_pricing.py | 0 | 4 |
+| | **合计** | | **39** | **131** |
 
-合计为 22 个 APIRouter 加 1 个内联健康检查，运行时生成 135 个 `/api/*` 路径、169 个 HTTP 操作。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 139 个 `/api/*` 路径、175 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。

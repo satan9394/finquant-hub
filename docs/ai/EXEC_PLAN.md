@@ -19,10 +19,11 @@
 
 ---
 
-## [READY] BACKLOG-044: 计价模块（全新：模型单价配置 + 按 token 估算费用，对齐 CC Switch Pricing）
+## [DONE] BACKLOG-044: 计价模块（全新：模型单价配置 + 按 token 估算费用，对齐 CC Switch Pricing）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-044.md`
 **范围**: 用户质问"计价模块做了没有"——核实**完全为零**（llm_usage 只有 token，无任何 cost/price 字段）。CC Switch 有 `usage/PricingConfigPanel.tsx`+`PricingEditModal.tsx`+`lib/modelsDevPricing.ts`+`src-tauri/src/services/model_pricing.rs`。本卡从零建：`model_pricing` 表（SAVEPOINT 迁移 + `_SCHEMA_VERSION` 提升）+ CRUD 端点（用户隔离/校验）+ `/api/usage/cost` 费用估算（缺单价诚实 unpriced 不猜价）+ Settings 计价面板与编辑弹窗 + 用量区显示估算费用 + 契约同步。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、E2E config、臆造单价、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: schema v26 `model_pricing`（`_MODEL_PRICING_VERSION=26` + SAVEPOINT `install_model_pricing` + `_OWNER_TABLES` 追加；v25 库补建实测，`llm_usage` 记录零改动）+ `/api/model-pricing` CRUD（owner 隔离 404、同 owner 重复 409、422 校验非空模型名/非负有限单价/非空币种）+ `/api/usage/cost` 与 records 派生费用（缺价 `priced:false`+`estimated_cost:null` 绝不返回 0；`cost_by_currency` 分币种、混合币种合计 null、不做汇率换算）+ Settings 用量区计价面板/编辑弹窗（step 0.0001、min 0）/费用段/明细费用列；**无内置单价**（无官方定价页直证，仅手工配置入口，UI 与文档如实声明）；CC Switch file:line 引用表 16 条（含 3 处有意分歧：显式 409 替代静默 upsert、formatCost 保留极小非零、读取时派生不回填）；唯一键 `(user_id, model_name)` 而非字面「唯一 model_name」（为满足用户隔离，已在 API_CONTRACT §21 说明）。门禁：backend **888 passed / 0 failed，覆盖率 92.62%**（基线 876/92.57%）；ruff exit 0；build exit 0；聚焦 Vitest 15 passed；全量 Vitest 133 files/451 passed；4173 E2E 50/50；8000 E2E 21/21；i18n 2415/2415 parity 0；`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-044.md`。
 
 ---
 

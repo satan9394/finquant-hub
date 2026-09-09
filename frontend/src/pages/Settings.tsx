@@ -16,6 +16,8 @@ import ProfessionalPreferencesPanel from '../components/settings/ProfessionalPre
 import { useLanguage } from '../i18n/LanguageContext';
 import UsageTrendChart from '../components/settings/UsageTrendChart';
 import UsageRecordsPanel from '../components/settings/UsageRecordsPanel';
+import PricingConfigPanel from '../components/settings/PricingConfigPanel';
+import { fetchUsageCost, formatCost, type UsageCostResponse } from '../services/usageApi';
 
 
 interface UsageSummary {
@@ -377,8 +379,10 @@ function CredentialPanel() {
 function UsagePanel() {
   const { t } = useLanguage();
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [cost, setCost] = useState<UsageCostResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [costError, setCostError] = useState('');
 
   const loadUsage = useCallback(async () => {
     setLoading(true);
@@ -393,10 +397,27 @@ function UsagePanel() {
     }
   }, []);
 
-  useEffect(() => { loadUsage(); }, [loadUsage]);
+  const loadCost = useCallback(async () => {
+    setCostError('');
+    try {
+      setCost(await fetchUsageCost(30));
+    } catch (reason: unknown) {
+      setCostError(reason instanceof Error ? reason.message : t('settings.usage.cost.loadFailed'));
+    }
+  }, [t]);
+
+  useEffect(() => { void loadUsage(); void loadCost(); }, [loadUsage, loadCost]);
+
+  const costTotal = cost?.total;
+  // 诚实展示：有单价才给金额；多币种不换算；无单价明确写「未配置单价」。
+  const costLabel = costTotal?.currency
+    ? formatCost(costTotal.estimated_cost, costTotal.currency)
+    : costTotal?.mixed_currency
+      ? t('settings.usage.cost.mixedCurrency')
+      : t('settings.usage.cost.none');
 
   return (
-    <Card title={t('settings.usage.title')} loading={loading} extra={<Button onClick={loadUsage}>{t('settings.refresh')}</Button>}>
+    <Card title={t('settings.usage.title')} loading={loading} extra={<Button onClick={() => { void loadUsage(); void loadCost(); }}>{t('settings.refresh')}</Button>}>
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
         <Col xs={12} lg={6}><Statistic title={t('settings.usage.total')} value={usage?.total.total_tokens ?? 0} /></Col>
@@ -432,6 +453,46 @@ function UsagePanel() {
           { title: t('settings.usage.requestCount'), dataIndex: 'request_count' },
         ]}
       />
+      <Typography.Title level={5} style={{ marginTop: 20 }}>{t('settings.usage.cost.title')}</Typography.Title>
+      {costError ? <Alert type="error" showIcon message={costError} style={{ marginBottom: 12 }} /> : null}
+      <Row gutter={[16, 16]} style={{ marginBottom: 12 }}>
+        <Col xs={12} lg={8}><Statistic title={t('settings.usage.cost.total')} value={costLabel} data-testid="usage-cost-total" /></Col>
+        <Col xs={12} lg={8}><Statistic title={t('settings.usage.cost.unpricedModels')} value={costTotal?.unpriced_models ?? 0} /></Col>
+        <Col xs={12} lg={8}><Statistic title={t('settings.usage.cost.unpricedTokens')} value={costTotal?.unpriced_total_tokens ?? 0} /></Col>
+      </Row>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+        {t('settings.usage.cost.currencyNote')}
+      </Typography.Paragraph>
+      {cost && cost.items.length === 0 ? (
+        <Empty description={t('settings.usage.cost.empty')} />
+      ) : (
+        <Table
+          size="small"
+          rowKey={(record) => `${record.model_name ?? ''}`}
+          pagination={false}
+          dataSource={cost?.items ?? []}
+          data-testid="usage-cost-table"
+          columns={[
+            { title: t('settings.usage.cost.model'), dataIndex: 'model_name', render: (value: string | null) => value || t('settings.usage.cost.unknownModel') },
+            { title: t('settings.usage.input'), dataIndex: 'prompt_tokens' },
+            { title: t('settings.usage.output'), dataIndex: 'completion_tokens' },
+            {
+              title: t('settings.usage.cost.unitPrice'),
+              key: 'unit_price',
+              render: (_value, record) => (record.priced ? `${record.input_per_1m} / ${record.output_per_1m} ${record.currency}` : '-'),
+            },
+            {
+              title: t('settings.usage.cost.estimated'),
+              key: 'estimated_cost',
+              render: (_value, record) =>
+                record.priced ? formatCost(record.estimated_cost, record.currency) : <Tag>{t('settings.usage.cost.unpriced')}</Tag>,
+            },
+          ]}
+        />
+      )}
+      <div style={{ marginTop: 20 }}>
+        <PricingConfigPanel onChanged={() => void loadCost()} />
+      </div>
       <div style={{ marginTop: 20 }}>
         <UsageRecordsPanel />
       </div>

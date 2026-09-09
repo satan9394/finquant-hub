@@ -1,6 +1,6 @@
-# Router Map — 22 APIRouter，170 个 OpenAPI 操作
+# Router Map — 23 APIRouter，175 个 OpenAPI 操作
 
-> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 136 个 `/api/*` 路径、170 个 HTTP 操作；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
+> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 139 个 `/api/*` 路径、175 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
 
 | Prefix | File | Stage |
 |--------|------|-------|
@@ -27,5 +27,6 @@ Dashboard endpoint additions: `GET /api/dashboard/news`（综合财经搜索，�
 | /api/alerts | alerts.py | New（技术信号规则 + Thesis/Portfolio/Strategy monitor 草稿/显式确认） |
 | /api/mcp | mcp.py | New（已发现服务器/工具目录 + 运行时启停；http 远程与 stdio 本地 command 两种 transport） |
 | /api/settings | settings.py | New + AIOS-060（安全系统配置 + 带 lease/事件/恢复语义的 5 字段 cron 研究 job/run lineage + owner-local 产品指标） |
-| /api/usage | usage.py | New（LLM token 按日/场景聚合 + 会话级用量明细 records，只读） |
+| /api/usage | usage.py | New（LLM token 按日/场景聚合 + 会话级用量明细 records + 按 owner 单价估算费用 cost，只读） |
+| /api/model-pricing | model_pricing.py | New（owner-scoped 模型单价 CRUD；无内置单价，缺价一律 unpriced） |
 | /api/thesis | thesis.py | New（投资论文 CRUD、不可变版本 diff、追加式用户确认、claim-evidence 时间边、Challenge、evidence-aware 漂移核验、验证实验 intent、持久化复盘流与私有只读 share preview） |
