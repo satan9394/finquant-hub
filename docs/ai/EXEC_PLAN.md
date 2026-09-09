@@ -12,10 +12,11 @@
 
 ---
 
-## [READY] BACKLOG-045: 使用统计详情模块（对齐 CC Switch Usage：范围选择 + 汇总卡 + 维度统计表）
+## [DONE] BACKLOG-045: 使用统计详情模块（对齐 CC Switch Usage：范围选择 + 汇总卡 + 维度统计表）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-045.md` ｜ **依赖**: BACKLOG-044（费用列）
 **范围**: 用户质问"使用统计详情做了没有"——核实只做了极小子集（UsageTrendChart 1.4KB + UsageRecordsPanel 3.1KB + 固定 days=30），CC Switch `src/components/usage/` 有 7 个组件。本卡补：日期范围选择器（预设 7/30/90 + 自定义，后端 start/end 兼容 days）+ 汇总卡 UsageHero（总 token/调用次数/日均/最活跃模型/费用）+ 维度统计表（按模型 + 会话类型聚合可排序）+ 既有两组件零回归。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、动 044 计价域、E2E config、删除、臆造数据。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 范围选择 `UsageDateRangePicker.tsx`（预设 7/30/90 + 自定义起止 + 应用/非法本地报错不发请求）+ 后端 `resolve_range()`/`parse_iso_date()`（`start`/`end` 与 `days` 并存，半参/倒置/格式错/跨度>366 一律 400，响应回显解析后的 start/end/days）+ 汇总卡 `UsageHero.tsx` + `buildUsageHero()` 纯函数（总 token/输入/输出/调用次数/日均/窗口天数/最活跃模型/费用，费用**复用 044** `cost_status`，缺价「未配置单价」、混合币种不换算、断言不出现 `CNY 0`）+ 新增 `GET /api/usage/stats?dimension=model|session_type`（每行 token/次数/占比/`cost_status`，按会话类型维度逐模型折算出 partial 诚实态）+ `UsageStatsTable.tsx` 六列、其中五列可排序（`sortUsageStatsRows()` 纯函数，未知费用恒排末尾）+ `usageRange.ts`/`usageStats.ts` 纯函数 + 新增测试（后端 `test_usage_range.py` 21 例、前端 `UsageDetail.test.tsx` 19 例含 Settings 集成用例）；**零回归**：`UsageTrendChart.tsx`/`UsageRecordsPanel.tsx` 零 diff，`UsageComponents.test.tsx` 7/7、`Settings.test.tsx` 4/4（断言未改）、`PricingConfigPanel.test.tsx` 8/8 全绿；契约同步 API_CONTRACT（+`/api/usage/stats`、窗口参数与 400 明细、usage.py 0/3→0/4、139/175→140/176）+ ROUTER_MAP；i18n +24 key **2439/2439 parity 0**；CC Switch file:line 引用表 15 条（含 2 处诚实出入：参考目录实为 14 文件且无 UsageFooter/UsageScriptModal、CC Switch 用量表本身不带排序）。门禁：backend **909 passed / 0 failed，覆盖率 92.67%**（基线 888/92.62%）；ruff exit 0；build ✓（4261 modules）；聚焦 Vitest 38 passed；全量 Vitest **134 files/470 passed**（基线 133/451）；4173 E2E **50/50**；8000 E2E **21/21**；`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-045.md`。
 
 ---
 

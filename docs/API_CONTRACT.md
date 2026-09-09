@@ -387,11 +387,16 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 
 | 路径 | 方法 | 功能 | 阶段 |
 |------|------|------|------|
-| `/api/usage?days=30&session_type=research` | GET | 查询 UTC 日期窗口内的 Token/请求数日聚合、总计和场景分组；`days` 范围 1-365，`session_type` 可省略 | 新增 |
+| `/api/usage?days=30&session_type=research` | GET | 查询 UTC 日期窗口内的 Token/请求数日聚合、总计和场景分组；`days` 范围 1-365，`session_type` 可省略；可用 `start`/`end`（`YYYY-MM-DD`，闭区间，必须成对）替代 `days` | 新增 |
 | `/api/usage/records?limit=50&session_type=research` | GET | 查询当前用户的会话级用量明细（时间倒序，含 model/总量/会话 id）；`limit` 1-200，`session_type` 可省略过滤；每条另带 `priced`/`currency`/`estimated_cost` | 新增 |
-| `/api/usage/cost?days=30&session_type=research` | GET | 按 owner 配置的模型单价估算费用：逐模型返回 token 汇总、单价来源与 `estimated_cost`；`days` 1-365 | 新增 |
+| `/api/usage/cost?days=30&session_type=research` | GET | 按 owner 配置的模型单价估算费用：逐模型返回 token 汇总、单价来源与 `estimated_cost`；`days` 1-365，同样支持 `start`/`end` | 新增 |
+| `/api/usage/stats?dimension=model&days=30` | GET | 维度聚合：`dimension=model`（按模型）或 `session_type`（按会话类型），每行含调用次数/输入输出 token/费用派生字段；`days` 或 `start`/`end` 二选一 | 新增 |
 
 响应中的 `items` 为按日升序聚合，`total` 为窗口总计，`by_session_type` 为 `chat/research/swarm/discussion` 等调用场景汇总。用量写入采用 best-effort，不会因统计库写失败而改变已成功的模型响应。
+
+**窗口参数（BACKLOG-045）**：`days` 保持向后兼容（近 N 天，含今天，UTC）；`start`/`end` 为闭区间 UTC 日期，必须成对出现。非法输入一律诚实 400：格式不是 `YYYY-MM-DD`（`invalid start/end: expected YYYY-MM-DD`）、只给一端（`start and end must be provided together`）、起止倒置（`start must not be after end`）、跨度超过 366 天（`range must not exceed 366 days`）。响应回显解析后的 `start`/`end` 与真实 `days`（自定义范围时为区间天数），前端据此显示"当前窗口"，不自行推算日期。
+
+**维度统计（BACKLOG-045）**：`/api/usage/stats` 的每一行都带 `cost_status`——`priced`（该行所有模型都有单价）、`partial`（部分模型缺单价）、`mixed_currency`（已计价模型跨币种，不给单一合计）、`unpriced`（全无单价）、`none`（窗口内无数据）；同时给出 `priced_models`/`unpriced_models`/`unpriced_total_tokens`/`cost_by_currency`。`total` 由各行的 token/请求数直接求和、费用再聚合，因此与 `/api/usage/cost` 的总额口径一致。
 
 `/api/usage/cost` 与 `/api/usage/records` 的费用字段都是**派生值**（token × `model_pricing` 单价），不写回 `llm_usage`。未配置单价的模型返回 `priced: false`、`estimated_cost: null`（绝不返回 0 冒充免费），并计入 `total.unpriced_models` / `total.unpriced_total_tokens` / `total.unpriced_model_names`。币种只作展示字段、不做汇率换算：`total.cost_by_currency` 按币种分组，只有全部已计价模型币种一致时才填 `total.currency` 与 `total.estimated_cost`，否则 `mixed_currency: true` 且两者为 `null`。
 
@@ -459,9 +464,9 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 19 | `/api/alerts` | alerts.py | 0 | 8 |
 | 20 | `/api/mcp` | mcp.py | 0 | 8 |
 | 21 | `/api/settings` | settings.py | 0 | 12 |
-| 22 | `/api/usage` | usage.py | 0 | 3 |
+| 22 | `/api/usage` | usage.py | 0 | 4 |
 | 23 | `/api/thesis` | thesis.py | 0 | 14 |
 | 24 | `/api/model-pricing` | model_pricing.py | 0 | 4 |
-| | **合计** | | **39** | **131** |
+| | **合计** | | **39** | **132** |
 
-合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 139 个 `/api/*` 路径、175 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 140 个 `/api/*` 路径、176 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。

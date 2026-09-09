@@ -17,30 +17,16 @@ import { useLanguage } from '../i18n/LanguageContext';
 import UsageTrendChart from '../components/settings/UsageTrendChart';
 import UsageRecordsPanel from '../components/settings/UsageRecordsPanel';
 import PricingConfigPanel from '../components/settings/PricingConfigPanel';
-import { fetchUsageCost, formatCost, type UsageCostResponse } from '../services/usageApi';
+import UsageDateRangePicker from '../components/settings/UsageDateRangePicker';
+import UsageHero from '../components/settings/UsageHero';
+import UsageStatsTable from '../components/settings/UsageStatsTable';
+import {
+  fetchUsageCost, fetchUsageStats, fetchUsageSummary, formatCost,
+  type UsageCostResponse, type UsageDimension, type UsageStatsResponse, type UsageSummaryResponse,
+} from '../services/usageApi';
+import { DEFAULT_USAGE_RANGE, usageRangeParams, type UsageRange } from '../utils/usageRange';
+import { buildUsageHero } from '../utils/usageStats';
 
-
-interface UsageSummary {
-  days: number;
-  items: Array<{
-    day: string;
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    request_count: number;
-  }>;
-  total: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    request_count: number;
-  };
-  by_session_type: Array<{
-    session_type: string;
-    total_tokens: number;
-    request_count: number;
-  }>;
-}
 
 interface CredentialStatus {
   service: string;
@@ -378,35 +364,44 @@ function CredentialPanel() {
 
 function UsagePanel() {
   const { t } = useLanguage();
-  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [range, setRange] = useState<UsageRange>(DEFAULT_USAGE_RANGE);
+  const [usage, setUsage] = useState<UsageSummaryResponse | null>(null);
   const [cost, setCost] = useState<UsageCostResponse | null>(null);
+  const [modelStats, setModelStats] = useState<UsageStatsResponse | null>(null);
+  const [sessionStats, setSessionStats] = useState<UsageStatsResponse | null>(null);
+  const [dimension, setDimension] = useState<UsageDimension>('model');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [costError, setCostError] = useState('');
+  const [statsError, setStatsError] = useState('');
 
-  const loadUsage = useCallback(async () => {
+  // One window drives every panel: presets use the legacy `days` parameter,
+  // a custom range pins explicit UTC dates. Failures stay per-section so a
+  // broken cost rollup cannot blank the trend chart.
+  const loadAll = useCallback(async () => {
+    const params = usageRangeParams(range);
     setLoading(true);
     setError('');
-    try {
-      const response = await apiClient.get<UsageSummary>('/usage', { params: { days: 30 } });
-      setUsage(response.data);
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : t('settings.usage.loadFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadCost = useCallback(async () => {
     setCostError('');
-    try {
-      setCost(await fetchUsageCost(30));
-    } catch (reason: unknown) {
-      setCostError(reason instanceof Error ? reason.message : t('settings.usage.cost.loadFailed'));
-    }
-  }, [t]);
+    setStatsError('');
+    const [usageResult, costResult, modelResult, sessionResult] = await Promise.allSettled([
+      fetchUsageSummary(params),
+      fetchUsageCost(params),
+      fetchUsageStats('model', params),
+      fetchUsageStats('session_type', params),
+    ]);
+    if (usageResult.status === 'fulfilled') setUsage(usageResult.value);
+    else setError(usageResult.reason instanceof Error ? usageResult.reason.message : t('settings.usage.loadFailed'));
+    if (costResult.status === 'fulfilled') setCost(costResult.value);
+    else setCostError(costResult.reason instanceof Error ? costResult.reason.message : t('settings.usage.cost.loadFailed'));
+    if (modelResult.status === 'fulfilled') setModelStats(modelResult.value);
+    else setStatsError(modelResult.reason instanceof Error ? modelResult.reason.message : t('settings.usage.stats.loadFailed'));
+    if (sessionResult.status === 'fulfilled') setSessionStats(sessionResult.value);
+    else setStatsError(sessionResult.reason instanceof Error ? sessionResult.reason.message : t('settings.usage.stats.loadFailed'));
+    setLoading(false);
+  }, [range, t]);
 
-  useEffect(() => { void loadUsage(); void loadCost(); }, [loadUsage, loadCost]);
+  useEffect(() => { void loadAll(); }, [loadAll]);
 
   const costTotal = cost?.total;
   // 诚实展示：有单价才给金额；多币种不换算；无单价明确写「未配置单价」。
@@ -415,17 +410,35 @@ function UsagePanel() {
     : costTotal?.mixed_currency
       ? t('settings.usage.cost.mixedCurrency')
       : t('settings.usage.cost.none');
+  const hero = buildUsageHero({ usage, cost, stats: modelStats });
 
   return (
-    <Card title={t('settings.usage.title')} loading={loading} extra={<Button onClick={() => { void loadUsage(); void loadCost(); }}>{t('settings.refresh')}</Button>}>
+    <Card
+      title={t('settings.usage.title')}
+      loading={loading && !usage}
+      extra={<Button onClick={() => void loadAll()}>{t('settings.refresh')}</Button>}
+    >
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
-      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-        <Col xs={12} lg={6}><Statistic title={t('settings.usage.total')} value={usage?.total.total_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title={t('settings.usage.input')} value={usage?.total.prompt_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title={t('settings.usage.output')} value={usage?.total.completion_tokens ?? 0} /></Col>
-        <Col xs={12} lg={6}><Statistic title={t('settings.usage.requests')} value={usage?.total.request_count ?? 0} /></Col>
-      </Row>
-      <Typography.Title level={5}>{t('settings.usage.trendTitle')}</Typography.Title>
+      <div style={{ marginBottom: 16 }}>
+        <UsageDateRangePicker
+          value={range}
+          onChange={setRange}
+          windowStart={usage?.start}
+          windowEnd={usage?.end}
+          disabled={loading}
+        />
+      </div>
+      <UsageHero data={hero} />
+      <div style={{ marginTop: 20 }}>
+        <UsageStatsTable
+          dimension={dimension}
+          onDimensionChange={setDimension}
+          response={dimension === 'model' ? modelStats : sessionStats}
+          loading={loading}
+          error={statsError}
+        />
+      </div>
+      <Typography.Title level={5} style={{ marginTop: 20 }}>{t('settings.usage.trendTitle')}</Typography.Title>
       <UsageTrendChart items={usage?.items ?? []} />
       <Typography.Title level={5} style={{ marginTop: 20 }}>{t('settings.usage.byScenario')}</Typography.Title>
       <Table
@@ -491,7 +504,7 @@ function UsagePanel() {
         />
       )}
       <div style={{ marginTop: 20 }}>
-        <PricingConfigPanel onChanged={() => void loadCost()} />
+        <PricingConfigPanel onChanged={() => void loadAll()} />
       </div>
       <div style={{ marginTop: 20 }}>
         <UsageRecordsPanel />

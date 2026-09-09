@@ -46,13 +46,85 @@ export interface UsageCostTotal {
   currency: string | null;
   mixed_currency: boolean;
   estimated_cost: number | null;
+  cost_status: UsageCostStatus;
 }
 
 export interface UsageCostResponse {
   days: number;
+  start?: string;
+  end?: string;
   session_type: string | null;
   items: UsageCostItem[];
   total: UsageCostTotal;
+}
+
+/**
+ * Window selector shared by every usage endpoint: `days` (legacy, unchanged) or
+ * an explicit inclusive `start`/`end` pair of UTC dates.
+ */
+export interface UsageRangeParams {
+  days?: number;
+  start?: string;
+  end?: string;
+}
+
+export type UsageCostStatus = 'none' | 'priced' | 'unpriced' | 'partial' | 'mixed_currency';
+
+export interface UsageTotals {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface UsageDayItem extends UsageTotals {
+  day: string;
+}
+
+export interface UsageSessionTypeItem {
+  session_type: string;
+  total_tokens: number;
+  request_count: number;
+}
+
+export interface UsageSummaryResponse {
+  days: number;
+  start: string;
+  end: string;
+  session_type: string | null;
+  items: UsageDayItem[];
+  total: UsageTotals;
+  by_session_type: UsageSessionTypeItem[];
+}
+
+export type UsageDimension = 'model' | 'session_type';
+
+export interface UsageStatsItem {
+  key: string | null;
+  request_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  priced_models: number;
+  unpriced_models: number;
+  unpriced_total_tokens: number;
+  cost_by_currency: Record<string, number>;
+  currency: string | null;
+  mixed_currency: boolean;
+  estimated_cost: number | null;
+  cost_status: UsageCostStatus;
+}
+
+export type UsageStatsTotal = Omit<UsageStatsItem, 'key'>;
+
+export interface UsageStatsResponse {
+  dimension: UsageDimension;
+  days: number;
+  start: string;
+  end: string;
+  session_type: string | null;
+  items: UsageStatsItem[];
+  total: UsageStatsTotal;
 }
 
 export async function listModelPricing(): Promise<ModelPricingItem[]> {
@@ -74,8 +146,23 @@ export async function deleteModelPricing(id: number): Promise<void> {
   await apiClient.delete(`/model-pricing/${id}`);
 }
 
-export async function fetchUsageCost(days: number): Promise<UsageCostResponse> {
-  const response = await apiClient.get('/usage/cost', { params: { days } });
+export async function fetchUsageCost(params: UsageRangeParams): Promise<UsageCostResponse> {
+  const response = await apiClient.get('/usage/cost', { params });
+  return response.data;
+}
+
+/** Daily totals over the selected window (the range picker drives every panel). */
+export async function fetchUsageSummary(params: UsageRangeParams): Promise<UsageSummaryResponse> {
+  const response = await apiClient.get('/usage', { params });
+  return response.data;
+}
+
+/** Per-dimension aggregation (model or session type) with derived, honest cost. */
+export async function fetchUsageStats(
+  dimension: UsageDimension,
+  params: UsageRangeParams,
+): Promise<UsageStatsResponse> {
+  const response = await apiClient.get('/usage/stats', { params: { ...params, dimension } });
   return response.data;
 }
 
