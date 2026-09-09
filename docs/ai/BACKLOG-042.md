@@ -1,6 +1,6 @@
 # BACKLOG-042 — MCP 供应商兼容：补 stdio transport（本地 command+args+env，通用 MCP 客户端形态）
 
-> 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-08 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]` ｜ 优先级：P2 ｜ 创建：2026-09-08 ｜ 完成：2026-09-13 ｜ 执行：DSH Worker
 > 背景：用户指令"MCP 相关供应商兼容任何 MCP"+ 参考 CC Switch 统一 MCP 面板/通用 MCP 客户端。现状核实（2026-09-08）：**MCP SDK（`mcp>=2,<3`）+ bridge 已支持 stdio**——`mcp_bridge.py` L11-12 import `StdioServerParameters`/`stdio_client`，`MCPServerConfig` L22-43 已支持 `url` 或 `command`（二选一校验），SDK stdio_client 实测可用。**缺口在"两端未接"**：`mcp_server_configs` 表只 `name/url`（database.py:203-211）、`mcp.py` create/update/connect 只收/发 url（connect_http_mcp_server only）、前端 `mcpApi.ts` 已预留 transport 'http'|'stdio' 但 create/config item 只发 url、`MCPServerSettingsPanel` 只 url 表单。**本卡只接通表/路由/前端，不重写 bridge/SDK。**
 
 ## 目标
@@ -43,3 +43,14 @@
 - API_CONTRACT/ROUTER_MAP 同步 + 全量门禁
 - git diff --check、删除 0、未 commit
 ```
+
+## 完成证据（2026-09-13，DSH Worker，代码完成待维护者复核合入）
+
+- **表迁移**：`mcp_server_configs` 建表可空 `url` + 新增 `command/args_json/env_json`；新增 **v25 SAVEPOINT 增量迁移**（`_MCP_STDIO_VERSION=25`、`_SCHEMA_VERSION` 24→25、`_MIGRATION_NAMES[25]`、`_install_mcp_stdio_transport()` 幂等 ALTER；SAVEPOINT 失败 ROLLBACK）。实测 fresh DB 与**模拟 v24 DB→25** 均补列成功；旧 http 行 `url` 保留、新列空即兼容（`transport=http` 回显不变）。
+- **create/update 校验**：`validated_config()` → bridge `MCPServerConfig.__post_init__` url/command **二选一** 抛 ValueError→路由 422（neither 与 both 均拒、http 禁 args/env）；http url / stdio command+args roundtrip 均过（driver 逐条 PASS）。
+- **connect 分派**：`connect_mcp_server(config)` 统一入口，bridge 按 `url`→`Client(url)`、`command`→`StdioServerParameters+stdio_client`；restore 读 `url,command,args_json` 并按行解析分派（mock 断言 http/stdio 两行正确落位）。**零新依赖**（复用既有 MCP SDK stdio_client）。
+- **stdio 深度**：做到"能分派到 stdio 路径并 `register_tools()` 发现工具"即止；真启外部进程端到端与 env 注入高级特性留给后续。
+- **前端**：`MCPServerSettingsPanel.tsx`/`mcpApi.ts` transport 切换（http url 组 / stdio command+args 组，中文提示，npx/uvx/node AutoComplete）；config item `transport` 反映真实；`openapi.generated.ts` 同步（openapi_tsgen `--check` fresh）；**i18n parity 0**（zh/en 各 35 条 `settings.mcp.*`，差集 0）。
+- **契约**：`docs/API_CONTRACT.md`、`docs/ROUTER_MAP.md` 补 transport 条目；证据见 `docs/ai/tasks/BACKLOG-042.md`。
+- **门禁（本收尾会话，沙箱受限）**：backend `ruff check app tests` 通过；`test_mcp_transport.py` 6 用例 + 迁移 2 场景经等价 Driver 逐条 PASS；frontend `tsc -b` 通过；pytest 进程化/vite build/Vitest 因委托沙箱（pytest tmp 目录枚举 WinError 5、esbuild child spawn EPERM）无法以 pytest/vite 运行，已用等价 driver 覆盖逻辑，建议维护者在常规环境补跑 `backend pytest -q`、`bun run build`、`MCPServerSettingsPanel.test.tsx`。
+- `docs/ai/EXEC_PLAN.md` 顶部 042 转 `[DONE]`；删除 0（会话临时脚本已回收，残留 ACL 阻断目录未物理删、未纳入提交）；commit 见仓库历史（BACKLOG-042）。

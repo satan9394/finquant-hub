@@ -203,7 +203,10 @@ CREATE TABLE IF NOT EXISTS system_settings (
 CREATE TABLE IF NOT EXISTS mcp_server_configs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL UNIQUE,
-    url         TEXT NOT NULL,
+    url         TEXT,
+    command     TEXT,
+    args_json   TEXT,
+    env_json    TEXT,
     is_enabled  INTEGER NOT NULL DEFAULT 0 CHECK (is_enabled IN (0, 1)),
     last_error  TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -269,7 +272,8 @@ _PRODUCT_METRICS_VERSION = 21
 _PAPER_PORTFOLIO_VERSION = 22
 _JOB_RUNTIME_VERSION = 23
 _SCHEMA_CLEANUP_VERSION = 24
-_SCHEMA_VERSION = _SCHEMA_CLEANUP_VERSION
+_MCP_STDIO_VERSION = 25
+_SCHEMA_VERSION = _MCP_STDIO_VERSION
 _OWNER_TABLES = (
     "model_configs", "conversations", "messages", "discussion_rooms",
     "research_reports", "research_events", "research_workspaces",
@@ -311,6 +315,7 @@ _MIGRATION_NAMES = {
     _PAPER_PORTFOLIO_VERSION: "install_paper_portfolios",
     _JOB_RUNTIME_VERSION: "install_job_runtime",
     _SCHEMA_CLEANUP_VERSION: "install_schema_cleanup",
+    _MCP_STDIO_VERSION: "install_mcp_stdio_transport",
 }
 
 
@@ -680,6 +685,19 @@ async def _migrate_schema() -> None:
             await _db.execute("RELEASE SAVEPOINT install_schema_cleanup")
             raise
         version = _SCHEMA_CLEANUP_VERSION
+
+    if version < _MCP_STDIO_VERSION:
+        await _db.execute("SAVEPOINT install_mcp_stdio_transport")
+        try:
+            await _install_mcp_stdio_transport()
+            await _db.execute(f"PRAGMA user_version={_MCP_STDIO_VERSION}")
+            await _record_schema_version(_MCP_STDIO_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_mcp_stdio_transport")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_mcp_stdio_transport")
+            await _db.execute("RELEASE SAVEPOINT install_mcp_stdio_transport")
+            raise
+        version = _MCP_STDIO_VERSION
 
     # Existing databases already tracked only PRAGMA user_version; backfill their audit trail.
     for applied_version in range(1, min(version, _SCHEMA_VERSION) + 1):
@@ -2124,6 +2142,25 @@ async def _install_schema_cleanup() -> None:
     await _db.execute("DROP TABLE IF EXISTS portfolio_trades")
     await _db.execute("DROP TABLE IF EXISTS portfolio_items")
     await _db.execute("DROP TABLE IF EXISTS portfolio_groups")
+
+
+async def _install_mcp_stdio_transport() -> None:
+    """schema v25 (BACKLOG-042): MCP stdio transport — add optional columns.
+
+    Adds command/args_json/env_json to mcp_server_configs idempotently so old
+    http-only config rows stay valid (url stays NULL-able) and fresh schemas
+    (which already carry the columns via CREATE TABLE) are untouched.
+    """
+    for statement in (
+        "ALTER TABLE mcp_server_configs ADD COLUMN command TEXT",
+        "ALTER TABLE mcp_server_configs ADD COLUMN args_json TEXT",
+        "ALTER TABLE mcp_server_configs ADD COLUMN env_json TEXT",
+    ):
+        try:
+            await _db.execute(statement)
+        except Exception:
+            # Column already exists (fresh schema or repeated init) — ignore.
+            pass
 
 
 async def claim_unowned_data(user_id: int) -> None:

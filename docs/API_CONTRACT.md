@@ -355,6 +355,8 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | `/api/mcp/configs/{id}` | DELETE | 删除 MCP 服务器配置 | 新增 |
 | `/api/mcp/configs/{id}/connect` | POST | 连接并发现 MCP 工具 | 新增 |
 | `/api/mcp/configs/{id}/disconnect` | POST | 断开并卸载 MCP 工具 | 新增 |
+
+> BACKLOG-042：`POST/PUT /api/mcp/configs` 现支持两种 transport——`http`（url 字段）与 `stdio`（command 字段 + 可选 args 数组，本地进程 MCP）；`_public_config` 按 `command` 是否有值回显 `transport`。`GET /api/mcp/configs` 不暴露密钥，stdio 亦不存 env 敏感明文。
 | `/api/mcp/servers` | GET | 查询服务器与工具目录 | 新增 |
 | `/api/mcp/tools/{local_name}` | PATCH | 运行时启停单个 MCP 工具 | 新增 |
 

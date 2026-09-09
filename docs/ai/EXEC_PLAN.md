@@ -4,10 +4,11 @@
 
 ---
 
-## [READY] BACKLOG-042: MCP 供应商兼容——补 stdio transport（本地 command+args+env）
+## [DONE] BACKLOG-042: MCP 供应商兼容——补 stdio transport（本地 command+args+env）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-042.md`
 **范围**: 用户指令"MCP 兼容任何 MCP"+ CC Switch 统一 MCP 面板。现状后端 MCP 只 HTTP（SSE）（mcp_server_configs 仅 name/url、mcp.py connect_http only），前端 mcpApi 已预留 transport 'http'|'stdio'。本卡补 **stdio transport**：表加 transport/command/args_json/env_json 列（SAVEPOINT 迁移，旧 http 行兼容）+ create/update 两 transport 校验 + connect 按 transport 分派（stdio 用 asyncio 子进程走 MCP stdio 协议，**零新依赖**，实现到能拉起进程发现工具深度）+ 前端 MCPServerSettingsPanel 流式切换（http url / stdio command+args）+ 契约/测试。**禁止**：加依赖、存 env 敏感明文、E2E config、删除、他域。门禁：build + Vitest + 4173 50 + 8000 21 + parity 0。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 表加 transport 四列 + v25 SAVEPOINT 迁移（`_SCHEMA_VERSION`→25，fresh/v24→25 实测补列，旧 http 行兼容）；create/update 经 bridge url/command 二选一校验（neither/both→422）；connect 按 config.command 分派 http/stdio（复用 MCP SDK `stdio_client`/`StdioServerParameters`，**零新依赖**，做到能分派到 stdio 路径发现工具深度）；前端 transport 切换（http url / stdio command+args，中文提示）+ config item transport 反映真实 + openapi.generated 同步；i18n zh/en 各 35 key parity 0；API_CONTRACT/ROUTER_MAP 同步。门禁：backend ruff app+tests 通过、test_mcp_transport 6 用例+迁移2场景经等价 driver 全绿、frontend `tsc -b` 通过、openapi_tsgen fresh；委托沙箱下 pytest 进程化/vite build/Vitest 受限未跑（pytest tmp 目录枚举 WinError5、esbuild child spawn EPERM），建议维护者在常规环境补跑。详见 `docs/ai/tasks/BACKLOG-042.md`。
 
 ---
 

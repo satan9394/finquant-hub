@@ -23,8 +23,10 @@ export interface MCPMarketResponse {
 export interface MCPServerConfigItem {
   id: number;
   name: string;
-  url: string;
-  transport: 'http';
+  url: string | null;
+  command: string | null;
+  args: string[];
+  transport: 'http' | 'stdio';
   is_enabled: boolean;
   connected: boolean;
   last_error?: string | null;
@@ -35,7 +37,9 @@ export interface MCPServerConfigItem {
 
 export interface MCPServerConfigInput {
   name: string;
-  url: string;
+  url?: string;
+  command?: string;
+  args?: string[];
 }
 
 export async function listMCPServers(): Promise<MCPMarketResponse> {

@@ -25,7 +25,7 @@ Dashboard endpoint additions: `GET /api/dashboard/news`（综合财经搜索，�
 | /api/swarm | swarm.py | New (`POST /analyze` + `POST /teams/earnings-review/run` SSE，报告持久化) |
 | /api/notifications | notifications.py | New |
 | /api/alerts | alerts.py | New（技术信号规则 + Thesis/Portfolio/Strategy monitor 草稿/显式确认） |
-| /api/mcp | mcp.py | New（已发现服务器/工具目录 + 运行时启停） |
+| /api/mcp | mcp.py | New（已发现服务器/工具目录 + 运行时启停；http 远程与 stdio 本地 command 两种 transport） |
 | /api/settings | settings.py | New + AIOS-060（安全系统配置 + 带 lease/事件/恢复语义的 5 字段 cron 研究 job/run lineage + owner-local 产品指标） |
 | /api/usage | usage.py | New（LLM token 按日/场景聚合 + 会话级用量明细 records，只读） |
 | /api/thesis | thesis.py | New（投资论文 CRUD、不可变版本 diff、追加式用户确认、claim-evidence 时间边、Challenge、evidence-aware 漂移核验、验证实验 intent、持久化复盘流与私有只读 share preview） |

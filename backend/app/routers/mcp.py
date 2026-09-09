@@ -1,12 +1,13 @@
-"""Persisted HTTP MCP servers and their discovered runtime tools."""
+"""Persisted HTTP/stdio MCP servers and their discovered runtime tools."""
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from .. import database
-from ..services.mcp_runtime import connect_http_mcp_server
+from ..services.mcp_runtime import connect_mcp_server
 from ..tools.mcp_bridge import (
     MCPServerConfig,
     is_mcp_server_connected,
@@ -24,15 +25,23 @@ class MCPToolToggle(BaseModel):
 
 class MCPServerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    url: str = Field(min_length=1, max_length=2048)
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    command: str | None = Field(default=None, max_length=2048)
+    args: list[str] = Field(default_factory=list)
 
-    @field_validator("name", "url")
+    @field_validator("name", "url", "command")
     @classmethod
-    def strip_value(cls, value: str) -> str:
-        return value.strip()
+    def strip_value(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
 
     def validated_config(self) -> MCPServerConfig:
-        return MCPServerConfig(name=self.name, url=self.url)
+        config = MCPServerConfig(
+            name=self.name,
+            url=self.url,
+            command=self.command,
+            args=tuple(self.args),
+        )
+        return config
 
 
 class MCPServerUpdate(MCPServerCreate):
@@ -44,7 +53,8 @@ def _public_config(row: dict[str, Any]) -> dict[str, Any]:
         **row,
         "is_enabled": bool(row["is_enabled"]),
         "connected": is_mcp_server_connected(row["name"]),
-        "transport": "http",
+        "transport": "stdio" if row.get("command") else "http",
+        "args": json.loads(row["args_json"]) if row.get("args_json") else [],
     }
 
 
@@ -70,8 +80,13 @@ async def create_mcp_config(body: MCPServerCreate) -> dict[str, Any]:
     if await database.query_one("SELECT id FROM mcp_server_configs WHERE name=?", (body.name,)):
         raise HTTPException(409, f"MCP 服务器名称已存在：{body.name}")
     config_id = await database.execute(
-        "INSERT INTO mcp_server_configs (name, url) VALUES (?, ?)",
-        (body.name, body.url),
+        "INSERT INTO mcp_server_configs (name, url, command, args_json) VALUES (?, ?, ?, ?)",
+        (
+            body.name,
+            body.url,
+            body.command,
+            json.dumps(body.args, ensure_ascii=False) if body.args else None,
+        ),
     )
     return _public_config(await _config_or_404(config_id))
 
@@ -93,10 +108,16 @@ async def update_mcp_config(config_id: int, body: MCPServerUpdate) -> dict[str, 
     await database.execute(
         """
         UPDATE mcp_server_configs SET
-            name=?, url=?, is_enabled=0, last_error=NULL, updated_at=datetime('now')
+            name=?, url=?, command=?, args_json=?, is_enabled=0, last_error=NULL, updated_at=datetime('now')
         WHERE id=?
         """,
-        (body.name, body.url, config_id),
+        (
+            body.name,
+            body.url,
+            body.command,
+            json.dumps(body.args, ensure_ascii=False) if body.args else None,
+            config_id,
+        ),
     )
     return _public_config(await _config_or_404(config_id))
 
@@ -112,8 +133,13 @@ async def delete_mcp_config(config_id: int) -> dict[str, bool]:
 @router.post("/configs/{config_id:int}/connect")
 async def connect_mcp_config(config_id: int) -> dict[str, Any]:
     existing = await _config_or_404(config_id)
+    config = MCPServerConfig(
+        name=existing["name"],
+        url=existing["url"] or None,
+        command=existing["command"] or None,
+    )
     try:
-        tool_count = await connect_http_mcp_server(existing["name"], existing["url"])
+        tool_count = await connect_mcp_server(config)
     except Exception as exc:
         message = f"{type(exc).__name__}: {exc}"[:500]
         await database.execute(

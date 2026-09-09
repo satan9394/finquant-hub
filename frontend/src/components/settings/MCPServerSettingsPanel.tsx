@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Alert, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography, message,
-} from 'antd';
+import { AutoComplete, Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ApiOutlined, DeleteOutlined, EditOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   connectMCPServer,
@@ -24,7 +22,9 @@ export default function MCPServerSettingsPanel() {
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<MCPServerConfigItem | null>(null);
-  const [form] = Form.useForm<MCPServerConfigInput>();
+  const [transport, setTransport] = useState<'http' | 'stdio'>('http');
+  // 表单里 args 以逗号分隔文本编辑，保存时拆分；避免与后端 string[] 契约冲突。
+  const [form] = Form.useForm<{ name: string; url?: string; command?: string; args?: string }>();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,15 +42,28 @@ export default function MCPServerSettingsPanel() {
 
   const openEditor = (item?: MCPServerConfigItem) => {
     setEditing(item ?? null);
-    if (item) form.setFieldsValue({ name: item.name, url: item.url });
-    else form.resetFields();
+    if (item) {
+      form.setFieldsValue({
+        name: item.name,
+        url: item.url ?? undefined,
+        command: item.command ?? undefined,
+        args: item.args?.join(', '),
+      });
+      setTransport(item.command ? 'stdio' : 'http');
+    } else {
+      form.resetFields();
+      setTransport('http');
+    }
     setModalOpen(true);
   };
 
   const save = async () => {
     let values: MCPServerConfigInput;
     try {
-      values = await form.validateFields();
+      const raw = await form.validateFields();
+      values = transport === 'stdio'
+        ? { name: raw.name, command: raw.command, args: (raw.args ?? '').split(',').map((part) => part.trim()).filter(Boolean) }
+        : { name: raw.name, url: raw.url };
     } catch {
       return;
     }
@@ -155,16 +168,41 @@ export default function MCPServerSettingsPanel() {
           <Form.Item name="name" label={t('settings.mcp.serverName')} rules={[{ required: true, whitespace: true, max: 80 }]}>
             <Input placeholder="research-tools" />
           </Form.Item>
-          <Form.Item
-            name="url"
-            label={t('settings.mcp.serverUrl')}
-            rules={[
-              { required: true, whitespace: true },
-              { pattern: /^https?:\/\//i, message: t('settings.mcp.urlInvalid') },
-            ]}
-          >
-            <Input placeholder="https://mcp.example.com/api" />
+          <Form.Item label={t('settings.mcp.transport')}>
+            <Select
+              aria-label={t('settings.mcp.transport')}
+              value={transport}
+              onChange={setTransport}
+              options={[
+                { label: t('settings.mcp.transportHttp'), value: 'http' },
+                { label: t('settings.mcp.transportStdio'), value: 'stdio' },
+              ]}
+            />
           </Form.Item>
+          {transport === 'http' ? (
+            <Form.Item
+              name="url"
+              label={t('settings.mcp.serverUrl')}
+              rules={[
+                { required: true, whitespace: true },
+                { pattern: /^https?:\/\//i, message: t('settings.mcp.urlInvalid') },
+              ]}
+            >
+              <Input placeholder="https://mcp.example.com/api" />
+            </Form.Item>
+          ) : (
+            <>
+              <Form.Item name="command" label={t('settings.mcp.command')} rules={[{ required: true, whitespace: true }]}>
+                <AutoComplete
+                  options={[{ value: 'npx' }, { value: 'uvx' }, { value: 'node' }]}
+                  placeholder="npx / uvx / node ..."
+                />
+              </Form.Item>
+              <Form.Item name="args" label={t('settings.mcp.args')} extra={t('settings.mcp.argsHelp')}>
+                <Input placeholder="--param value, server-name" />
+              </Form.Item>
+            </>
+          )}
         </Form>
       </Modal>
     </Card>

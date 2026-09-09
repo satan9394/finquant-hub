@@ -122,12 +122,16 @@ export interface HTTPValidationError {
 
 export interface MCPServerCreate {
   name: string;
-  url: string;
+  url?: string | null;
+  command?: string | null;
+  args?: Array<string>;
 }
 
 export interface MCPServerUpdate {
   name: string;
-  url: string;
+  url?: string | null;
+  command?: string | null;
+  args?: Array<string>;
 }
 
 export interface MCPToolToggle {
