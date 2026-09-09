@@ -1,6 +1,6 @@
 # BACKLOG-043 — 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
 
-> 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-13 ｜ 完成：— ｜ 执行：DSH Worker
+> 状态：`[DONE]` ｜ 优先级：P2 ｜ 创建：2026-09-13 ｜ 完成：2026-09-13 ｜ 执行：DSH Worker
 > 背景：用户质问"你到底有没有基于 CC Switch 把供应商模块做出来"。**核实结论：没有**。现状只有 `frontend/src/features/modelPresets.ts`（36 行、8 条静态预设）+ Models.tsx 简单表单，没有供应商管理 UI。CC Switch 真实实现（只读参考源：`E:\DeepSeek_Harness\workspace\2026_08_17\cc-switch-src`，Tauri+React/TS）包含 `src/components/providers/` 12 文件（ProviderList/ProviderCard/ProviderForm/AddProviderDialog/EditProviderDialog/ProviderActions/ProviderHealthBadge/ProviderStatusBadge/ProviderPresetSelector/ProviderAdvancedConfig）+ `src/components/universal/` 3 文件 + `src/config/` 12 个 `*Presets.ts`。本卡补齐"预设库 + 供应商卡片管理 + 健康状态"三件套。
 
 ## 目标

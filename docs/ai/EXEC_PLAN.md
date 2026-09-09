@@ -4,6 +4,14 @@
 
 ---
 
+## [DONE] BACKLOG-042b: BACKLOG-042 回归修复（backend 5 项测试未跟上 v25/分派改动）
+
+**优先级**: P0 ｜ **任务卡**: `docs/ai/BACKLOG-042b.md` ｜ **依赖**: BACKLOG-042（commit ed02b20）
+**范围**: 042 合入时只补跑新增 `test_mcp_transport.py`、未跑全量 backend 套件，遗留 5 项既有测试回归（3 项迁移测试硬编码 v24；2 项 MCP 测试 patch 旧符号 `connect_http_mcp_server`）。本卡**只改测试**修这 5 项，且不得放宽断言语义。**禁止**：改 `backend/app/**` 迁就测试、动 `frontend/**`（含 043 未提交改动）、加依赖、删除。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 5 项逐条修复——①迁移列表断言改为「v1..v24 字面量 + v25 起从 `_MIGRATION_NAMES` 派生并要求真落库」+ 尾项锚定 `_SCHEMA_VERSION`；②③`== _SCHEMA_VERSION == 24` 改为 `== _SCHEMA_VERSION` + 显式断言 v23/v24 在 `schema_version` 中已记录且名字正确（原核心断言"遗留表被删/备份可恢复/append-only/四列"一字未动）；④⑤patch 目标改为实际分派入口 `connect_mcp_server`，fake 改收 `(config)`，新增 `config.command is None`（HTTP 不走 stdio）与成功行 `last_error is None`（成功需清错误），"单服务器失败不阻断其他恢复 + 记录失败"原断言保留。**变异验证**（`%TEMP%` 进程内插件，生产零改动）：漏登记版本 → 用例1 `KeyError`；历史迁移改名 → 用例1 `AssertionError`；restore 去掉 per-server try/except → 用例5 `TimeoutError`，证明断言仍有效。门禁：全量 `pytest -q` **876 passed / 0 failed，覆盖率 92.57%**（修复前 871+5=876，总数不变）；聚焦 67 passed；`ruff check .` exit 0；`git diff --check` exit 0；删除 0；未 commit。**生产代码零改动，未发现生产缺陷**（附观察：`connect_http_mcp_server` 已无生产调用点，是否收口待维护者裁决）。详见 `docs/ai/tasks/BACKLOG-042b.md`。
+
+---
+
 ## [READY] BACKLOG-045: 使用统计详情模块（对齐 CC Switch Usage：范围选择 + 汇总卡 + 维度统计表）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-045.md` ｜ **依赖**: BACKLOG-044（费用列）
@@ -18,10 +26,11 @@
 
 ---
 
-## [READY] BACKLOG-043: 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
+## [DONE] BACKLOG-043: 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-043.md`
 **范围**: 用户质问"供应商模块做了没有"——核实**没有**（只有 36 行 8 条静态预设 + 简单表单）。CC Switch 有 `components/providers/` 顶层 10 文件 + `providers/forms/` 约 60 文件（含 `EndpointSpeedTest.tsx` 测试连接）+ `components/universal/` 3 文件 + `src/config/` 12 个预设文件。本卡补：预设库 8→≥15（每条 base_url 官方直证，拿不准不加）+ 供应商卡片管理 UI（列表/新增/编辑/删除/启停）+ 健康状态徽章（三态+最后检查时间）+ 分组预设选择器 + i18n/测试。**禁止**：加依赖、E2E config、臆造 base_url、改 036/037 契约、动用量/计价/context/MCP 域、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 预设库 8→**15 条**（国内 7：dashscope/glm/kimi/minimax/hunyuan/siliconflow/stepfun；国际 8：openai/deepseek/openrouter/together/fireworks/cerebras/deepinfra/nebius），每条 base_url 附官方文档 URL + 关键行（证据表在 `docs/ai/tasks/BACKLOG-043.md` §1），新增 `category`/`docsUrl` 字段 + `presetById`/`groupPresetsByCategory`/`filterPresets`；新增 `components/models/` 四件套（ProviderCard 卡片信息层级、ProviderHealthBadge 三态+最后检查时间、ProviderPresetSelector 分组+搜索、providerState 健康/启停/搜索纯函数）+ Models.tsx 卡片列表（默认，单列 Table 以保 `system-pages.spec.ts:35` 的 `tbody tr` 断言）+ 表格视图切换 + 供应商搜索 + 显示已停用 + 弹窗内分组预设选择器（custom 不覆盖手动值，036/037 契约未动）；健康检测复用既有 `POST /api/models/{id}/test`（**零新端点、零后端改动**），失败展示后端原文不 5xx；i18n zh/en 各 +36 key **2371/2371 parity 0**；CC Switch 源码 file:line 引用表 19 条（§2）。**诚实声明**：doubao 因官方文档客户端渲染无法直证已从预设库移除（041 来源声明已于 2026-09-13 撤回）；ollama 已官方直证但被现有 `type:'url'` 校验拒绝故未加；groq/mistral/xAI/Perplexity/baichuan/千帆/sambanova 均列未加入清单+原因。门禁：build ✓（tsc+vite 21.79s）；聚焦 Vitest 7 files/39 tests ✓；全量 Vitest 132 files/443 tests → 441 passed（2 项环境性超时 FundamentalMetricsPanel/ProfessionalPreferences，隔离复跑 11/11 全绿）；4173 E2E 50/50；8000 E2E 21/21（--retries=0）；backend ruff ✓、pytest 871 passed/5 项**预存**失败（042 的 v25/mcp 遗留，本卡零后端改动）；git diff --check ✓、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-043.md`。
 
 ---
 
