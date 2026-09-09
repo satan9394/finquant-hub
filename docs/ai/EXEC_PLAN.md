@@ -21,7 +21,7 @@
 ## [READY] BACKLOG-043: 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-043.md`
-**范围**: 用户质问"供应商模块做了没有"——核实**没有**（只有 36 行 8 条静态预设 + 简单表单）。CC Switch 有 `components/providers/` 12 文件 + `components/universal/` 3 文件 + `src/config/` 12 个预设文件。本卡补：预设库 8→≥15（每条 base_url 官方直证，拿不准不加）+ 供应商卡片管理 UI（列表/新增/编辑/删除/启停）+ 健康状态徽章（三态+最后检查时间）+ 分组预设选择器 + i18n/测试。**禁止**：加依赖、E2E config、臆造 base_url、改 036/037 契约、动用量/计价/context/MCP 域、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
+**范围**: 用户质问"供应商模块做了没有"——核实**没有**（只有 36 行 8 条静态预设 + 简单表单）。CC Switch 有 `components/providers/` 顶层 10 文件 + `providers/forms/` 约 60 文件（含 `EndpointSpeedTest.tsx` 测试连接）+ `components/universal/` 3 文件 + `src/config/` 12 个预设文件。本卡补：预设库 8→≥15（每条 base_url 官方直证，拿不准不加）+ 供应商卡片管理 UI（列表/新增/编辑/删除/启停）+ 健康状态徽章（三态+最后检查时间）+ 分组预设选择器 + i18n/测试。**禁止**：加依赖、E2E config、臆造 base_url、改 036/037 契约、动用量/计价/context/MCP 域、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
 
 ---
 

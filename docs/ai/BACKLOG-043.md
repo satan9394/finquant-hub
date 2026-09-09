@@ -32,11 +32,15 @@
 5. build + 聚焦 Vitest + 全量 Vitest + 4173 50 + 8000 21 全绿；git diff --check 通过；删除 0；不 commit
 
 ## 参考（**强制**：证据里必须给出被参考源码的 file:line 引用）
+> 路径已按 2026-09-13 实测核实（`providers/` 顶层 10 文件 + `providers/forms/` 约 60 文件）；引用时请用下表真实路径，勿凭记忆拼路径。
 - 只读参考源：`E:\DeepSeek_Harness\workspace\2026_08_17\cc-switch-src`（**只读，禁止修改**）
-  - `src/components/providers/ProviderList.tsx`、`ProviderCard.tsx`、`ProviderForm.tsx`、`AddProviderDialog.tsx`、`EditProviderDialog.tsx`、`ProviderActions.tsx`
-  - `src/components/providers/ProviderHealthBadge.tsx`、`ProviderStatusBadge.tsx`、`ProviderPresetSelector.tsx`、`ProviderAdvancedConfig.tsx`
-  - `src/components/universal/UniversalProviderPanel.tsx`、`UniversalProviderCard.tsx`、`UniversalProviderFormModal.tsx`
-  - `src/config/claudeProviderPresets.ts`、`codexProviderPresets.ts`、`geminiProviderPresets.ts`、`piProviderPresets.ts`、`universalProviderPresets.ts` 等 12 个预设文件
+  - 顶层列表/卡片/操作：`src/components/providers/ProviderList.tsx`(740)、`ProviderCard.tsx`(755)、`ProviderActions.tsx`(480)、`ProviderEmptyState.tsx`(59)、`AddProviderDialog.tsx`(472)、`EditProviderDialog.tsx`(310)
+  - 状态/徽章：`src/components/providers/ProviderHealthBadge.tsx`(77)、`ProviderStatusBadge.tsx`(63)、`FailoverPriorityBadge.tsx`(34)、`AuthSettingsPanel.tsx`(25)
+  - 表单（**注意在 forms/ 子目录**）：`src/components/providers/forms/ProviderForm.tsx`(2874)、`forms/ProviderPresetSelector.tsx`(505)、`forms/ProviderAdvancedConfig.tsx`(182)、`forms/BasicFormFields.tsx`(194)、`forms/shared/ApiKeySection.tsx`(90)、`forms/shared/EndpointField.tsx`(112)、`forms/shared/ModelDropdown.tsx`(99)、`forms/shared/ModelInputWithFetch.tsx`(106)、`forms/ApiKeyInput.tsx`(69)
+  - **测试连接/健康语义重点参考**：`src/components/providers/forms/EndpointSpeedTest.tsx`(658) + `forms/hooks/useSpeedTestEndpoints.ts`(159)
+  - 状态/hooks：`src/components/providers/forms/hooks/useProviderCategory.ts`(94)、`useApiKeyState.ts`(105)、`useBaseUrlState.ts`(172)、`useModelState.ts`(250)
+  - 通用供应商面板：`src/components/universal/UniversalProviderPanel.tsx`(320)、`UniversalProviderCard.tsx`(126)、`UniversalProviderFormModal.tsx`
+  - 预设数据组织：`src/config/universalProviderPresets.ts`(132)、`piProviderPresets.ts`(1510)，以及 `claudeProviderPresets.ts`/`codexProviderPresets.ts`/`geminiProviderPresets.ts` 等共 12 个 `*Presets.ts`
 - 现状：`frontend/src/features/modelPresets.ts`、`frontend/src/pages/Models.tsx`、`backend/app/routers/models_crud.py`
 
 ## 完成证据模板
