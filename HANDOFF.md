@@ -25,14 +25,15 @@
 
 ### 未完成（发布前必须做）
 
-- [ ] **LICENSE 文件**：Apache-2.0 已授权（Copyright 2026 Satanchen），根目录 LICENSE 未创建
-- [ ] **docs/PRD.md 3.2 节**加一行引用注释指向 TECH_STACK.md
-- [ ] **docs/PRODUCT_MAP.md** 单行技术栈加引用
+- [x] **LICENSE 文件**：Apache-2.0 已授权（Copyright 2026 Satanchen），根目录 LICENSE 未创建
+- [x] **docs/PRD.md 3.2 节**加一行引用注释指向 TECH_STACK.md
+- [x] **docs/PRODUCT_MAP.md** 单行技术栈加引用
+- 核实说明（2026-09-13 指挥实测）：`Test-Path LICENSE` → **True**；`docs/PRD.md` L151 与 `docs/PRODUCT_MAP.md` L23 均已有 `TECH_STACK.md` 引用——三项实际均已完成，上列仅系文档未及时勾选（BACKLOG-046 收尾）。
 
 ### 不阻塞发布（长期）
 
 - [x] ~~Design System 新老双轨迁移（`--fq-*` tokens 只被新组件消费，旧硬编码色值 `#dce5ef`/`#1890ff` 未迁移）~~ **已证伪（2026-09-04 复核）**：Astra 会话 B 全量扫描 152 文件 0 匹配 + DSH 复扫 `frontend/src` `#dce5ef|#1890ff` 0 匹配，颜色已全量收敛到 `--fq-*` tokens（UI-004 期间完成，旧结论过时，诚实撤回）
-- [ ] Graphiti/Mem0 选型：AIOS-004/005/034 仍 BLOCKED，依赖第三方包安装和 ADR 决策
+- [ ] Graphiti/Mem0 选型：AIOS-004/005/034 仍 BLOCKED，依赖第三方包安装和 ADR 决策（注 2026-09-13：ADR-005 已于 2026-08-24 采纳 **Native FTS5** 为生产 memory 方案，该历史选型行保持原记录，不再视为待决策事项）
 
 ## 验证命令（Verification）
 
@@ -302,3 +303,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-13 BACKLOG-044 代码完成（计价模块从零建成：模型单价配置 + 按 token 估算费用，DSH Worker 执行，待维护者复核合入）：schema **v26** `model_pricing`（`_MODEL_PRICING_VERSION=26`、`_SCHEMA_VERSION` 25→26、`_MIGRATION_NAMES[26]=install_model_pricing`、SAVEPOINT 增量迁移、`_OWNER_TABLES` 追加；v25 库补建实测且 `llm_usage` 记录零改动）+ 新增 `backend/app/routers/model_pricing.py`（`/api/model-pricing` GET/POST/PUT/DELETE，owner 隔离 404、同 owner 重复 409、422 校验非空模型名/非负有限单价/非空币种，`source` 固定 manual）+ `usage.py` 新增 `GET /api/usage/cost` 并在 `/api/usage/records` 追加 `priced`/`currency`/`estimated_cost`（`estimate_cost()` 为唯一换算口径；缺价 `priced:false`+`estimated_cost:null` **绝不返回 0**；`cost_by_currency` 分币种、混合币种合计 null、不做汇率换算）+ 前端 `services/usageApi.ts`、`components/settings/PricingConfigPanel.tsx`、`PricingEditModal.tsx`（step 0.0001 / min 0）、Settings 用量区费用段与明细费用列；**无内置单价**（无官方定价页直证，仅手工配置入口，UI 与文档如实声明）；CC Switch 源码 file:line 引用表 16 条（含 3 处有意分歧：显式 409 替代静默 upsert、formatCost 保留极小非零、读取时派生不回填历史）| 验证: backend 全量 `pytest -q` **888 passed / 0 failed，覆盖率 92.62%**（基线 876/92.57%，新增 12 例）；`ruff check .` exit 0；`bun run build` exit 0（prebuild openapi `--check` fresh）；聚焦 Vitest 2 files/15 tests；全量 Vitest 133 files/451 passed；4173 E2E **50/50**；8000 E2E **21/21**；i18n zh/en **2415/2415 parity 0**；`git diff --check` exit 0；删除 0；未 commit。**取舍（待裁决）**：唯一键用 `(user_id, model_name)` 而非卡片字面「唯一 model_name」（为满足用户隔离）；改价后历史费用按新价重算（不落库快照），若需历史快照另开卡。详见 `docs/ai/tasks/BACKLOG-044.md`
 
 - 2026-09-13 BACKLOG-045 使用统计详情模块完成（DSH Worker，待复核）：范围选择器（预设 7/30/90 + 自定义起止）+ 后端 start/end 兼容 days（非法半参/倒置/格式错/跨度>366 诚实 400）+ UsageHero 汇总卡（总 token/输入输出/调用次数/日均/窗口天数/最活跃模型/费用，复用 044 cost_status）+ 新增 GET /api/usage/stats 维度聚合（按模型/按会话类型，六列可排序）+ 纯函数 usageRange/usageStats + 契约同步（usage.py 0/3→0/4，139/175→140/176）+ i18n +24 key | 验证: backend 909 passed/0 failed cov 92.67%（基线 888/92.62%）；ruff exit 0；build 4261 modules；聚焦 Vitest 38 passed；全量 Vitest 134 files/470 passed；4173 E2E 50/50；8000 E2E 21/21；i18n 2439/2439 parity 0；git diff --check exit 0；删除 0；未 commit；UsageTrendChart/UsageRecordsPanel 零 diff，UsageComponents 7/7、Settings 4/4、PricingConfigPanel 8/8 原断言未改。详见 `docs/ai/tasks/BACKLOG-045.md`
+
+- 2026-09-13 BACKLOG-046 文档收尾完成（纯文档，未 commit）：HANDOFF 顶部三项（LICENSE 存在、PRD L151 / PRODUCT_MAP L23 TECH_STACK 引用）实测均完成改为 [x] + 日期核实行；Graphiti/Mem0 行补注 ADR-005 定 Native FTS5；EXEC_PLAN AIOS-004/034/071 各加一行如实注释（状态标签未动）；README 0 命中无过时口径 | 验证: 复测 Test-Path LICENSE=True、PRD L151 / PRODUCT_MAP L23 grep 命中；git diff --check exit 0；删除 0；未 commit

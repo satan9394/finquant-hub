@@ -3,6 +3,12 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-13（BACKLOG-046 文档收尾，DSH Worker 执行）
+- What changed: `HANDOFF.md`（顶部「未完成（发布前必须做）」三项 [ ]→[x] + 2026-09-13 指挥实测核实行；「不阻塞发布（长期）」Graphiti/Mem0 行内补注 ADR-005 定 Native FTS5；变更日志追加）；`docs/ai/EXEC_PLAN.md`（AIOS-004/034/071 三张历史卡各追加一行 ADR-005 如实注释，状态标签与卡史未动；BACKLOG-046 注册段 [READY]→[DONE] + 证据行）；`docs/ai/BACKLOG-046.md`（[READY]→[DONE]）；新建 `docs/ai/tasks/BACKLOG-046.md`（完成证据）。
+- Why: HANDOFF 顶部三项（LICENSE / PRD L151 / PRODUCT_MAP L23）经指挥实测均已完成但文档未勾选；EXEC_PLAN 历史 BLOCKED/PARKED 卡（Graphiti/Mem0 相关）需按 ADR-005（2026-08-24 已定 Native FTS5）如实标注，避免后续会话误读为"仍待决策"。
+- Docs updated: 见 What changed（纯文档）；README.md grep 复查 0 命中无需改动。
+- Risk: low（纯文档注释/勾选，零代码、零删除、未 commit）。
+
 ## 2026-09-13（BACKLOG-045 使用统计详情模块，DSH Worker 执行，待维护者复核合入）
 - What changed: `backend/app/routers/usage.py`（新增 `parse_iso_date()`/`resolve_range()`/`_cost_rollup()`/`_stats_row()`/`_fold_by_key()`；`/api/usage`、`/api/usage/cost` 增加 `start`/`end` 并回显解析后的 `start`/`end`/`days`；新增 `GET /api/usage/stats?dimension=model|session_type`；`/api/usage/cost` 的 `total` 改用 `_cost_rollup()` 并追加 `cost_status`，原字段值不变）；新增 `backend/tests/test_usage_range.py`（21 例）；前端新增 `frontend/src/utils/usageRange.ts`、`frontend/src/utils/usageStats.ts`、`frontend/src/components/settings/UsageDateRangePicker.tsx`、`UsageHero.tsx`、`UsageStatsTable.tsx`；改 `frontend/src/services/usageApi.ts`（新增窗口参数类型/响应类型 + `fetchUsageSummary`/`fetchUsageStats`，`fetchUsageCost` 改为收参数对象）、`frontend/src/pages/Settings.tsx`（UsagePanel 窗口化 + 新区域）、`frontend/src/i18n/{zh,en}.ts`（各 +24 key）；新增 `frontend/tests/UsageDetail.test.tsx`（19 例）。
 - Why: 用户质问"使用统计详情模块做了没有"，核实只做了极小子集（两个小组件 + 固定 `days=30`）。本卡按 CC Switch `usage/` 真实源码（file:line 引用表 15 条，见证据 §4）补齐「日期范围选择 + 汇总卡 + 维度统计表」；费用**复用** BACKLOG-044 的 `estimate_cost`/unpriced 语义，缺单价绝不返回 0、多币种不换算。

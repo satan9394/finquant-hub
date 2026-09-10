@@ -11,10 +11,11 @@
 
 ---
 
-## [READY] BACKLOG-046: 文档收尾——HANDOFF 顶部过时项勾清 + EXEC_PLAN 历史 BLOCKED 卡片如实复核
+## [DONE] BACKLOG-046: 文档收尾——HANDOFF 顶部过时项勾清 + EXEC_PLAN 历史 BLOCKED 卡片如实复核
 
 **优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-046.md`
 **范围**: 指挥实测 HANDOFF 顶部三项"未完成"均已完成（LICENSE 存在、PRD L151 / PRODUCT_MAP L23 已有 TECH_STACK 引用）但文档未勾；EXEC_PLAN 历史卡 AIOS-004/034/071（Graphiti/Mem0 等）需按 ADR-005（2026-08-24 定 Native FTS5）追加如实注释。本卡**只改文档**：HANDOFF 勾选 + 三张历史卡各加一行注释，**不改状态标签、不删历史**。**禁止**：backend/frontend 代码、改历史证据内容、删文件、commit。门禁：git diff --check、删除 0。
+**证据（2026-09-13，DSH Worker，纯文档完成）**: HANDOFF 顶部三项 `[x]` 勾选 + 2026-09-13 指挥实测核实行；「不阻塞发布（长期）」Graphiti/Mem0 行内补注 ADR-005 定 Native FTS5 事实口径（原记录未删）；EXEC_PLAN AIOS-004/034/071 三张历史卡各追加一行 `> 注（2026-09-13）：ADR-005 已于 2026-08-24 采纳 Native FTS5 为生产 memory 方案；本卡保持 [BLOCKED]/[PARKED] 历史状态，不再视为待办。`（状态标签与卡史未动）；README.md grep（`(?i)graphiti|mem0|memory|fts5|待定|未定`）0 命中无需改动；复核实测 `Test-Path LICENSE`=True、PRD L151 / PRODUCT_MAP L23 引用命中。门禁：`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-046.md`。
 
 ---
 
@@ -808,6 +809,8 @@
 
 ### [BLOCKED] AIOS-004: Graphiti 与 Mem0 fixture-only shadow PoC
 
+> 注（2026-09-13）：ADR-005 已于 2026-08-24 采纳 Native FTS5 为生产 memory 方案；本卡保持 [BLOCKED] 历史状态，不再视为待办。
+
 **优先级**: P0
 **范围**: 仅使用 synthetic fixture 比较候选；不注入模型、不写生产数据、不新增生产依赖。不可用候选必须明确报告并回退 native baseline。
 **前置**: AIOS-003 已完成。
@@ -923,6 +926,8 @@
 **证据**: thesis-drift/v1 四类版本化规则；price/fundamental baseline/current 双侧 evidence 门禁；position/report UNKNOWN；UI 展示公式/参数/证据且不重算。backend focused 14、frontend 3，Ruff/mypy/TypeScript/build、OpenAPI 112/143、diff check 通过。
 
 ### [BLOCKED] AIOS-034: 可选 Graphiti read model 同步与重建
+
+> 注（2026-09-13）：ADR-005 已于 2026-08-24 采纳 Native FTS5 为生产 memory 方案；本卡保持 [BLOCKED] 历史状态，不再视为待办。
 
 **优先级**: P1
 **范围**: 仅在 fixture/shadow 边界内定义由 authoritative SQLite 重建的 temporal graph read model，验证删除后全量重建与双边计数；不得新增生产依赖或接入业务主路径。
@@ -1045,6 +1050,8 @@
 **证据**: `share-preview/v1` 两个 owner-scoped GET、统一 404、固定 private/unpublished/BLOCKED；Thesis metadata-only evidence 与 strategy persisted provenance、脱敏后二次扫描、PARTIAL/UNKNOWN 和无发布动作完成。backend 7、frontend 21、Ruff/mypy/TypeScript/build 通过；隔离 desktop 与 390px Chromium/Escape 验证通过。fixture/mock 不是真实上游、公开发布或法律许可验证。
 
 ### [PARKED] AIOS-071: 公开只读 Thesis/Strategy 卡片
+
+> 注（2026-09-13）：ADR-005 已于 2026-08-24 采纳 Native FTS5 为生产 memory 方案；本卡保持 [PARKED] 历史状态，不再视为待办。
 
 **阻塞**: 需要隐私、数据再分发许可、免责声明与法律边界的明确决定；AIOS-070 不提供 URL、token 或发布动作。
 
