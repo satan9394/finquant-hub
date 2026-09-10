@@ -4,6 +4,20 @@
 
 ---
 
+## [READY] BACKLOG-047: 死代码收口——移除 mcp_runtime.connect_http_mcp_server（零调用点）
+
+**优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-047.md`
+**范围**: 042 重构为 `connect_mcp_server(config)` 统一分派后，`connect_http_mcp_server(name,url)` 薄封装零调用点（指挥实测仅剩定义）。本卡移除该函数 + 全仓 grep 确认 0 命中 + 全量 backend 门禁。**禁止**：动 `connect_mcp_server` 或其他生产行为、动 database.py、前端/依赖/E2E config、删文件、commit。门禁：backend `pytest -q` 0 failed + ruff + diff --check。
+
+---
+
+## [READY] BACKLOG-046: 文档收尾——HANDOFF 顶部过时项勾清 + EXEC_PLAN 历史 BLOCKED 卡片如实复核
+
+**优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-046.md`
+**范围**: 指挥实测 HANDOFF 顶部三项"未完成"均已完成（LICENSE 存在、PRD L151 / PRODUCT_MAP L23 已有 TECH_STACK 引用）但文档未勾；EXEC_PLAN 历史卡 AIOS-004/034/071（Graphiti/Mem0 等）需按 ADR-005（2026-08-24 定 Native FTS5）追加如实注释。本卡**只改文档**：HANDOFF 勾选 + 三张历史卡各加一行注释，**不改状态标签、不删历史**。**禁止**：backend/frontend 代码、改历史证据内容、删文件、commit。门禁：git diff --check、删除 0。
+
+---
+
 ## [DONE] BACKLOG-042b: BACKLOG-042 回归修复（backend 5 项测试未跟上 v25/分派改动）
 
 **优先级**: P0 ｜ **任务卡**: `docs/ai/BACKLOG-042b.md` ｜ **依赖**: BACKLOG-042（commit ed02b20）
