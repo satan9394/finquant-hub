@@ -4,10 +4,11 @@
 
 ---
 
-## [READY] BACKLOG-047: 死代码收口——移除 mcp_runtime.connect_http_mcp_server（零调用点）
+## [DONE] BACKLOG-047: 死代码收口——移除 mcp_runtime.connect_http_mcp_server（零调用点）
 
 **优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-047.md`
 **范围**: 042 重构为 `connect_mcp_server(config)` 统一分派后，`connect_http_mcp_server(name,url)` 薄封装零调用点（指挥实测仅剩定义）。本卡移除该函数 + 全仓 grep 确认 0 命中 + 全量 backend 门禁。**禁止**：动 `connect_mcp_server` 或其他生产行为、动 database.py、前端/依赖/E2E config、删文件、commit。门禁：backend `pytest -q` 0 failed + ruff + diff --check。
+**证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: `mcp_runtime.py` 仅删 `connect_http_mcp_server` 薄封装（函数 + docstring，-5 行），`connect_mcp_server`/`restore_enabled_mcp_servers`/imports 一字未动；删除 diff 见 `docs/ai/tasks/BACKLOG-047.md` §1。**移除后代码全仓 grep 0 命中**：`backend/app`、`backend/tests`、`frontend/src`、`frontend/e2e`、`frontend/e2e-8000`、`scripts/`、`memory/` 均无引用（含变体 connect_http/connectHttp 也 0）；仅 docs 历史证据（042/042b 卡及 tasks 证据）保留函数名描述，按卡 §目标 3 如实注明已收口（历史证据文件不在本卡 §允许清单，未改）。**测试零改动**（042b 已把 patch 目标改为 connect_mcp_server，无任何测试引用该符号）。门禁：全量 `pytest -q` **909 passed / 0 failed**（与 045 基线一致，总数未变证明未删/未跳测试）；`ruff check .` exit 0；`git diff --check` exit 0；删除 0；未 commit。**环境说明（诚实声明）**：隔离沙箱默认环境 `no_proxy` 含 `[::1]`，httpx 0.28.1 `URLPattern` 构造报 `Invalid port: ':1]'`（12 failed + 89 errors 全同根因，与删除无关，本地复现可证）；按项目既有惯例以 Python 进程内 `no_proxy` 覆盖（取 `localhost,127.0.0.1,::1`）重跑门禁，不改任何代码/测试。详见 `docs/ai/tasks/BACKLOG-047.md`。
 
 ---
 

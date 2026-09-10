@@ -3,6 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-13（BACKLOG-047 死代码收口，DSH Worker 执行，待维护者复核合入）
+- What changed: `backend/app/services/mcp_runtime.py`（仅删除 `connect_http_mcp_server(name, url)` 薄封装函数 + docstring + 相邻空行，文件 59→54 行；`connect_mcp_server` 统一分派入口与 `restore_enabled_mcp_servers` 一字未动，imports 不变）；新建 `docs/ai/tasks/BACKLOG-047.md`（完成证据）；`docs/ai/BACKLOG-047.md`（[READY]→[DONE] + 执行结果段）；`docs/ai/EXEC_PLAN.md`（047 → DONE + 证据行）；`HANDOFF.md`（变更日志追加）。
+- Why: 042（ed02b20）重构为 `connect_mcp_server(config)` 统一分派 + 042b（c8735c3）测试 patch 目标改向后，`connect_http_mcp_server` 全程零调用点仅剩自身定义——纯死代码收口（P3）。
+- Docs updated: 见 What changed（无端点/表/架构变更，`docs/API_CONTRACT.md`/`docs/ARCHITECTURE.md`/`docs/ROUTER_MAP.md`/`docs/HANDOVER.md` 无需改动）。
+- Verification: 移除后代码全仓 grep `connect_http_mcp_server` **0 命中**（backend app/tests、frontend src/e2e/e2e-8000、scripts、memory，含变体 connect_http/connectHttp 也 0；仅 docs 历史证据按卡 §目标 3 如实注明已收口）；全量 `pytest -q` **909 passed / 0 failed**（与 045 基线一致，总数未变证明未删/未跳测试）；`ruff check .` exit 0；`git diff --check` exit 0；删除 0；未 commit。测试零改动（042b 已改 patch 目标，复核无引用）。
+- Risk: low（纯死代码删除 + 文档；`connect_mcp_server`/restore/imports 未动；测试零改动；零新依赖；未 commit）。环境诚实声明：隔离沙箱 `no_proxy` 含 `[::1]` 触发 httpx 0.28.1 `Invalid port: ':1]'`（首轮 12 failed + 89 errors 全同根因，与删除无关），按项目既有惯例 Python 进程内覆盖 `no_proxy` 重跑门禁。
+
 ## 2026-09-13（BACKLOG-046 文档收尾，DSH Worker 执行）
 - What changed: `HANDOFF.md`（顶部「未完成（发布前必须做）」三项 [ ]→[x] + 2026-09-13 指挥实测核实行；「不阻塞发布（长期）」Graphiti/Mem0 行内补注 ADR-005 定 Native FTS5；变更日志追加）；`docs/ai/EXEC_PLAN.md`（AIOS-004/034/071 三张历史卡各追加一行 ADR-005 如实注释，状态标签与卡史未动；BACKLOG-046 注册段 [READY]→[DONE] + 证据行）；`docs/ai/BACKLOG-046.md`（[READY]→[DONE]）；新建 `docs/ai/tasks/BACKLOG-046.md`（完成证据）。
 - Why: HANDOFF 顶部三项（LICENSE / PRD L151 / PRODUCT_MAP L23）经指挥实测均已完成但文档未勾选；EXEC_PLAN 历史 BLOCKED/PARKED 卡（Graphiti/Mem0 相关）需按 ADR-005（2026-08-24 已定 Native FTS5）如实标注，避免后续会话误读为"仍待决策"。

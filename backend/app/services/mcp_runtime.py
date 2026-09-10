@@ -23,11 +23,6 @@ async def connect_mcp_server(config: MCPServerConfig) -> int:
     return len(tools)
 
 
-async def connect_http_mcp_server(name: str, url: str) -> int:
-    """HTTP (SSE) MCP server, kept as a thin wrapper for existing callers."""
-    return await connect_mcp_server(MCPServerConfig(name=name, url=url))
-
-
 async def restore_enabled_mcp_servers() -> None:
     rows = await database.query_all(
         "SELECT id, name, url, command, args_json FROM mcp_server_configs WHERE is_enabled=1 ORDER BY id"
