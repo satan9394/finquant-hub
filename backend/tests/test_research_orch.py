@@ -198,6 +198,8 @@ async def test_unexpected_agent_failure_emits_error_and_completes(monkeypatch):
     errors = [data for event, data in events if event == "error"]
     assert errors == [{"role_key": "business_analyst", "error": "研究 Agent 异常：agent crashed"}]
     assert events[-1][0] == "done"
+    # G-03: 任一 agent 失败 → done 事件必须携带诚实 quality=degraded
+    assert events[-1][1]["quality"] == "degraded"
 
 
 @pytest.mark.asyncio
@@ -322,3 +324,54 @@ async def test_tool_thread_without_user_id_keeps_isolation(isolated_registry):
     # ContextProbeTool.run 内 current_user_id() 无上下文时抛 RuntimeError，
     # 线程内 asyncio.run 使其传播 → _execute_tool_call 捕获返回"工具执行异常"
     assert logs[0]["result"].startswith("工具执行异常")
+
+
+@pytest.mark.asyncio
+async def test_complete_flow_marks_quality_audited(monkeypatch, isolated_registry):
+    """G-03: 无任何失败的完整研究 → done 事件 quality=audited。"""
+    executions = []
+    isolated_registry.clear()
+    isolated_registry.register(IntegrationProbeTool(executions))
+    client = MockLLMClient()
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return client, {"id": model_id, "name": "Mock LLM"}
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+
+    events = [
+        event
+        async for event in research_orch.run_research(
+            "usAAPL", "Apple Inc.", model_id=17, user_id=1
+        )
+    ]
+    assert events[-1][0] == "done"
+    assert events[-1][1]["quality"] == "audited"
+
+
+@pytest.mark.asyncio
+async def test_agent_llm_error_is_non_fatal_degraded(monkeypatch):
+    """G-03: agent 的 LLMError 应是非致命降级——
+    报告仍能 done 完成，但 done 事件携带 quality=degraded，
+    且事件流里是 agent_failed（非 error，避免 router 把整份报告判 failed）。"""
+    from app.services.llm_client import LLMError
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "financial_analyst":
+            raise LLMError("上游模型暂不可用")
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    event_names = [name for name, _data in events]
+    assert "error" not in event_names, "LLMError 不应触发致命 error 事件"
+    failed = [data for name, data in events if name == "agent_failed"]
+    assert any(item["role_key"] == "financial_analyst" for item in failed)
+    assert events[-1][0] == "done"
+    assert events[-1][1]["quality"] == "degraded"

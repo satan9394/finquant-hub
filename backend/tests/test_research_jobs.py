@@ -352,3 +352,41 @@ async def test_stale_incomplete_run_retries_with_same_identity_and_lineage_after
     assert [event["event_type"] for event in runs[0]["events"]] == [
         "retry_started", "completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_claim_stops_retrying_after_max_attempts():
+    """G-02: 失败 attempt 达到 _MAX_RETRY_ATTEMPTS 后，claim 必须返回 None，
+    调度器不再抓取该 job（杜绝无限重试）。"""
+    from app.services import research_jobs as rj
+    max_attempts = rj._MAX_RETRY_ATTEMPTS
+
+    # 直接插入 job（绕过 create_research_job 的 cron 计算，聚焦 claim 上限逻辑）。
+    await database.execute(
+        "INSERT INTO scheduled_research_jobs "
+        "(name, ticker, company_name, cron_expr, model_id, is_enabled, next_run_at, user_id) "
+        "VALUES ('g02', 'usAAPL', 'Apple', '0 8 * * *', NULL, 1, '2026-08-01 08:00:00', 1)"
+    )
+    row = await database.query_one(
+        "SELECT id FROM scheduled_research_jobs WHERE name='g02' AND user_id=1"
+    )
+    job_id = row["id"]
+
+    # 已有 max_attempts 条失败 run（模拟持续失败的历史）。
+    for attempt in range(1, max_attempts + 1):
+        await database.execute(
+            "INSERT INTO scheduled_research_runs "
+            "(user_id, job_id, run_key, idempotency_key, attempt, status, "
+            "started_at, lease_owner, lease_expires_at, heartbeat_at) "
+            "VALUES (?, ?, ?, ?, ?, 'failed', '2026-08-01 08:00:00', ?, "
+            "'2026-08-01 08:00:00', '2026-08-01 08:00:00')",
+            (1, job_id, f"{'rk' + str(attempt).zfill(2) * 31}", f"{'id' + str(attempt).zfill(2) * 31}", attempt,
+             "worker", ),
+        )
+
+    # 下一次 claim（attempt 将 = max+1）应被上限拦截 → None。
+    outcome = await claim_research_job(
+        job_id, 1, idempotency_key="g02-latest",
+        lease_owner="worker", lease_seconds=60,
+    )
+    assert outcome is None

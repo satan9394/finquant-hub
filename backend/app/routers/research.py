@@ -272,11 +272,17 @@ async def start_research(body: ResearchRequest, request: Request, user: CurrentU
                     yield {"event": "error", "data": json.dumps(error_data, ensure_ascii=False)}
                     break
                 if event == "done":
-                    await _complete_report(report_id, data.get("report", {}), data.get("agent_results", {}), user_id)
+                    report = data.get("report", {})
+                    # G-03: 报告诚实质量标记随报告持久化（audited/degraded），
+                    # 前端研究报告展示可据此提示"部分环节失败"。
+                    quality = data.get("quality", "audited")
+                    if isinstance(report, dict):
+                        report = {**report, "quality": quality}
+                    await _complete_report(report_id, report, data.get("agent_results", {}), user_id)
                     schedule_research_candidates(
                         report_id,
                         ticker,
-                        data.get("report", {}),
+                        report,
                         user_id,
                     )
                     completed = True

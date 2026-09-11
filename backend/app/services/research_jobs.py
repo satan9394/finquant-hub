@@ -14,6 +14,9 @@ from .cron import CronExpression
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 JSONDict = dict[str, Any]
 _RUNTIME_LOCK = asyncio.Lock()
+# G-02: 定时研究任务失败重试上限（含首次之后的失败 attempt）。
+# 达到上限后 claim 返回 None，调度器不再抓取，防止持续失败时无限重试。
+_MAX_RETRY_ATTEMPTS = 5
 _HEX_KEY = re.compile(r"[0-9a-f]{64}")
 _EVENT_PAYLOAD_KEYS = {
     "attempt", "error", "lease_expires_at", "lease_owner", "reason",
@@ -187,6 +190,11 @@ async def claim_research_job(
                 latest if latest is not None and latest["status"] in {"failed", "cancelled"} else None
             )
             attempt = int(latest["attempt"]) + 1 if latest else 1
+            # G-02: 失败重试上限——同一 job 的失败 attempt 达到上限后不再 claim，
+            # 调度器随即不再抓取该 job，杜绝无限重试烧 API + DB 膨胀。
+            # 恢复语义：下次定时计划（next_run_at 到达）或用户手动重跑仍可重新计数。
+            if attempt > _MAX_RETRY_ATTEMPTS:
+                return None
             retry_of = int(prior["id"]) if prior else None
             run_key = hashlib.sha256(
                 f"{user_id}:{job_id}:{identity}:{attempt}".encode()

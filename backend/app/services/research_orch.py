@@ -202,9 +202,13 @@ async def run_research(
     agent_results: dict[str, JSONDict] = {}
     sections = get_memo_sections()
     total_sections = len(sections)
+    # BACKLOG-G-03: 任一 agent / 主编环节失败时，报告必须诚实标记降级，
+    # 不得呈现为无条件"completed 成功报告"。
+    degraded = False
 
     def make_node(role: JSONDict) -> DAGNode:
         async def run_agent(context: DAGContext) -> tuple[str, str, str, list[JSONDict]]:
+            nonlocal degraded
             context.emit("agent_started", {
                 "role_key": role["role_key"],
                 "name": role["name"],
@@ -221,7 +225,12 @@ async def run_research(
                     memory_context=memory_context,
                 )
             except LLMError as exc:
-                context.emit("error", {"role_key": role["role_key"], "error": str(exc)})
+                # G-03: agent 的 LLMError 是"非致命降级"——返回降级文本让报告仍能完成，
+                # 但必须标 degraded 并在前端提示"该环节失败、报告不完整"。
+                # 注意用 agent_failed 而非 error：error 会被 router 视作致命失败（fail+break），
+                # 报告将整体 failed 而非 degraded-completed——与 G-03 目标不符。
+                degraded = True
+                context.emit("agent_failed", {"role_key": role["role_key"], "error": str(exc)})
                 return role["role_key"], f"【分析失败】{exc}", role["name"], []
 
             for tool_call in tool_log:
@@ -242,7 +251,7 @@ async def run_research(
     roles_by_key = {role["role_key"]: role for role in RESEARCH_ROLES}
     runtime = DAGRuntime([make_node(role) for role in RESEARCH_ROLES])
     async for event in runtime.stream():
-        if event.kind in {"agent_started", "tool_call", "agent_completed", "error"}:
+        if event.kind in {"agent_started", "tool_call", "agent_completed", "error", "agent_failed"}:
             yield event.kind, event.data
         elif event.kind == "node_completed":
             role_key, content, name, tool_log = event.result
@@ -250,6 +259,7 @@ async def run_research(
         elif event.kind == "node_failed":
             role = roles_by_key[event.node_key]
             error = str(event.error)
+            degraded = True
             yield "error", {"role_key": event.node_key, "error": f"研究 Agent 异常：{error}"}
             agent_results[event.node_key] = {
                 "content": f"【分析失败】{error}",
@@ -280,6 +290,7 @@ async def run_research(
         )
     except LLMError as exc:
         lead_content, lead_tool_log = "", []
+        degraded = True
         yield "agent_failed", {"role_key": "report_lead", "error": str(exc)}
     for tool_call in lead_tool_log:
         yield "tool_call", {
@@ -313,6 +324,9 @@ async def run_research(
     done_payload = {
         "ticker": ticker,
         "report": report_data,
+        # G-03: 报告诚实质量标记——任一环节失败即为 degraded，正常为 audited。
+        # 与 report_builder.lead_review_status 同语义（degraded 前端已有降级提示机制）。
+        "quality": "degraded" if degraded else "audited",
         # Tool logs retain the data-source trail (including news URLs) for
         # later report review instead of discarding research provenance.
         "agent_results": {
