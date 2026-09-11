@@ -171,6 +171,36 @@ async def claim_research_job(
                 return None
             job = dict(job_row)
             next_at = next_run_at(str(job["cron_expr"]), current)
+            # G-02（修正）：重试上限必须
+            #   ① 只统计"自上次成功以来"的连续失败（原实现按 job 全历史 attempt 累加，
+            #      导致正常任务跑满上限次数后也被永久拦下）；
+            #   ② 在改动 job 状态（last_status='running'）之前判定——原实现先提交
+            #      running 再 return None，job 会永久卡在 running、无 run 行可被
+            #      recover_stale_research_runs 回收，定时研究静默死亡。
+            failed_row = await (await db.execute(
+                "SELECT COUNT(*) AS n FROM scheduled_research_runs r "
+                "WHERE r.job_id=? AND r.user_id=? AND r.status IN ('failed', 'cancelled') "
+                "AND r.id > COALESCE((SELECT MAX(s.id) FROM scheduled_research_runs s "
+                "  WHERE s.job_id=? AND s.user_id=? AND s.status='completed'), 0)",
+                (job_id, user_id, job_id, user_id),
+            )).fetchone()
+            consecutive_failures = int(failed_row["n"]) if failed_row else 0
+            if consecutive_failures >= _MAX_RETRY_ATTEMPTS:
+                # 停止失败重试风暴：不创建新 run（不烧上游），记录原因并推进到下一次
+                # 计划时间——正常调度不受影响，下一次到点仍会尝试一次。
+                await db.execute(
+                    "UPDATE scheduled_research_jobs SET last_status='failed', last_error=?, "
+                    "next_run_at=?, pending_idempotency_key=NULL, updated_at=datetime('now') "
+                    "WHERE id=? AND user_id=?",
+                    (
+                        f"连续失败 {consecutive_failures} 次，已暂停自动重试；"
+                        "请检查模型配置、额度与网络后，等待下次计划或手动重跑。",
+                        next_at,
+                        job_id,
+                        user_id,
+                    ),
+                )
+                return None
             cursor = await db.execute(
                 "UPDATE scheduled_research_jobs SET last_status='running', last_error=NULL, "
                 "last_run_at=?, next_run_at=?, pending_idempotency_key=NULL, "
@@ -190,11 +220,6 @@ async def claim_research_job(
                 latest if latest is not None and latest["status"] in {"failed", "cancelled"} else None
             )
             attempt = int(latest["attempt"]) + 1 if latest else 1
-            # G-02: 失败重试上限——同一 job 的失败 attempt 达到上限后不再 claim，
-            # 调度器随即不再抓取该 job，杜绝无限重试烧 API + DB 膨胀。
-            # 恢复语义：下次定时计划（next_run_at 到达）或用户手动重跑仍可重新计数。
-            if attempt > _MAX_RETRY_ATTEMPTS:
-                return None
             retry_of = int(prior["id"]) if prior else None
             run_key = hashlib.sha256(
                 f"{user_id}:{job_id}:{identity}:{attempt}".encode()

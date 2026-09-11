@@ -390,3 +390,87 @@ async def test_claim_stops_retrying_after_max_attempts():
         lease_owner="worker", lease_seconds=60,
     )
     assert outcome is None
+
+
+async def _insert_job(name: str) -> int:
+    await database.execute(
+        "INSERT INTO scheduled_research_jobs "
+        "(name, ticker, company_name, cron_expr, model_id, is_enabled, next_run_at, user_id) "
+        "VALUES (?, 'usAAPL', 'Apple', '0 8 * * *', NULL, 1, '2026-08-01 08:00:00', 1)",
+        (name,),
+    )
+    row = await database.query_one(
+        "SELECT id FROM scheduled_research_jobs WHERE name=? AND user_id=1", (name,)
+    )
+    return row["id"]
+
+
+async def _insert_run(job_id: int, attempt: int, status: str) -> None:
+    await database.execute(
+        "INSERT INTO scheduled_research_runs "
+        "(user_id, job_id, run_key, idempotency_key, attempt, status, "
+        "started_at, lease_owner, lease_expires_at, heartbeat_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, '2026-08-01 08:00:00', 'worker', "
+        "'2026-08-01 08:00:00', '2026-08-01 08:00:00')",
+        (1, job_id, f"{'rk' + str(attempt).zfill(2) * 31}", f"{'id' + str(attempt).zfill(2) * 31}",
+         attempt, status),
+    )
+
+
+@pytest.mark.asyncio
+async def test_claim_still_allows_job_after_many_successful_runs():
+    """G-02 回归（P0）：上限只能约束"连续失败"，不得因全历史 attempt 累加而误杀正常任务。
+    原实现用 `latest.attempt + 1 > MAX` 判定 → 正常任务跑满 5 次后永久失效。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-success-history")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 3):
+        await _insert_run(job_id, attempt, "completed")
+
+    outcome = await claim_research_job(
+        job_id, 1, idempotency_key="g02-still-runnable",
+        lease_owner="worker", lease_seconds=60,
+    )
+    assert outcome is not None, "连续成功的 job 不应被失败上限拦截"
+    assert outcome.get("id")
+
+
+@pytest.mark.asyncio
+async def test_claim_cap_does_not_leave_job_stuck_running():
+    """G-02 回归（P0）：达到上限时不得把 job 卡在 'running'。
+    原实现先提交 last_status='running' 再 return None → 无 run 行、due 查询排除、
+    recover_stale 也扫不到，定时研究静默死亡且无自愈路径。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-stuck")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 1):
+        await _insert_run(job_id, attempt, "failed")
+
+    assert await claim_research_job(
+        job_id, 1, idempotency_key="g02-cap", lease_owner="worker", lease_seconds=60,
+    ) is None
+
+    job = await get_research_job(job_id, 1)
+    assert job is not None
+    assert job["last_status"] != "running", "达到上限后 job 不得停留在 running"
+    assert job["last_error"], "应记录可行动原因供用户看到"
+    # 未创建新 run（不烧上游）
+    count = await database.query_one(
+        "SELECT COUNT(*) AS n FROM scheduled_research_runs WHERE job_id=?", (job_id,)
+    )
+    assert count["n"] == rj._MAX_RETRY_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_claim_resumes_after_a_success_resets_failure_streak():
+    """G-02：成功一次即重置失败计数——历史上攒够的失败不得永久阻断该 job。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-reset")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 1):
+        await _insert_run(job_id, attempt, "failed")
+    # 之后成功一次（id 更大 → 计入"上次成功之后"的边界重置）
+    await _insert_run(job_id, rj._MAX_RETRY_ATTEMPTS + 1, "completed")
+
+    outcome = await claim_research_job(
+        job_id, 1, idempotency_key="g02-resumed",
+        lease_owner="worker", lease_seconds=60,
+    )
+    assert outcome is not None, "成功一次后应恢复可调度"
