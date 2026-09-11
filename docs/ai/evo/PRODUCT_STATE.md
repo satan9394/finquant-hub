@@ -27,16 +27,26 @@
 
 ## ⚠️ 待补事项（跨轮跟踪）
 1. ~~VS-4 补独立评估~~ **已完成（R15 ACCEPT）**。
-2. **R2 审计补做**：A2/D2 均死于 429，仅抢救到部分发现；环境允许时**重跑**（尤其 D2 可靠性覆盖，含"流式早失败是否应重试"的取舍决策）。
-3. **首个 Vertical Slice 之后未再做周期性审计** → 已启动 R2，但未完成（同上）。
+2. **R2 审计**：A2（UX）仍死于 429，仅抢救部分发现；**D2（可靠性）已完成**（`RELIABILITY_REPORT_R2.md`）——其首要发现是**我 VS-1 的 P0 回归**（见下）。A2 部分待补。
+3. **D2 报告的其余 P0/P1 尚未处理**（见路线图），其中"降级标记不落库"同为 P0，需优先评估。
+
+## D2 可靠性审计（R2）发现清单
+- **✅ 已修（P0）**：G-02 上限拦截顺序+语义两处缺陷 → `eff8e2d`（含 3 回归守卫测试）。
+- **P0 未修**：**降级标记不落库**——`research_orch.py:324-329` 把 `quality` 放在 done_payload **顶层**，而 `scheduler.py:171-183` 只持久化 `report`/`agent_results` → **定时研究产出的降级报告以 `status='completed'` 入库，DB 重载后与正常报告无区别**（用户看不到降级）。注：交互路径由 `routers/research.py` 合并 quality 后落库（VS-1 已修），但**调度路径漏了**。
+- **P1 未修**：降级白名单过窄——仅捕 `LLMError`（`research_orch.py:227/291`）；**工具异常被吞成文本**（`llm_client.py:318-322`）、`tool_loop_exhausted` 未被消费（`research_orch.py:254`）、lead 空返回仍标 `audited`。
+- **P1 未修**：重试放大——无抖动、不读 `Retry-After`、无熔断；最坏 5 agent × 6 轮 × 3 尝试 ≈ **90 次上游请求**（`llm_client.py:20-22,111-128,282-283,350`）。
+- **P1 未修**：启动备份只 `Copy-Item finquant.db`（`start.bat:96`），**不含 `-wal`/`-shm`** → WAL 下非一致性快照（失败不阻塞启动这点是对的）。
+- **P1 未修**：密钥脱敏仅替换 `self.api_key`（`llm_client.py:99`）；错误文案经 `research_orch` → SSE 可能**落库到 `run_events.payload_json`**（`research_jobs.py:44-48`）。
+- **未验证 5 处**（D2 已标注）：`routers/research.py` 是否消费 quality、`database.py` 迁移/磁盘、同步工具是否阻塞事件循环、供应商是否回显密钥、`pending_idempotency_key` 写入方。
 
 ## 仍存在缺口（路线图，含 R2 部分发现）
 - **✅ 已完成 VS-5**：AI 首用配置引导改为站内模型管理为主（QUICKSTART/README），PRD 三处事实错误修正；独立评估 REJECT→修复→**ACCEPT**。
-- **NEXT**：**R2 审计补做**（A2/D2 均死于 429，仅抢救部分发现）；**首启浏览器早于服务**（`start.bat:108` 先开浏览器、`:110` 才起 uvicorn → 首次见"无法连接"页）；**失败无面向非技术用户的自助恢复**（错误路径只给终端命令）；G-04 站内帮助入口。
-- **LATER**：导航"一组一子项"结构摩擦（App.tsx:60-120）；`start.bat:34` 升级不重装依赖；G-07/09；G-12；G-06。
-- VS-3 遗留（非阻断）：`openStoredReport` 用内联三元而非 `resolveReportQuality`；报告列表页未加质量徽章。
-- VS-4 遗留：`chat_stream` 未重试（保守设计；D2 提示"流式早失败"或值得重试，待决策）。
-- VS-5 遗留（非阻断）：`README.md:42`（Docker 段）仍称 AI 需在 `.env.local` 配置 key——Docker 路径确实走 env，但可加一句指向站内配置以保持两条路径口径一致。
+- **✅ 已完成 VS-6**：首启启动体验（浏览器等就绪再开 + 失败可自助）；独立评估 REJECT（2 项必修：计时按次数非按时间、pip 失败文案矛盾）→ 修复 → 复评中。
+- **NOW（待定，由 D2 发现驱动）**：**降级标记不落库（P0）** 与 **降级白名单过窄（P1）** 高度耦合 → 很可能是下一 Slice（VS-7）。
+- **NEXT**：A2 的 UX 部分补审；G-04 站内帮助入口；`start.bat:34` 升级不重装依赖。
+- **LATER**：导航"一组一子项"结构摩擦；重试抖动/Retry-After/熔断；备份含 `-wal/-shm`；密钥脱敏扩大；G-07/09；G-12；G-06。
+- VS-3 遗留（非阻断）：`openStoredReport` 用内联三元；报告列表页未加质量徽章。
+- VS-4 遗留：`chat_stream` 未重试（保守设计）。
 
 ## 新发现问题（滚动）
 1. **子代理环境持续恶化**：本轮 429 限流 3 次（VS-4 评估全灭）；全量 pytest 连续 3 次挂起（网络类用例）；`test_model_pricing.py` 亦挂起（与本次改动无关——该文件不引用 llm_client，且验收 044 时通过）。**执行与验证能力已成为演进的主要瓶颈**。
