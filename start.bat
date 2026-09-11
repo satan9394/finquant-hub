@@ -29,7 +29,7 @@ if errorlevel 1 (
     echo [怎么做] 1^) 先看任务栏是否还有本程序的黑色窗口，有就按 Ctrl+C 关闭；
     echo [怎么做] 2^) 还不行就重启电脑，然后再双击 start.bat。
     echo [进阶] 想查出占用者：在命令提示符运行 netstat -ano ^| findstr 8000
-    echo [文档] 详见 docs\QUICKSTART.md 的"提示 8000 端口已被占用"。
+    echo [文档] 详见 docs\QUICKSTART.md 的"提示“8000 端口已被占用”"一节。
     goto fail
 )
 
@@ -50,7 +50,7 @@ if errorlevel 1 goto venv_failed
 
 :install_backend
 "backend\.venv\Scripts\python.exe" -m pip install -r "backend\requirements.txt"
-if errorlevel 1 goto venv_failed
+if errorlevel 1 goto pip_failed
 
 :frontend
 rem ponytail: 只按 package.json 与 index.html 的时间判断过期；源码更新后需手动重建。
@@ -109,8 +109,9 @@ echo [停止] 保持本窗口打开，使用完毕按 Ctrl+C 停止服务。
 set "SERVE_FRONTEND=1"
 set "LOCAL_ONLY_MODE=1"
 rem 首启体验：等 8000 端口可连接后再打开浏览器，避免用户先看到"无法连接"错误页。
-rem 后台等待最多约 90 秒；超时同样尝试打开一次（窗口已提示可手动访问）。
-start "" /b powershell.exe -NoProfile -Command "for($i=0;$i -lt 90;$i++){ try{ $c=New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1',8000); $c.Close(); Start-Process 'http://127.0.0.1:8000'; exit 0 }catch{ Start-Sleep -Seconds 1 } }; Start-Process 'http://127.0.0.1:8000'"
+rem 按"截止时间"计时（本轮最多 90 秒）——不能按循环次数，因为每次失败连接本身就要 2 秒左右。
+rem 超时同样尝试打开一次（窗口已提示可手动访问）。
+start "" /b powershell.exe -NoProfile -Command "$deadline=(Get-Date).AddSeconds(90); while((Get-Date) -lt $deadline){ try{ $c=New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1',8000); $c.Close(); Start-Process 'http://127.0.0.1:8000'; exit 0 }catch{ Start-Sleep -Milliseconds 500 } }; Start-Process 'http://127.0.0.1:8000'"
 cd backend
 ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 if errorlevel 1 (
@@ -124,11 +125,19 @@ if errorlevel 1 (
 popd
 exit /b 0
 
+:pip_failed
+echo [错误] 依赖下载/安装失败。此时 Python 环境已就绪，问题通常出在网络或磁盘空间。
+echo [怎么做] 1^) 确认网络可用（必要时切换网络或稍后重试），关闭本窗口后重新双击 start.bat；
+echo [怎么做] 2^) 检查磁盘剩余空间是否充足；
+echo [怎么做] 3^) 仍失败请把本窗口最后几行错误截图，对照 docs\QUICKSTART.md 的"常见问题"排查。
+echo [进阶] 手动补齐依赖：在 backend 目录运行 .venv\Scripts\python.exe -m pip install -r requirements.txt
+goto fail
+
 :venv_failed
 echo [错误] Python 运行环境准备失败，通常是没有装 Python 3.12 或安装时没勾选加入 PATH。
 echo [怎么做] 1^) 打开 https://www.python.org/downloads/release/python-31210/ 下载 Windows 安装包；
 echo [怎么做] 2^) 安装时务必勾选 Add python.exe to PATH，装完重启电脑；
-echo [怎么做] 3^) 重新双击 start.bat。详细图文步骤见 docs\QUICKSTART.md 的"第二步"。
+echo [怎么做] 3^) 重新双击 start.bat。详细图文步骤见 docs\QUICKSTART.md 的"你需要准备什么"。
 echo [进阶] 若你熟悉命令行，也可在项目根目录依次运行：
 echo cd backend
 echo python -m venv .venv
@@ -138,7 +147,7 @@ goto fail
 :build_failed
 echo [错误] 前端页面准备失败，通常是网络不通或 Bun 未正确安装。
 echo [怎么做] 1^) 确认网络可用后重新双击 start.bat；
-echo [怎么做] 2^) 仍失败请对照 docs\QUICKSTART.md 的"提示没装 Bun / Python"一节处理。
+echo [怎么做] 2^) 仍失败请对照 docs\QUICKSTART.md 的"提示没装 Bun / Python，或安装、构建失败"一节处理。
 echo [进阶] 在 frontend 目录依次运行：bun install --frozen-lockfile 与 bun run build
 echo 若 bun 不在 PATH，请使用其完整安装路径。
 
