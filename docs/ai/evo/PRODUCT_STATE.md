@@ -85,6 +85,20 @@
   - **编排者已复核并下调严重度（R72）**：主路径脱敏**是生效的**——`model_router.py:37-44` 把解析出的真实 key（用户加密凭据 > 旧 api_key 字段 > 环境变量）传入 `LLMClient(api_key=…)`，故 `self.api_key` 非空、`body.replace` 有效。**残留缺口收窄为三类边界**：①供应商回显的是截断/URL 编码后的 key 时匹配不到；②key 若位于 `base_url` 查询串，`_response_error` **只清洗 api_key 不清洗 URL**；③`self.api_key` 为空时替换退化为空操作（但此时也无 key 可泄）。→ 降为 **P2 加固项**，非 P0。
 - **未验证 5 处**（D2 已标注）：`routers/research.py` 是否消费 quality、`database.py` 迁移/磁盘、同步工具是否阻塞事件循环、供应商是否回显密钥、`pending_idempotency_key` 写入方。
 
+## R3 审计（第三轮，2026-09-13）发现
+
+**A3（产品UX）已完成**，报告 `PRODUCT_UX_REPORT_R3.md`（7 问题：P1×2 / P2×2 / P3×2 / P4×1 + 6 未验证）。**编排者已逐条核实前两条。**
+- **P1-1（新，最高价值）——本地模式存在"不可完成的登录页"死胡同**。证据链（编排者已核实）：
+  - `start.bat:117` 强制 `LOCAL_ONLY_MODE=1`；
+  - `backend/app/routers/auth.py:52-53`：本地模式下 `/api/auth/request-code` **直接 404「本地模式不提供邮箱登录」**；
+  - `frontend/src/store/authStore.ts:33-34`：`getCurrentUser()` 的 `.catch` **吞掉错误原因、无重试**，一律置 `isAuthenticated:false, status:'anonymous'`；
+  - `frontend/src/App.tsx:367,386`：`AuthGate` **只看 `isAuthenticated`、不查 `local_mode`**（而 `local_mode` 在 `App.tsx:264` 本就可取）→ `Navigate to="/login"`。
+  ⇒ **只要 `/auth/me` 失败一次**（后端尚未就绪、瞬时 5xx、网络/代理异常、Cookie 干扰），用户在**本机模式下**就会看到一个**永远无法通过**的邮箱验证码页；且 `QUICKSTART:92-127` 的 FAQ **没有**"看到登录页怎么办"条目，与 `QUICKSTART:50`"不需要邮箱登录"的承诺冲突。刷新通常能恢复，但 UI 未提示。
+  - **与 R2 的关系**：A2 曾把它列为"未验证"；编排者当轮只验了**正常路径**（`auth.py:90,125-126` 本地模式直返本地所有者 → 无登录墙）便收工。**R3 问的是失败路径，结论相反** —— 这正是"假设必然失败"视角的价值，也是本轮审计最有力的产出。
+- **P1-2**："发行包不需要 Bun"的承诺依赖**单一时间戳启发式**（`start.bat:56-63` 只比较 `package.json` vs `dist/index.html`），判定为需重建且无 Bun 时**直接退出**（`:69` → `:162-166`）；用户不可控，最坏情况让"解压即用"的理想用户被要求装 Bun。建议：构建指纹 + 产物存在时**不硬退出**（给"以现有页面启动"的默认选择）。
+- 其余：P2 首页"最近会话/讨论"点击**不带 id**、落点为空工作区（`Dashboard.tsx:100/115` → `App.tsx:323-324`）；P2 `start.bat:18` 硬编码维护者 Bun 绝对路径；P3 备份失败提示不区分".venv 缺失"与"写盘失败"；P3 90s 超时后仅一行"可手动访问"；P4 `bun.sh`（脚本）与 `bun.com`（QUICKSTART）不一致。
+- A3 对近期改动的判断：备份改 `Connection.backup()` **方向正确、未见新问题**；Bun 非致命是改进但**风险集中到单一判定点**（即 P1-2）；等端口就绪合理但超时分支文案缺失；AI 引导文档侧一致。
+
 ## 仍存在缺口（路线图，含 R2 部分发现）
 - **✅ 已完成 VS-5**：AI 首用配置引导改为站内模型管理为主（QUICKSTART/README），PRD 三处事实错误修正；独立评估 REJECT→修复→**ACCEPT**。
 - **✅ 已完成 VS-6**：首启启动体验（浏览器等就绪再开 + 失败可自助）；独立评估 REJECT（2 项必修：计时按次数非按时间、pip 失败文案矛盾）→ 修复 → **ACCEPT**。
