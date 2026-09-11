@@ -17,6 +17,7 @@ export default function Login() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const status = useAuthStore((state) => state.status);
   const initialize = useAuthStore((state) => state.initialize);
+  const retry = useAuthStore((state) => state.retry);
   const login = useAuthStore((state) => state.login);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -82,6 +83,21 @@ export default function Login() {
           {t('auth.subtitle')}
         </Typography.Paragraph>
         {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 18 }} /> : null}
+
+        {/* VS11 防御性兜底：本地模式不提供邮箱登录（request-code 直接 404），
+            这里给出说明与重试入口，避免用户困在无法完成的登录页。 */}
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 18 }}
+          message={t('auth.localFallback.title')}
+          description={t('auth.localFallback.body')}
+          action={(
+            <Button size="small" onClick={() => { void retry(); }} data-testid="login-retry-connection">
+              {t('auth.localFallback.retry')}
+            </Button>
+          )}
+        />
 
         {step === 'email' ? (
           <Form layout="vertical" onFinish={sendCode} requiredMark={false}>

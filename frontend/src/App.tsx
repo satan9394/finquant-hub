@@ -360,12 +360,14 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   );
 }
 
-function AuthGate({ children }: { children: ReactNode }) {
+export function AuthGate({ children }: { children: ReactNode }) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const status = useAuthStore((state) => state.status);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const initialize = useAuthStore((state) => state.initialize);
+  const retry = useAuthStore((state) => state.retry);
   const clear = useAuthStore((state) => state.clear);
 
   useEffect(() => { void initialize(); }, [initialize]);
@@ -382,6 +384,18 @@ function AuthGate({ children }: { children: ReactNode }) {
 
   if (status === 'idle' || status === 'loading') {
     return <div className="auth-loading"><Spin size="large" /></div>;
+  }
+  // VS11：后端未就绪（网络错误 / 5xx / 超时）不等于「未登录」。
+  // 本地模式下邮箱登录接口直接 404，跳 /login 是死胡同，因此这里渲染可重试的连接提示。
+  if (status === 'unavailable') {
+    return (
+      <div className="auth-loading" role="status" data-testid="auth-unavailable">
+        <Spin size="large" />
+        <span>{t('auth.unavailable.title')}</span>
+        <p className="auth-unavailable-hint">{t('auth.unavailable.hint')}</p>
+        <Button onClick={() => { void retry(); }}>{t('auth.unavailable.retry')}</Button>
+      </div>
+    );
   }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
