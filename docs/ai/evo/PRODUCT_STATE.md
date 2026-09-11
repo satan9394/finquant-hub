@@ -76,7 +76,8 @@
   - **算式属实**：`_MAX_ATTEMPTS=3`（`llm_client.py:21`）× 每 agent 6 次调用（`research_orch.py:144` 的 `for _round in range(5)` + 1 次强制收尾）× 5 个 agent = **最坏 90 次上游请求**。
   - **但影响有界**：退避仅 0.5s→1.0s（总增时延约 45s），且研究是**用户发起、单次运行**，非后台高频；4xx 不重试已正确排除"坏 key 打 3 次"。
   - **真正值得做的一条**：**完全未读 `Retry-After`**（实测命中 0 处）。供应商在 429/503 上明确给出等待时长时我们仍按固定退避立刻重试，属**协议层面的不礼貌**，可能招致更长限流。→ 列为 **NEXT 小项（低成本、可判定）**：`_post_chat_with_retry` 在可重试状态码且响应含 `Retry-After` 时按其等待（设上限），否则用现有退避；顺带加抖动。
-- **✅ 已修并待判定（P1→数据安全）**：启动备份只复制 `finquant.db`（不含 `-wal`）→ **VS-9 改为 `sqlite3.Connection.backup()`**（`ab15be8`）。**编排者在真实数据上的四路实测**：旧 `Copy-Item` = 24/0/331（丢数据）、`Connection.backup()` = 26/1/334、`VACUUM INTO` = 26/1/334、三件套基准 = 26/1/334 ⇒ 旧方式确实静默丢失（schema v25/v26 迁移成果与 `user_credentials` 行都在 WAL 中）。
+- **✅ 已修并 ACCEPT（P1→数据安全）**：启动备份只复制 `finquant.db`（不含 `-wal`）→ **VS-9 改为 `sqlite3.Connection.backup()`**（`ab15be8`）。**编排者在真实数据上的四路实测**：旧 `Copy-Item` = 24/0/331（丢数据）、`Connection.backup()` = 26/1/334、`VACUUM INTO` = 26/1/334、三件套基准 = 26/1/334 ⇒ 旧方式确实静默丢失（schema v25/v26 迁移成果与 `user_credentials` 行都在 WAL 中）。
+  - **独立验收（Evaluator 自造 WAL 场景，未采信任何自述）**：主文件 4096B / WAL 45352B、连接不关闭 → 三件套基准 **202** / 旧只复制 `.db` **0（表都不存在）** / 新实现（`:backup` 段逐字经 `cmd.exe` 真跑，载荷 1232 字符完全一致）**202** ⇒ ①=③ 且 ①≠②。字节级 CRLF=171 / LF-only=0 / 严格 UTF-8；失败路径打透：venv 缺失 → `:backup_failed` 且不建 backups 目录；构造"备份成功但 integrity 失败" → **exit 3** 且残件 0，并**在回收站 `$I` 元数据命中被清理产物路径**证明确走回收站。
   - **架构一致性**：`Connection.backup()` 是**全仓既有约定共 4 处**（`database.py:1854-1875` 两处迁移备份、`audit_database_recovery.py`、`verify_local_install.ps1:203`）——VS-2 的 `Copy-Item` 是**唯一异类**，本卡把它拉回同一约定。
   - **⚠️ 环境变化（影响后续验证方法）**：真实 `backend\data` 的 `-wal`/`-shm` 已被 **checkpoint**（实现者观察到并主动报告；真实库仍为 26/1/334、integrity ok、无数据丢失）。**副作用：真实目录上"新旧实现的差异信号已消失"**——现在对真实数据用旧的 `Copy-Item` 也会得到 26/1/334。**后续凡验证备份/WAL 相关改动，必须自造 WAL 场景**（建库→`journal_mode=WAL`→插数据→**保持连接不关闭**使数据留在 `-wal` 未合并），否则会得到假阳性。
   - **过程教训（编排者自身）**：我第一次复刻"逐字载荷经 cmd 执行"时误报失败，根因是 **PowerShell 5.1 的 `Get-Content` 默认按 ANSI 读取**，把 UTF-8 无 BOM 的 `start.bat` 中文读坏（含内容 dump 里的乱码为证），加之我自己 `TrimEnd('"')` 留下不配对引号。改用 `[System.IO.File]::ReadAllLines(..., UTF8Encoding($false))` 后同一载荷**经 cmd 正常执行并产出备份**。**若当时按误报去让实现者改代码，就会"修"坏一份正确实现**——复刻失败时先怀疑自己的读取/引号处理。
@@ -89,8 +90,9 @@
 - **✅ 已完成 VS-6**：首启启动体验（浏览器等就绪再开 + 失败可自助）；独立评估 REJECT（2 项必修：计时按次数非按时间、pip 失败文案矛盾）→ 修复 → **ACCEPT**。
 - **✅ 已完成 VS-7**：降级语义补全（quality 源头并入 `report_data` → 定时/交互两路径一致落库；lead 空/不可解析判降级；工具异常与循环耗尽捕获）；独立评估 REJECT（P1a 谓词不同）→ 修复（复用 `parse_lead_review` 同口径）→ 复评 **ACCEPT**（61 passed）。
 - **✅ 已完成 VS-8**：免工具链兜底真正可达（Bun 探测改非致命、判定移入 `:build_frontend`、新增 `:bun_missing` 指引；配置提示三处同向）；独立评估 **ACCEPT**（Evaluator 自建夹具 A/B 复现：旧版同输入 exit=1 硬停 → 新版 exit=0 走到 `:launch`；并自算基线 md5、修正实现者报告 2 处表述）。→ `ec0fa6c`
-- **NOW（已就绪，待实现）**：**VS-9 备份必须是一致完整快照**（`IMPLEMENTATION_BRIEF_VS9.md`）——R2 审计 D2 的 P1，**编排者用真实数据目录复核**：`backend/data/finquant.db-wal` 实存 **135,992 字节**（服务未运行），而 `start.bat:98-99` 只 `Copy-Item` 主库单文件 → **已提交事务被静默丢弃，且副本仍是"合法库"，恢复不报错**。属数据安全类缺陷，优先级高于其余文案项。
-- **NEXT**：`BACKLOG-049`（工具失败 5 种形态仅异常态判降级）；A2-P0-2 余项（确需构建时 Bun 安装指引对非技术用户的可执行性）；A2-P1-1 后半（Python 版本不符时**说明检测到的版本**）；A2-P2-2（Dashboard 入口名与落地页不一致）。
+- **✅ 已完成 VS-9**：备份改为一致完整快照（`Connection.backup()`）；独立评估 **ACCEPT**（见上「已修并 ACCEPT」条）。→ `ab15be8`
+- **NOW（进行中）**：**VS-10 尊重上游 `Retry-After` + 退避抖动**（`IMPLEMENTATION_BRIEF_VS10.md`）——依据：全仓 `Retry-After` 命中 0 处，供应商明确要求等待时我们 0.5s 后就重试（协议失礼、易招更重限流）；并解决 4 个并行 agent 退避同步的脉冲压力。执行器已改动 `llm_client.py` 与其测试。
+- **NEXT**：`BACKLOG-049`（工具失败 5 种形态仅异常态判降级）；A2-P0-2 余项（确需构建时 Bun 安装指引对非技术用户的可执行性）；A2-P1-1 后半（Python 版本不符时**说明检测到的版本**）；A2-P2-2（Dashboard 入口名与落地页不一致）；**VS-9 非阻断①②**（`start.bat` L103 竞态下误报成功文案宜改 `exit 1`；`QUICKSTART` "保留 7 份"与实现"只提示不删"**措辞不符**——VS-2 遗留）。
 - **NOT_NOW（主动拒绝，附理由）**：
   - A2-P1「Python 严格钉死 3.12」（`start.bat:41,46-47`）：**拒绝**。该钉版与文档**完全一致**（`README:50,69`、`QUICKSTART:11,15,123` 均写 Python 3.12），非矛盾项；放宽到 3.13 需**真实兼容性验证**（依赖/二进制轮子/标准库行为），成本远超收益，且目标用户按 QUICKSTART 装 3.12 即可。
   - A2-P1「端口占用首推重启电脑」（`start.bat:29-30`，VS-6 所写）：**暂缓**。第 1 步已是"关掉旧窗口"，重启作为第 2 步对非技术用户是**可执行且可靠**的兜底；FAQ（`QUICKSTART:94`）已给 `netstat` 进阶手段。收益低，留观。
