@@ -92,17 +92,21 @@ echo [配置] 已创建 backend\.env。推荐在网页「设置 → 模型管理
 echo [进阶] 想改用文件配置时，可用记事本编辑 backend\.env 填写 DEEPSEEK_API_KEY，保存后重启才生效。
 
 :backup
-rem G-01: 启动前自动备份数据库（服务未启动时 WAL 已落盘，安全）。失败不阻塞启动。
+rem G-01: 启动前自动备份数据库。用 sqlite3 的在线备份 API（Connection.backup()）生成"一致且完整"的
+rem 快照：它会把 WAL 中已提交的事务一并写入产物，与 database.py 迁移前备份（*.pre-vN.bak）同一套做法。
+rem 只复制 finquant.db 会丢掉这些数据，还原后静默回退（VS-9）。依赖 backend\.venv 的 Python 标准库 sqlite3
+rem （零新增依赖）；Python 不可用时明确走 :backup_failed，绝不退化成"只复制 finquant.db"。失败不阻塞启动。
 rem 滚动保留最新 7 份，超过时只提示不自动删除（遵守"删除一律进回收站"铁律，由用户处理）。
 if not exist "backend\data\finquant.db" goto launch
+if not exist "backend\.venv\Scripts\python.exe" goto backup_failed
 powershell.exe -NoProfile -Command ^
-  "$db='backend\data\finquant.db'; if(-not (Test-Path $db)){exit 0}; $dir=Join-Path (Split-Path $db -Parent) 'backups'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'; $dest=Join-Path $dir ('finquant-backup-'+$stamp+'.db'); Copy-Item -LiteralPath $db -Destination $dest -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $dest)){exit 1}; $files=@(Get-ChildItem -LiteralPath $dir -Filter 'finquant-backup-*.db' | Sort-Object Name -Descending); if($files.Count -gt 7){ Write-Host '[提示] 备份已超过 7 份，请按需保留后手动清理（回收站）多余文件。' }; exit 0"
+  "$ErrorActionPreference='Stop'; $db='backend\data\finquant.db'; if(-not (Test-Path -LiteralPath $db)){exit 0}; $py=Join-Path (Get-Location) 'backend\.venv\Scripts\python.exe'; if(-not (Test-Path -LiteralPath $py)){exit 1}; $dir=Join-Path 'backend\data' 'backups'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $dest=Join-Path $dir ('finquant-backup-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.db'); $env:FQ_BACKUP_SRC=$db; $env:FQ_BACKUP_DST=$dest; $code='import os,sqlite3;s=sqlite3.connect(os.environ[''FQ_BACKUP_SRC'']);d=sqlite3.connect(os.environ[''FQ_BACKUP_DST'']);s.backup(d);d.close();s.close();v=sqlite3.connect(os.environ[''FQ_BACKUP_DST'']);r=v.execute(''PRAGMA integrity_check'').fetchone()[0];v.close();raise SystemExit(0 if r==''ok'' else 3)'; & $py -c $code; if($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $dest)){ if(Test-Path -LiteralPath $dest){ Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($dest,'OnlyErrorDialogs','SendToRecycleBin') }; exit 1 }; $files=@(Get-ChildItem -LiteralPath $dir -Filter 'finquant-backup-*.db' | Sort-Object Name -Descending); if($files.Count -gt 7){ Write-Host '[提示] 备份已超过 7 份，请按需保留后手动清理（回收站）多余文件。' }; exit 0"
 if errorlevel 1 goto backup_failed
-echo [准备] 已备份数据库到 backend\data\backups。
+echo [准备] 已生成数据库快照（含 WAL 中的最新数据）到 backend\data\backups。
 goto launch
 
 :backup_failed
-echo [提示] 数据库备份失败，不影响启动；数据仍可用（可检查磁盘空间后重试）。
+echo [提示] 数据库备份失败，本次未生成新备份，不影响启动；数据仍可用（可检查磁盘空间后重试）。
 goto launch
 
 :launch
