@@ -66,7 +66,7 @@ bun run dev
 
 #### Windows 一键启动
 
-先安装 Python 3.12（勾选加入 PATH）与 Bun，然后在项目根目录双击 [start.bat](start.bat)：缺少环境时自动创建 Python venv、安装项目已有依赖，需要时构建前端（否则复用 dist），以 `SERVE_FRONTEND=1`、`LOCAL_ONLY_MODE=1` 单进程启动并打开 `http://127.0.0.1:8000`。首次使用 AI 功能前，在网页「设置 → 模型管理」新增模型并粘贴 API Key（加密保存在本机、配置后立即生效、重启无需重填），再点"测试"确认连通并"设为默认"；也可改用记事本在 `backend\.env` 填写 `DEEPSEEK_API_KEY` 后重启（进阶路径）。不填有效 key 也能启动非 AI 功能，行情仍需网络与上游可用。保持启动窗口打开，按 Ctrl+C 停止；8000 被占用会提示并退出。
+先安装 Python 3.12（勾选加入 PATH）与 Bun（若发行包已附带 `frontend/dist` 且未过期，则启动不需要 Bun），然后在项目根目录双击 [start.bat](start.bat)：缺少环境时自动创建 Python venv、安装项目已有依赖，需要时构建前端（否则复用 dist），以 `SERVE_FRONTEND=1`、`LOCAL_ONLY_MODE=1` 单进程启动并打开 `http://127.0.0.1:8000`。首次使用 AI 功能前，在网页「设置 → 模型管理」新增模型并粘贴 API Key（加密保存在本机、配置后立即生效、重启无需重填），再点"测试"确认连通并"设为默认"；也可改用记事本在 `backend\.env` 填写 `DEEPSEEK_API_KEY` 后重启（进阶路径）。不填有效 key 也能启动非 AI 功能，行情仍需网络与上游可用。保持启动窗口打开，按 Ctrl+C 停止；8000 被占用会提示并退出。
 
 ## 功能总览
 

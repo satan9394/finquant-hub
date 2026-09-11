@@ -10,13 +10,13 @@ if errorlevel 1 (
 )
 
 rem 优先使用 PATH 中的 Bun，其次使用本机已知安装位置。
+rem 这里只探测、不拦截：发行包可能已带 frontend\dist 产物，那种情况下全程不需要 Bun。
+rem 没有 Bun 时只记标记，等确认"确实需要构建"时再给出安装指引并退出（见 :build_frontend / :bun_missing）。
 set "FQ_BUN="
+set "FQ_BUN_MISSING="
 for /f "delims=" %%B in ('where bun 2^>nul') do if not defined FQ_BUN set "FQ_BUN=%%B"
 if not defined FQ_BUN if exist "D:\Technology_application\NVM_Windows\nvm_a\v22.19.0\bun.exe" set "FQ_BUN=D:\Technology_application\NVM_Windows\nvm_a\v22.19.0\bun.exe"
-if not defined FQ_BUN (
-    echo [错误] 未找到 Bun。请访问 https://bun.sh 安装，重新打开窗口后再双击 start.bat。
-    goto fail
-)
+if not defined FQ_BUN set "FQ_BUN_MISSING=1"
 
 rem 固定使用 8000；占用时退出，不换端口、不结束其他进程。
 powershell.exe -NoProfile -Command "try { if ([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners().Port -contains 8000) { exit 1 }; exit 0 } catch { exit 2 }"
@@ -65,6 +65,8 @@ echo [准备] 复用已有 frontend\dist。
 goto environment
 
 :build_frontend
+rem 到这里才真正需要 Bun：确实要构建页面时才要求安装。
+if defined FQ_BUN_MISSING goto bun_missing
 cd frontend
 if exist "node_modules\" goto run_build
 echo [准备] 正在安装锁文件中的前端依赖，首次安装需要网络。
@@ -86,7 +88,8 @@ if errorlevel 1 (
     echo [错误] 无法复制 backend\.env.example，请确认模板存在且目录可写。
     goto fail
 )
-echo [配置] 已创建 backend\.env，可用记事本填写 DEEPSEEK_API_KEY，保存后重启。
+echo [配置] 已创建 backend\.env。推荐在网页「设置 → 模型管理」中填写 API Key（加密保存、立即生效、重启无需重填）。
+echo [进阶] 想改用文件配置时，可用记事本编辑 backend\.env 填写 DEEPSEEK_API_KEY，保存后重启才生效。
 
 :backup
 rem G-01: 启动前自动备份数据库（服务未启动时 WAL 已落盘，安全）。失败不阻塞启动。
@@ -150,6 +153,13 @@ echo [怎么做] 1^) 确认网络可用后重新双击 start.bat；
 echo [怎么做] 2^) 仍失败请对照 docs\QUICKSTART.md 的"提示没装 Bun / Python，或安装、构建失败"一节处理。
 echo [进阶] 在 frontend 目录依次运行：bun install --frozen-lockfile 与 bun run build
 echo 若 bun 不在 PATH，请使用其完整安装路径。
+goto fail
+
+:bun_missing
+echo [错误] 未找到 Bun，而当前需要构建前端页面，无法继续。
+echo [怎么做] 1^) 打开 https://bun.sh 按官网步骤安装 Windows 版本，装完后关闭本窗口，再重新双击 start.bat；
+echo [怎么做] 2^) 如果拿到的是已附带 frontend\dist 页面产物的发行包，产物存在且未过期时本来不需要 Bun；产物被删或过期后仍需按上一步安装。
+echo [文档] 详见 docs\QUICKSTART.md 的"提示没装 Bun / Python，或安装、构建失败"一节。
 
 :fail
 pause

@@ -8,7 +8,7 @@ FinQuant Hub 是运行在自己电脑上的投资研究工具，可以查行情�
 
 - 一台 Windows 10（1809 或更新版本）或 Windows 11 电脑，以及浏览器。
 - 可用网络：首次安装需要下载项目依赖；之后查行情和调用 AI 也需要网络。
-- Python 3.12 与 Bun。Windows 双击路径**不需要 Docker**。
+- Python 3.12 与 Bun（已附带 `frontend/dist` 页面产物且未过期时，启动**不需要 Bun**，见下方"提示没装 Bun / Python"）。Windows 双击路径**不需要 Docker**。
 
 这两个工具只需安装一次：
 
@@ -121,6 +121,8 @@ netstat -ano | findstr :5173
 **原因**：工具未装好、系统找不到安装位置，或首次依赖下载/构建没有完成。
 
 **怎么做**：按开头的官网步骤安装，关闭旧窗口后重试。Python 要用 **3.12**，传统安装器应勾选加入 PATH；Bun 安装后用新窗口验证 `bun --version`，找不到时按官网的 PATH 说明修复。脚本先找 PATH，再尝试维护者电脑的备用路径；其他电脑不需要创建这个备用目录。
+
+发行包已附带 `frontend/dist` 页面产物且它不比 `frontend/package.json` 旧时，启动会直接复用产物，**全程不需要 Bun**；只有产物缺失或过期、确实需要重新构建时，脚本才会要求安装 Bun 并给出指引后退出。想确认自己属于哪种情况，看启动窗口是否出现"复用已有 frontend\dist"。
 
 如已有 Python 环境但提示缺模块，按启动窗口给出的 `pip install -r requirements.txt` 指引补齐现有项目依赖；前端失败则按窗口给出的 `bun install --frozen-lockfile`、`bun run build` 指引处理。保留报错文字便于排查，分享前去掉任何私密信息。
 
