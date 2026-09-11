@@ -13,6 +13,12 @@ def _install_transport(monkeypatch, handler):
     monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda *args, **kwargs: original(transport=transport))
 
 
+@pytest.fixture(autouse=True)
+def _no_retry_backoff(monkeypatch):
+    """G-11 重试：测试里把退避基数置 0，避免真实等待拖慢用例。"""
+    monkeypatch.setattr(llm_client, "_BACKOFF_BASE_SECONDS", 0.0)
+
+
 def test_client_payload_headers_and_context_validation():
     with pytest.raises(ValueError, match="context_budget"):
         LLMClient("https://llm.test/", "secret", "model", context_budget=255)
@@ -45,10 +51,10 @@ async def test_client_uses_explicit_proxy_without_inheriting_environment(monkeyp
 @pytest.mark.asyncio
 async def test_chat_success_and_api_error(monkeypatch):
     recorded = []
+    # G-11: 503 属可重试故障，重试耗尽后仍以最后一次响应报错 → 需备足 _MAX_ATTEMPTS 份。
     responses = [
         httpx.Response(200, json={"choices": [{"message": {"content": "answer"}}], "usage": {"total_tokens": 9}}),
-        httpx.Response(503, text="unavailable"),
-    ]
+    ] + [httpx.Response(503, text="unavailable") for _ in range(llm_client._MAX_ATTEMPTS)]
 
     def handler(request):
         return responses.pop(0)
@@ -60,6 +66,7 @@ async def test_chat_success_and_api_error(monkeypatch):
     assert recorded == [("model", {"total_tokens": 9})]
     with pytest.raises(LLMError, match="503"):
         await client.chat([])
+    assert responses == []  # 重试确实用满了 _MAX_ATTEMPTS
 
 
 @pytest.mark.asyncio
@@ -184,3 +191,89 @@ async def test_chat_stream_wraps_network_error(monkeypatch):
     _install_transport(monkeypatch, handler)
     with pytest.raises(LLMError, match="网络错误"):
         _ = [part async for part in LLMClient("https://llm.test", "key", "model").chat_stream([])]
+
+
+# ==================== G-11: 瞬时故障重试 ====================
+
+@pytest.mark.asyncio
+async def test_chat_retries_transient_429_then_succeeds(monkeypatch):
+    """429 是瞬时故障：应重试并在成功后正常返回，调用方无感。"""
+    calls = []
+    responses = [
+        httpx.Response(429, text="rate limited"),
+        httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 3}}),
+    ]
+
+    def handler(request):
+        calls.append(request)
+        return responses.pop(0)
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm_client, "record_llm_usage", lambda model, usage: None)
+    content, tokens = await LLMClient("https://llm.test", "key", "model").chat([])
+    assert content == "ok" and tokens == 3
+    assert len(calls) == 2  # 第一次 429 + 重试成功
+
+
+@pytest.mark.asyncio
+async def test_chat_retries_network_error_then_succeeds(monkeypatch):
+    """网络错误（httpx.HTTPError）同样属于可重试故障。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ConnectError("offline", request=request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "second"}}], "usage": {}})
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm_client, "record_llm_usage", lambda model, usage: None)
+    content, _tokens = await LLMClient("https://llm.test", "key", "model").chat([])
+    assert content == "second"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 404])
+async def test_chat_does_not_retry_non_transient_status(monkeypatch, status):
+    """地址/鉴权类 4xx 重试无意义：只调用一次即报错（避免放大无谓请求）。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, text="client error")
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(LLMError):
+        await LLMClient("https://llm.test", "key", "model").chat([])
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_retry_exhausted_network_error_raises_llm_error(monkeypatch):
+    """网络错误重试耗尽 → 抛 LLMError（可行动文案），调用次数为 _MAX_ATTEMPTS。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise httpx.ConnectError("offline", request=request)
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(LLMError, match="网络错误"):
+        await LLMClient("https://llm.test", "key", "model").chat([])
+    assert len(calls) == llm_client._MAX_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_chat_retry_exhausted_5xx_reports_last_status(monkeypatch):
+    """5xx 重试耗尽 → 仍以最后一次响应报错（含状态码），不吞掉真实原因。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(503, text="unavailable")
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(LLMError, match="503"):
+        await LLMClient("https://llm.test", "key", "model").chat([])
+    assert len(calls) == llm_client._MAX_ATTEMPTS

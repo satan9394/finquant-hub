@@ -2,6 +2,7 @@
 
 仅依赖 OpenAI Chat Completions 协议，DeepSeek/其他兼容供应商即插即用。
 """
+import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
@@ -13,6 +14,12 @@ from .llm_usage import record_llm_usage
 
 
 JSONDict = dict[str, Any]
+
+# G-11: 瞬时故障重试纪律——长研究管线（4 Agent × 多轮工具调用）对单次上游抖动零容忍，
+# 一次 429/5xx/网络抖动即让整轮研究失败。对可重试故障做有限次指数退避。
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3          # 首次 + 2 次重试
+_BACKOFF_BASE_SECONDS = 0.5  # 退避：0.5s → 1.0s
 
 # 受控工具循环事件枚举（借鉴 OpenAI Agents SDK run_streamed 的类型化事件）。
 # chat_with_tools_loop 通过 event_sink 回调发出这些事件，SSE 层/编排层直接消费，
@@ -92,6 +99,34 @@ class LLMClient:
         snippet = body.replace(self.api_key, "[已隐藏]") if self.api_key else body
         return LLMError(f"API 返回 {status}：{snippet[:300]}。{suggestion}")
 
+    async def _post_chat_with_retry(self, payload: JSONDict) -> httpx.Response:
+        """POST /chat/completions，对瞬时故障做有限次指数退避重试（G-11）。
+
+        可重试：网络错误/超时（httpx.HTTPError）、HTTP 429/5xx。
+        不可重试：其它 4xx（地址或鉴权类错误，重试无意义）——直接返回响应交调用方报错。
+        重试耗尽后：网络类异常抛 LLMError；状态码类返回最后一次响应交调用方生成可行动错误。
+        """
+        url = f"{self.base_url}/chat/completions"
+        last_exc: Exception | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                async with self._http_client() as http:
+                    response = await http.post(url, json=payload, headers=self._headers())
+            except httpx.HTTPError as exc:
+                last_exc = exc
+            else:
+                last_exc = None
+                retryable = response.status_code in _RETRYABLE_STATUS
+                if not retryable:
+                    return response
+                if attempt == _MAX_ATTEMPTS:
+                    return response
+            if attempt < _MAX_ATTEMPTS:
+                await asyncio.sleep(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+        raise LLMError(
+            "网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。"
+        ) from last_exc
+
     async def list_models(self) -> list[str]:
         """Discover only models actually returned by this OpenAI-compatible provider."""
         try:
@@ -110,12 +145,7 @@ class LLMClient:
 
     async def chat(self, messages: list[JSONDict]) -> tuple[str, int | None]:
         """非流式调用，返回 (全文, total_tokens)。"""
-        url = f"{self.base_url}/chat/completions"
-        try:
-            async with self._http_client() as http:
-                resp = await http.post(url, json=self._payload(messages, False), headers=self._headers())
-        except httpx.HTTPError as e:
-            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
+        resp = await self._post_chat_with_retry(self._payload(messages, False))
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
@@ -141,12 +171,7 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
-        url = f"{self.base_url}/chat/completions"
-        try:
-            async with self._http_client() as http:
-                resp = await http.post(url, json=payload, headers=self._headers())
-        except httpx.HTTPError as e:
-            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
+        resp = await self._post_chat_with_retry(payload)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
@@ -188,12 +213,7 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
-        url = f"{self.base_url}/chat/completions"
-        try:
-            async with self._http_client() as http:
-                resp = await http.post(url, json=payload, headers=self._headers())
-        except httpx.HTTPError as e:
-            raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e
+        resp = await self._post_chat_with_retry(payload)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
