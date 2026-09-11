@@ -77,13 +77,27 @@ cd ..
 
 :environment
 rem 只复制模板；已有配置不覆盖，不读取或显示任何密钥。
-if exist "backend\.env" goto launch
+if exist "backend\.env" goto backup
 copy /b "backend\.env.example" "backend\.env" >nul
 if errorlevel 1 (
     echo [错误] 无法复制 backend\.env.example，请确认模板存在且目录可写。
     goto fail
 )
 echo [配置] 已创建 backend\.env，可用记事本填写 DEEPSEEK_API_KEY，保存后重启。
+
+:backup
+rem G-01: 启动前自动备份数据库（服务未启动时 WAL 已落盘，安全）。失败不阻塞启动。
+rem 滚动保留最新 7 份，超过时只提示不自动删除（遵守"删除一律进回收站"铁律，由用户处理）。
+if not exist "backend\data\finquant.db" goto launch
+powershell.exe -NoProfile -Command ^
+  "$db='backend\data\finquant.db'; if(-not (Test-Path $db)){exit 0}; $dir=Join-Path (Split-Path $db -Parent) 'backups'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'; $dest=Join-Path $dir ('finquant-backup-'+$stamp+'.db'); Copy-Item -LiteralPath $db -Destination $dest -Force -ErrorAction SilentlyContinue; if(-not (Test-Path $dest)){exit 1}; $files=@(Get-ChildItem -LiteralPath $dir -Filter 'finquant-backup-*.db' | Sort-Object Name -Descending); if($files.Count -gt 7){ Write-Host '[提示] 备份已超过 7 份，请按需保留后手动清理（回收站）多余文件。' }; exit 0"
+if errorlevel 1 goto backup_failed
+echo [准备] 已备份数据库到 backend\data\backups。
+goto launch
+
+:backup_failed
+echo [提示] 数据库备份失败，不影响启动；数据仍可用（可检查磁盘空间后重试）。
+goto launch
 
 :launch
 echo [提示] AI 聊天、讨论和研究需要有效的模型 API key；未配置时仍可使用非 AI 功能。

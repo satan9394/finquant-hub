@@ -152,6 +152,20 @@ start.bat
 
 Docker 用户的数据位于 Docker 数据卷；请按 [本地数据与隐私](LOCAL_DATA_AND_PRIVACY.md) 先备份，再更新代码并运行 `up`，不要套用 Windows 文件夹复制步骤。
 
+### 自动备份与如何恢复
+
+**自动备份**：每次双击 `start.bat` 启动时，系统会把 `backend/data/finquant.db` 复制一份到 `backend/data/backups/`，文件名带时间（如 `finquant-backup-20260913-083000.db`），滚动保留最近 7 份。备份失败不影响启动（数据仍可用），看到「[提示] 备份超过 7 份」时，请把多余备份文件按你的习惯移走或删除。
+
+**如何恢复**（磁盘故障、误操作或升级失败导致数据异常时）：
+
+1. 按 Ctrl+C 完全停止服务。
+2. 打开 `backend/data/backups/`，选一个最近、状态正常的备份文件。
+3. 把 `backend/data/finquant.db` 备份到别处（留退路），然后用选中的备份文件**覆盖** `backend/data/finquant.db`。
+4. 若 `backend/data/` 下还有 `finquant.db-wal` 或 `finquant.db-shm`，一并删除（它们只是未落盘的临时日志）。
+5. 重新双击 `start.bat`。恢复后最近一次自动备份之前的记录会回到当时的版本。
+
+**说明**：自动备份只包含数据库（组合、报告、记忆等），不包含 `.env` 里的密钥；密钥请继续按本文档妥善保管。
+
 ### 我的数据存在哪里？关掉窗口会丢吗？
 
 **原因**：数据库文件、浏览器偏好与程序进程是分开的。
