@@ -59,7 +59,14 @@ bat 无自动化测试框架，采用**实测**：
 由独立 Evaluator 复核核心判据（备份文件能否读到 WAL 中数据）与"伪成功"防线。
 
 ## 建议实现方向（**已实测，优先对齐项目既有约定**）
-**首选：`sqlite3.Connection.backup()`** —— 这**已是本项目的既有约定**：`backend/app/database.py:1854-1863`、`1866-1875` 的迁移前备份（产出 `finquant.db.pre-v10.bak`、`pre-v12.bak`…）一直用它。它是 SQLite **官方在线备份 API**，产出一致快照且天然包含 WAL 内容，Python stdlib 自带、零新依赖。**与既有实践对齐优于另发明一套**。
+**首选：`sqlite3.Connection.backup()`** —— 这**已是本项目的既有约定，全仓共 3 处**在用：
+1. `backend/app/database.py:1854-1863`（迁移前备份，产出 `finquant.db.pre-v10.bak`）
+2. `backend/app/database.py:1866-1875`（schema v12 前备份，产出 `pre-v12.bak`）
+3. `backend/scripts/audit_database_recovery.py`（备份/还原演练，"non-overwriting SQLite backup/restore drill"）
+4. `scripts/verify_local_install.ps1:203`（Docker 命名卷持久化演练：`s=sqlite3.connect(src); b=reserve(bak); s.backup(b)`）
+
+它是 SQLite **官方在线备份 API**，产出一致快照且天然包含 WAL 内容，Python stdlib 自带、零新依赖。
+⇒ **VS-2 在 `start.bat` 里用 `Copy-Item` 复制单文件，是全仓唯一的异类做法**；本卡应把它拉回同一约定（这也是 Evaluator 可核对的"架构一致性"点）。
 
 次选：`VACUUM INTO '<目标>'`（同样可用，实测等价）。
 
