@@ -11,8 +11,18 @@
 ## 当前问题（已核实，证据充分）
 1. **备份只复制单个 `.db`**：`start.bat:98-99` 的 PowerShell 用 `Copy-Item -LiteralPath 'backend\data\finquant.db' -Destination ...`，**不包含 `finquant.db-wal` / `finquant.db-shm`**。
 2. **WAL 模式确证**：`backend/app/database.py:335` `PRAGMA journal_mode=WAL`。
-3. **WAL 中确有未合并数据**：真实数据目录里 `finquant.db-wal` = **135,992 字节**（且当前服务未运行）。SQLite 仅在 checkpoint 时把 WAL 帧合并回主库；**只带 `.db` 的副本会丢掉这些已提交事务**，而副本本身仍是"合法数据库"——恢复不报错、只是数据缺失，属**静默数据丢失**。
-4. **原注释的判断不成立**：`start.bat:95` 写"服务未启动时 WAL 已落盘，安全"——第 3 点的实测字节数即为反证（WAL 文件在服务未运行时依然持有内容）。
+3. **实测对照（编排者在真实数据上复现，只读副本、未改动源库）**：把真实 `backend\data` 分别以"只 `finquant.db`"与"`finquant.db` + `-wal` + `-shm`"两种方式复制到临时目录后查询，**两者的逻辑状态不同**：
+
+   | 指标 | 只复制 `.db` | 含 `-wal` |
+   | --- | --- | --- |
+   | 全库总行数 | 331 | **334** |
+   | `schema_version` | **24** | **26** |
+   | `user_credentials` | **0** | **1** |
+   | `model_configs` | 2 | 1 |
+
+   ⇒ 当前代码产出的"备份"还原后会是**一个 schema v24、且用户模型凭据为空的旧状态数据库**：v25/v26 两次迁移的成果与那条凭据只存在于 WAL 中。副本本身仍是**合法数据库**，恢复不报错、只是数据与结构悄悄退回旧版本，属**静默数据丢失/静默回退**。
+4. **原注释的判断不成立**：`start.bat:95` 写"服务未启动时 WAL 已落盘，安全"——真实 WAL 实存 **135,992 字节**且服务未运行，即为反证。
+5. **实现方向可行性已确认**：本项目 venv 的 `sqlite3.sqlite_version = 3.50.4`，**支持 `VACUUM INTO`**（需 ≥ 3.27）。
 
 ## 理想行为
 - 备份产出**单一、自洽**的数据库文件，其内容等于"当前逻辑数据库"（含 WAL 中已提交数据）。
@@ -29,10 +39,10 @@
 - `start.bat` 保持 **CRLF**（LF-only = 0）与有效 UTF-8；无删除调用；不加新依赖。
 
 ## 验收标准（可判定）
-1. **含 WAL 数据**：构造一个"主库已 checkpoint 到某行号、WAL 里还有更新的已提交行"的数据库，执行备份后，用备份文件**查询得到 WAL 中的那批行**。（这是本卡的核心判据：把备份文件当独立库打开，能读到源库 `-wal` 里的已提交数据。）
-2. **一致性**：备份文件 `PRAGMA integrity_check` 返回 `ok`。
-3. **不产出伪成功**：备份失败时**不得**留下一个内容不完整的 `finquant-backup-*.db`；应走 `:backup_failed` 分支（或删除该残件——**删除必须走回收站**）。
-4. **无回归**：启动流程、端口、Ctrl+C、7 份滚动提示、`:backup_failed` 语义均不变；`start.bat` CRLF/LF 与 UTF-8 校验通过。
+1. **含 WAL 数据（核心判据）**：备份产出后，**独立打开备份文件**应满足：`schema_version` 与源库含 WAL 时的值一致（当前真实环境即 **26**）、`user_credentials` 行数一致（当前为 **1**）、全库总行数一致（当前为 **334**）。等价表述：备份文件的逻辑状态 **等于**"`finquant.db` + `-wal` + `-shm`"三件套打开后的状态。
+2. **一致性**：备份文件 `PRAGMA integrity_check` 返回 `ok`；`PRAGMA journal_mode` 为 `delete` 或 `wal` 均可，但备份必须是单一自洽文件（恢复只需覆盖 `finquant.db`）。
+3. **不产出伪成功**：备份失败时**不得**留下内容不完整的 `finquant-backup-*.db`；应走 `:backup_failed` 分支（或把残件移入回收站——**删除必须走回收站**）。
+4. **无回归**：启动流程、端口、Ctrl+C、7 份滚动提示、`:backup_failed` 语义均不变；`start.bat` CRLF（LF-only = 0）与 UTF-8 校验通过；`git diff --check` 干净。
 5. 若改动恢复文档：`QUICKSTART` 的恢复步骤与新的备份产物形态一致（恢复仍是"覆盖 `finquant.db`"，无需用户处理 `-wal`）。
 
 ## 错误场景
