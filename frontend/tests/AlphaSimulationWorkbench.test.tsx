@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import AlphaSimulationWorkbench from '../src/components/alpha/AlphaSimulationWorkbench';
-import { correlateAlphaSeries, simulateAlphaLocally, type AlphaSimulationResult, type AlphaTemplate } from '../src/services/alphaApi';
+import { correlateAlphaSeries, simulateAlphaLocally, type AlphaSimulationPerformance, type AlphaSimulationResult, type AlphaTemplate } from '../src/services/alphaApi';
 
 vi.mock('../src/services/alphaApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/services/alphaApi')>();
@@ -23,7 +23,19 @@ const input = `date,symbol,factor,forward_return
 2026-01-05,B,2,0.03
 2026-01-06,A,1,-0.01
 2026-01-06,B,2,0.01`;
-const simulation = (returns: number[]): AlphaSimulationResult => ({
+const okPerformance: AlphaSimulationPerformance = {
+  status: 'ok', sample_days: 3, start_date: '2026-01-02', end_date: '2026-01-06',
+  annualized_return: 0.35, annualized_volatility: 0.12, sharpe_ratio: 2.91,
+  max_drawdown: -0.01, max_drawdown_peak_date: '2026-01-02', max_drawdown_trough_date: '2026-01-05', max_drawdown_recovery_date: '2026-01-06',
+  average_turnover: 0.25,
+};
+const insufficientPerformance: AlphaSimulationPerformance = {
+  status: 'insufficient', sample_days: 3, start_date: '2026-01-02', end_date: '2026-01-06',
+  annualized_return: null, annualized_volatility: null, sharpe_ratio: null,
+  max_drawdown: -0.01, max_drawdown_peak_date: '2026-01-02', max_drawdown_trough_date: '2026-01-05', max_drawdown_recovery_date: null,
+  average_turnover: 0.25,
+};
+const simulation = (returns: number[], performance: AlphaSimulationPerformance | null = okPerformance): AlphaSimulationResult => ({
   equity_curve: [{ date: 'start', value: 1 }, ...['2026-01-02', '2026-01-05', '2026-01-06'].map((date, index) => ({ date, value: 1 + (index + 1) / 100 }))],
   period_returns: returns,
   metrics: {
@@ -37,6 +49,7 @@ const simulation = (returns: number[]): AlphaSimulationResult => ({
     mean_ic: 0.8, mean_rank_ic: 0.84, rank_ic_std: 0.1, icir: 8.4,
     excluded_periods: [], periods: [],
   },
+  performance: performance ?? undefined,
 });
 
 describe('AlphaSimulationWorkbench', () => {
@@ -90,5 +103,45 @@ describe('AlphaSimulationWorkbench', () => {
     render(<AlphaSimulationWorkbench template={null} />);
     expect(screen.getByText('先选择一个真实字段模板')).toBeTruthy();
     expect(screen.queryByText(/BRAIN/)).toBeNull();
+  });
+
+  it('renders the performance summary card with annualized statistics', async () => {
+    vi.mocked(simulateAlphaLocally).mockResolvedValueOnce(simulation([0.01, 0.02, -0.01]));
+    render(<AlphaSimulationWorkbench template={template} />);
+
+    fireEvent.change(screen.getByLabelText('观察数据'), { target: { value: input } });
+    fireEvent.click(screen.getByRole('button', { name: /运行本地模拟/ }));
+
+    const summary = await screen.findByTestId('alpha-performance-summary');
+    expect(summary.textContent).toContain('年化收益');
+    expect(summary.textContent).toContain('+35.00%');
+    expect(summary.textContent).toContain('2.910');
+    expect(summary.textContent).toContain('回撤峰值 2026-01-02 → 谷值 2026-01-05 → 恢复 2026-01-06');
+    expect(summary.textContent).toContain('样本 2026-01-02 → 2026-01-06 · 3 个交易日');
+  });
+
+  it('shows honest placeholders when the performance sample is insufficient', async () => {
+    vi.mocked(simulateAlphaLocally).mockResolvedValueOnce(simulation([0.01, 0.02, -0.01], insufficientPerformance));
+    render(<AlphaSimulationWorkbench template={template} />);
+
+    fireEvent.change(screen.getByLabelText('观察数据'), { target: { value: input } });
+    fireEvent.click(screen.getByRole('button', { name: /运行本地模拟/ }));
+
+    const summary = await screen.findByTestId('alpha-performance-summary');
+    expect(summary.textContent).toContain('样本不足（少于 20 个交易日）');
+    expect(summary.textContent).not.toContain('+35.00%');
+    expect(summary.textContent).toContain('未恢复');
+  });
+
+  it('shows the legacy placeholder when a saved result predates the performance contract', async () => {
+    vi.mocked(simulateAlphaLocally).mockResolvedValueOnce(simulation([0.01, 0.02, -0.01], null));
+    render(<AlphaSimulationWorkbench template={template} />);
+
+    fireEvent.change(screen.getByLabelText('观察数据'), { target: { value: input } });
+    fireEvent.click(screen.getByRole('button', { name: /运行本地模拟/ }));
+
+    const summary = await screen.findByTestId('alpha-performance-summary');
+    expect(summary.textContent).toContain('旧保存结果没有绩效摘要合同');
+    expect(summary.textContent).not.toContain('年化收益');
   });
 });

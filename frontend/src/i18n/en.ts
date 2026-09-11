@@ -2438,6 +2438,20 @@ const en: Record<string, string> = {
   'memory.delete': 'Delete',
   'chatBubble.tokens': '{count} tokens',
   'chatBubble.typing': 'Typing...',
+  'alpha.performance.title': 'Performance summary',
+  'alpha.performance.annualizedReturn': 'Annualized return',
+  'alpha.performance.annualizedVolatility': 'Annualized volatility',
+  'alpha.performance.sharpe': 'Sharpe',
+  'alpha.performance.maxDrawdown': 'Max drawdown',
+  'alpha.performance.averageTurnover': 'Average turnover',
+  'alpha.performance.sampleDays': 'Sample days',
+  'alpha.performance.insufficient': 'Sample is too short (under 20 trading days): annualized and risk-adjusted metrics stay empty rather than being fabricated.',
+  'alpha.performance.legacy': 'This saved result predates the performance summary contract; rerun from the raw observations to populate it.',
+  'alpha.performance.sampleRange': 'Sample {start} → {end} · {days} trading days',
+  'alpha.performance.drawdownRange': 'Drawdown peak {peak} → trough {trough} → recovery {recovery}',
+  'alpha.performance.initialCapital': 'Initial capital',
+  'alpha.performance.notRecovered': 'Not recovered',
+  'alpha.performance.noDrawdown': 'No drawdown',
 };
 
 export default en;

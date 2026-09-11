@@ -10,6 +10,7 @@ import {
   correlateAlphaSeries, simulateAlphaLocally, type AlphaCorrelationResult,
   type AlphaSimulationResult, type AlphaTemplate,
 } from '../../services/alphaApi';
+import { useLanguage } from '../../i18n/LanguageContext';
 
 const { Text } = Typography;
 const pct = (value: number | null | undefined) => value == null ? '—' : `${value >= 0 ? '+' : ''}${(value * 100).toFixed(2)}%`;
@@ -31,6 +32,7 @@ export default function AlphaSimulationWorkbench({ template }: { template: Alpha
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [studies, setStudies] = useState(readAlphaStudies);
   const [deletedStudy, setDeletedStudy] = useState<AlphaStudy | null>(null);
+  const { t } = useLanguage();
 
   const restoreStudy = (study: AlphaStudy) => {
     setSnapshot({
@@ -104,6 +106,25 @@ export default function AlphaSimulationWorkbench({ template }: { template: Alpha
   };
 
   const quality = snapshot ? assessAlphaSample(snapshot.result) : null;
+  const performance = snapshot?.result.performance ?? null;
+  const performanceDrawdownDetail = performance
+    ? performance.max_drawdown == null
+      ? '—'
+      : Math.abs(performance.max_drawdown) < 1e-12
+        ? t('alpha.performance.noDrawdown')
+        : t('alpha.performance.drawdownRange', {
+          peak: performance.max_drawdown_peak_date ?? t('alpha.performance.initialCapital'),
+          trough: performance.max_drawdown_trough_date ?? '—',
+          recovery: performance.max_drawdown_recovery_date ?? t('alpha.performance.notRecovered'),
+        })
+    : '';
+  const performanceSampleRange = performance?.start_date && performance?.end_date
+    ? t('alpha.performance.sampleRange', {
+      start: performance.start_date,
+      end: performance.end_date,
+      days: performance.sample_days,
+    })
+    : '';
   const factorAnalysis = snapshot?.result.factor_analysis;
   const factorAnalysisDetail = !snapshot
     ? '等待本地模拟；至少需要每期 5 个标的、5 个有效期，且因子与下一期收益均非零方差。'
@@ -230,6 +251,31 @@ export default function AlphaSimulationWorkbench({ template }: { template: Alpha
             <Col xs={12} md={8} lg={4}><Card size="small"><Statistic title="样本期数" value={quality.periods} /></Card></Col>
             <Col xs={12} md={8} lg={4}><Card size="small"><Statistic title="Sharpe" value={snapshot.result.metrics.sharpe_ratio?.toFixed(3) ?? '—'} /></Card></Col>
           </Row>
+          <Card size="small" title={t('alpha.performance.title')} data-testid="alpha-performance-summary" style={{ marginTop: 12 }}>
+            {!performance ? (
+              <Alert type="info" showIcon message={t('alpha.performance.legacy')} />
+            ) : (
+              <>
+                {performance.status === 'insufficient' && (
+                  <Alert type="warning" showIcon message={t('alpha.performance.insufficient')} style={{ marginBottom: 12 }} />
+                )}
+                <Row gutter={[12, 12]}>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.annualizedReturn')} value={pct(performance.annualized_return)} /></Col>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.annualizedVolatility')} value={pct(performance.annualized_volatility)} /></Col>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.sharpe')} value={performance.sharpe_ratio?.toFixed(3) ?? '—'} /></Col>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.maxDrawdown')} value={pct(performance.max_drawdown)} /></Col>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.averageTurnover')} value={pct(performance.average_turnover)} /></Col>
+                  <Col xs={12} md={8} lg={4}><Statistic title={t('alpha.performance.sampleDays')} value={performance.sample_days} /></Col>
+                </Row>
+                {(performanceSampleRange || performanceDrawdownDetail) && (
+                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                    {performanceSampleRange && <>{performanceSampleRange}<br /></>}
+                    {performanceDrawdownDetail}
+                  </Text>
+                )}
+              </>
+            )}
+          </Card>
           <Space wrap style={{ margin: '12px 0' }}>
             <Button onClick={() => { setBaseline(snapshot); setCorrelation(null); }}>设为相关性基准</Button>
             {baseline && baseline.result !== snapshot.result && <Button onClick={() => void calculateCorrelation()}>计算与基准相关性</Button>}

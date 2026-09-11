@@ -2438,6 +2438,20 @@ const zh: Record<string, string> = {
   'memory.delete': '删除',
   'chatBubble.tokens': '{count} tokens',
   'chatBubble.typing': '输入中...',
+  'alpha.performance.title': '绩效摘要',
+  'alpha.performance.annualizedReturn': '年化收益',
+  'alpha.performance.annualizedVolatility': '年化波动',
+  'alpha.performance.sharpe': '夏普',
+  'alpha.performance.maxDrawdown': '最大回撤',
+  'alpha.performance.averageTurnover': '平均换手',
+  'alpha.performance.sampleDays': '样本天数',
+  'alpha.performance.insufficient': '样本不足（少于 20 个交易日）：年化与风险调整指标保持空值，不编造。',
+  'alpha.performance.legacy': '旧保存结果没有绩效摘要合同；用原始观察数据重新运行后显示。',
+  'alpha.performance.sampleRange': '样本 {start} → {end} · {days} 个交易日',
+  'alpha.performance.drawdownRange': '回撤峰值 {peak} → 谷值 {trough} → 恢复 {recovery}',
+  'alpha.performance.initialCapital': '初始资金',
+  'alpha.performance.notRecovered': '未恢复',
+  'alpha.performance.noDrawdown': '无回撤',
 };
 
 export default zh;

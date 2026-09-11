@@ -11,6 +11,7 @@ from ..backtest.metrics import calculate_performance
 
 _MIN_IC_ASSETS = 5
 _MIN_IC_PERIODS = 5
+_MIN_PERFORMANCE_DAYS = 20
 
 
 def _correlation(left: list[float], right: list[float]) -> float | None:
@@ -94,6 +95,137 @@ def _factor_analysis(grouped: Mapping[str, list[tuple[str, float, float]]]) -> d
     }
 
 
+def _drawdown_summary(points: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """Compute the maximum drawdown and its peak/trough/recovery dates.
+
+    The running peak may be the initial capital anchor (``date == "start"``);
+    such an anchor has no trading date, so the peak date is reported as
+    ``None``. A curve that never declines reports a ``0.0`` drawdown with no
+    dates. Out-of-contract inputs (empty, non-positive or non-finite values)
+    return ``None`` drawdown rather than fabricating a number.
+    """
+    summary = {
+        "max_drawdown": None,
+        "max_drawdown_peak_date": None,
+        "max_drawdown_trough_date": None,
+        "max_drawdown_recovery_date": None,
+    }
+    if not points:
+        return summary
+    values = [float(cast(Any, point["value"])) for point in points]
+    if not all(math.isfinite(value) and value > 0 for value in values):
+        return summary
+    running_peak = 0.0
+    drawdowns: list[float] = []
+    for value in values:
+        running_peak = max(running_peak, value)
+        drawdowns.append(value / running_peak - 1.0)
+    max_drawdown = min(drawdowns)
+    if max_drawdown >= -1e-15:
+        summary["max_drawdown"] = 0.0
+        return summary
+    trough_index = drawdowns.index(max_drawdown)
+    peak_value = max(values[: trough_index + 1])
+    peak_index = max(
+        index
+        for index, value in enumerate(values[: trough_index + 1])
+        if value == peak_value
+    )
+    recovery_index = next(
+        (
+            index
+            for index, value in enumerate(values[trough_index + 1 :], start=trough_index + 1)
+            if value >= peak_value
+        ),
+        None,
+    )
+    summary["max_drawdown"] = max_drawdown
+    summary["max_drawdown_peak_date"] = points[peak_index]["date"] if peak_index > 0 else None
+    summary["max_drawdown_trough_date"] = points[trough_index]["date"]
+    if recovery_index is not None:
+        summary["max_drawdown_recovery_date"] = points[recovery_index]["date"]
+    return summary
+
+
+def summarize_performance(
+    equity_curve: Iterable[Mapping[str, Any]],
+    daily_returns: Iterable[float],
+    turnovers: Iterable[float],
+    periods_per_year: int,
+) -> dict[str, Any]:
+    """Summarize a long/short simulation into a compact performance overview.
+
+    Pure function with zero I/O: inputs are consumed read-only and no global
+    state is touched. ``equity_curve`` is a list of ``{"date", "value"}``
+    points (the initial point may use the sentinel date ``"start"``).
+
+    Statistics:
+    - ``annualized_return``: geometric return compounded at
+      ``periods_per_year`` over the observed sample days.
+    - ``annualized_volatility``: sample standard deviation of daily returns
+      (``ddof=1``) scaled by ``sqrt(periods_per_year)``.
+    - ``sharpe_ratio``: zero risk-free rate, annualized exactly like the
+      volatility; ``None`` when the volatility denominator is zero.
+    - ``max_drawdown``: deepest peak-to-trough decline of the equity curve with
+      its peak/trough/recovery dates (recovery is ``None`` when not yet
+      recovered within the sample; the peak date is ``None`` when the peak is
+      the initial capital anchor).
+    - ``average_turnover``: mean of the observed turnover rates.
+    - ``sample_days`` / ``start_date`` / ``end_date``: observed sample size and
+      traded date range.
+
+    Honest degradation: with fewer than ``_MIN_PERFORMANCE_DAYS`` sample days
+    the summary returns ``status == "insufficient"`` and every annualized or
+    risk-adjusted statistic is ``None``; only observed level statistics
+    (sample days, dates, average turnover, maximum drawdown) are reported.
+    Empty inputs likewise yield ``status == "insufficient"`` with ``None``
+    metrics — nothing is fabricated.
+    """
+    points = list(equity_curve)
+    returns = [float(value) for value in daily_returns]
+    turnover_values = [float(value) for value in turnovers]
+    sample_days = len(returns)
+    status = "ok" if sample_days >= _MIN_PERFORMANCE_DAYS else "insufficient"
+
+    traded_points = [
+        point for point in points if str(point.get("date", "")).strip() != "start"
+    ]
+    summary: dict[str, Any] = {
+        "status": status,
+        "sample_days": sample_days,
+        "start_date": traded_points[0]["date"] if traded_points else None,
+        "end_date": traded_points[-1]["date"] if traded_points else None,
+        "annualized_return": None,
+        "annualized_volatility": None,
+        "sharpe_ratio": None,
+        "max_drawdown": None,
+        "max_drawdown_peak_date": None,
+        "max_drawdown_trough_date": None,
+        "max_drawdown_recovery_date": None,
+        "average_turnover": None,
+    }
+    if turnover_values:
+        summary["average_turnover"] = sum(turnover_values) / len(turnover_values)
+    summary.update(_drawdown_summary(points))
+    if status == "insufficient" or periods_per_year <= 0:
+        return summary
+
+    values = [float(cast(Any, point["value"])) for point in points]
+    if values and values[0] > 0 and values[-1] > 0:
+        summary["annualized_return"] = (
+            (values[-1] / values[0]) ** (periods_per_year / sample_days) - 1.0
+        )
+    if sample_days >= 2:
+        mean_return = sum(returns) / len(returns)
+        variance = sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
+        volatility = math.sqrt(variance) if variance >= 0 else None
+        if volatility is not None:
+            summary["annualized_volatility"] = volatility * math.sqrt(periods_per_year)
+        if volatility is not None and volatility > 1e-12:
+            summary["sharpe_ratio"] = mean_return / volatility * math.sqrt(periods_per_year)
+    return summary
+
+
 def simulate_factor(
     observations: Iterable[Mapping[str, Any]],
     *,
@@ -171,4 +303,5 @@ def simulate_factor(
         "period_returns": daily_returns,
         "metrics": metrics,
         "factor_analysis": _factor_analysis(grouped),
+        "performance": summarize_performance(equity_curve, daily_returns, turnovers, periods_per_year),
     }

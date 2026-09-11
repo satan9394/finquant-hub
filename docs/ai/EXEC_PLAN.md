@@ -4,6 +4,14 @@
 
 ---
 
+## [DONE] BACKLOG-048: 科研增强——Alpha 因子模拟绩效统计（夏普/回撤/年化 汇总）
+
+**优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-048.md`
+**范围**: 在 `alpha_simulator.py` 新增纯函数 `summarize_performance`（年化收益/波动/夏普/最大回撤含日期区间/平均换手/样本天数）并集成进 `simulate_factor` 输出（新增 `performance` 键，既有 4 键零回归）；前端 `AlphaSimulationWorkbench.tsx` 新增绩效摘要卡（`--fq-*` token，i18n zh/en 各 +14 key 2453 parity 0）；边界诚实（<20 日/空/除零 → `status="insufficient"`/null 不编造）。**禁止**：改架构不变量、动 market_data/research_orch/thesis 他域、加依赖、E2E config、删除、commit。
+**证据（2026-09-13，DSH Worker 代码完成 + 维护者独立复核合入）**: `summarize_performance`（L150+，`_MIN_PERFORMANCE_DAYS`=20 阈值 + `_drawdown_summary` L98，夏普 std≤1e-12→None 防除零）集成进 `simulate_factor`，既有 `equity_curve/period_returns/metrics/factor_analysis` 四键零回归（集成测试逐项断言 `performance.* == metrics.*` 同口径）；后端新增 test_alpha_simulator_performance.py 11 例 + 既有 alpha 相关测试 38/38（含 report_builder 冒烟）全绿；前端 AlphaSimulationWorkbench 摘要卡 5/5（渲染/insufficiency 占位/旧结果兼容）；i18n 2453/2453 parity 0（指挥实测）；ruff exit 0、build exit 0。验收注：全量 pytest 在本机沙箱因 no_proxy/代理类网络测试挂起（30 秒 CPU 零增长，进程已杀），核心验证以 `--no-cov` 聚焦 alpha+report 38/38 完成；建议维护者在常规终端 `cd backend && .venv\Scripts\python.exe -m pytest -q` 补跑全量复核（环境问题，非代码回归）。详见 `docs/ai/tasks/BACKLOG-048.md`。
+
+---
+
 ## [DONE] BACKLOG-047: 死代码收口——移除 mcp_runtime.connect_http_mcp_server（零调用点）
 
 **优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-047.md`

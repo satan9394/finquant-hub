@@ -28,6 +28,20 @@ export type AlphaSearchResult = {
   region?: string;
 };
 export type AlphaObservation = { date: string; symbol: string; factor: number; forward_return: number };
+export type AlphaSimulationPerformance = {
+  status: 'ok' | 'insufficient';
+  sample_days: number;
+  start_date: string | null;
+  end_date: string | null;
+  annualized_return: number | null;
+  annualized_volatility: number | null;
+  sharpe_ratio: number | null;
+  max_drawdown: number | null;
+  max_drawdown_peak_date: string | null;
+  max_drawdown_trough_date: string | null;
+  max_drawdown_recovery_date: string | null;
+  average_turnover: number | null;
+};
 export type AlphaSimulationResult = {
   equity_curve: Array<{ date: string; value: number }>;
   period_returns: number[];
@@ -58,6 +72,8 @@ export type AlphaSimulationResult = {
     excluded_periods: Array<{ date: string; assets: number; reason: string }>;
     periods: Array<{ date: string; assets: number; ic: number; rank_ic: number }>;
   };
+  /** 绩效摘要（旧保存结果可能缺失 → 前端诚实占位）。 */
+  performance?: AlphaSimulationPerformance;
 };
 export type AlphaCorrelationResult = { correlation: number; p_value: number; n: number; note?: string | null };
 
