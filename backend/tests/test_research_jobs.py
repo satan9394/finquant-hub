@@ -186,6 +186,40 @@ async def test_failed_run_retries_and_links_completed_report_memory_evidence_not
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("quality", ["audited", "degraded"])
+async def test_scheduled_run_persists_report_quality_into_report_data(monkeypatch, quality):
+    """VS7 P0: 定时路径只落库 payload["report"]，所以质量标记必须随 report_data 一起入库，
+    否则重开定时报告与正常报告毫无区别（用户据此做投资判断）。"""
+    job = await create_research_job(
+        name="质量落库", ticker="usAAPL", company_name="Apple",
+        cron_expr="0 8 * * *", model_id=None, is_enabled=True, user_id=1,
+    )
+
+    async def fake_research(ticker, company_name, model_id=None, *, user_id):
+        yield "done", {
+            "report": {
+                "executive_summary": "scheduled thesis",
+                "quality": quality,
+            },
+            "quality": quality,
+            "agent_results": {},
+        }
+
+    monkeypatch.setattr(scheduler, "run_research", fake_research)
+    assert await scheduler.run_research_job(job["id"], 1) is True
+
+    run = await database.query_one(
+        "SELECT report_id, status FROM scheduled_research_runs WHERE job_id=?", (job["id"],)
+    )
+    assert run["status"] == "completed"
+    report = await database.query_one(
+        "SELECT report_data, status FROM research_reports WHERE id=?", (run["report_id"],)
+    )
+    assert report["status"] == "completed"
+    assert json.loads(report["report_data"])["quality"] == quality
+
+
+@pytest.mark.asyncio
 async def test_run_history_is_owner_scoped_and_preserves_job_lineage():
     job = await create_research_job(
         name="history", ticker="usAAPL", company_name="Apple",

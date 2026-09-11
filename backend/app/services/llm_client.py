@@ -320,6 +320,14 @@ class LLMClient:
                         result_text = await tool_executor(tool_name, tool_args)
                     except Exception as e:
                         result_text = f"工具执行异常：{e}"
+                        # VS7 P1b: 工具异常此前只被吞成文本回给模型，编排层收不到任何
+                        # 失败信号（tool_failed 已在 TOOL_LOOP_EVENTS 声明却从未发出）。
+                        if event_sink is not None:
+                            await event_sink("tool_failed", {
+                                "tool_name": tool_name,
+                                "arguments": tool_args,
+                                "error": str(e),
+                            })
 
                 if post_tool_hook is not None and result_text is not None:
                     replacement = await post_tool_hook(tool_name, tool_args, result_text)

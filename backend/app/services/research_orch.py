@@ -17,10 +17,19 @@ from ..prompts.research_memo_prompt import get_memo_sections
 from ..services.llm_client import LLMClient, LLMError
 from ..services.memory import native_memory_provider
 from ..services.memory_rollout import finalize_memory_rollout, prepare_memory_rollout
-from ..services.report_builder import build_unified_report
+from ..services.report_builder import build_unified_report, parse_lead_review
 
 _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="research-tool")
 JSONDict: TypeAlias = dict[str, Any]
+
+# VS7 P1b: 工具异常被吞成文本回给模型，编排层只能靠这个统一前缀识别"该工具没真正跑成"。
+# 与 llm_client.chat_with_tools_loop 中同名前缀保持一致（同语义、同文案）。
+_TOOL_ERROR_PREFIX = "工具执行异常："
+
+
+def _is_tool_failure(result_text: Any) -> bool:
+    """工具执行异常的唯一可识别信号（异常被吞成文本，见 _TOOL_ERROR_PREFIX）。"""
+    return isinstance(result_text, str) and result_text.startswith(_TOOL_ERROR_PREFIX)
 
 
 def _run_tool_in_thread(tool: BaseTool, arguments: JSONDict, user_id: int | None) -> ToolResult:
@@ -84,7 +93,7 @@ async def _execute_tool_call(
             ensure_ascii=False,
         )
     except Exception as exc:
-        return f"工具执行异常：{exc}"
+        return f"{_TOOL_ERROR_PREFIX}{exc}"
 
 
 async def _call_agent(
@@ -98,8 +107,13 @@ async def _call_agent(
     allowed_tools: set[str] | None = None,
     prior_context: str = "",
     memory_context: str = "",
+    degraded_reasons: list[str] | None = None,
 ) -> tuple[str, list[JSONDict]]:
-    """单个 Agent 完成研究，返回 (全文, 工具调用记录)。"""
+    """单个 Agent 完成研究，返回 (全文, 工具调用记录)。
+
+    degraded_reasons 非 None 时，本函数把"内容实际不完整"的信号（工具执行异常、
+    工具循环耗尽）追加进去，供 run_research 汇总为 quality=degraded（VS7 P1b）。
+    """
     system = role["system_prompt"]
     user_msg = (
         f"请对标的 {ticker}（{company_name}）进行你的专业分析。\n"
@@ -139,6 +153,9 @@ async def _call_agent(
             _execute_tool_call(tool_call, tool_registry, allowed_tools, user_id=user_id)
             for tool_call in tool_calls
         ))
+        # VS7 P1b: 工具执行异常此前只留痕在文本里，报告仍被标 audited。
+        if degraded_reasons is not None and any(_is_tool_failure(text) for text in result_texts):
+            degraded_reasons.append("tool_failed")
         for tc, result_text in zip(tool_calls, result_texts, strict=True):
             func = tc["function"]
             tool_calls_log.append({"name": func["name"], "arguments": func["arguments"], "result": result_text})
@@ -152,6 +169,10 @@ async def _call_agent(
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result_text})
 
     # 超出 tool_use 轮数，强制要求最终回答
+    # VS7 P1b: 工具循环耗尽（llm_client 的 tool_loop_exhausted 同语义）——模型是在
+    # "数据没抓全"的情况下被强制下结论的，报告必须诚实标降级。
+    if degraded_reasons is not None:
+        degraded_reasons.append("tool_loop_exhausted")
     content, _, _ = await client.chat_with_tools(
         messages + [{"role": "user", "content": "请基于已有数据输出最终分析结论。"}],
         tools,
@@ -215,6 +236,7 @@ async def run_research(
                 "avatar": role.get("avatar", ""),
             })
             try:
+                agent_reasons: list[str] = []
                 content, tool_log = await _call_agent(
                     client,
                     role,
@@ -223,6 +245,7 @@ async def run_research(
                     registry,
                     user_id=user_id,
                     memory_context=memory_context,
+                    degraded_reasons=agent_reasons,
                 )
             except LLMError as exc:
                 # G-03: agent 的 LLMError 是"非致命降级"——返回降级文本让报告仍能完成，
@@ -232,6 +255,10 @@ async def run_research(
                 degraded = True
                 context.emit("agent_failed", {"role_key": role["role_key"], "error": str(exc)})
                 return role["role_key"], f"【分析失败】{exc}", role["name"], []
+
+            # VS7 P1b: 工具异常 / 工具循环耗尽 → 该 agent 的分析不完整，报告降级。
+            if agent_reasons:
+                degraded = True
 
             for tool_call in tool_log:
                 context.emit("tool_call", {
@@ -276,6 +303,7 @@ async def run_research(
         "name": REPORT_LEAD_ROLE["name"],
         "avatar": REPORT_LEAD_ROLE["avatar"],
     }
+    lead_reasons: list[str] = []
     try:
         lead_content, lead_tool_log = await _call_agent(
             client,
@@ -287,11 +315,19 @@ async def run_research(
             allowed_tools={"audit_report_data", "check_buffett_rules", "adversarial_review", "calculate_by_financial_rigor"},
             prior_context=lead_context,
             memory_context=memory_context,
+            degraded_reasons=lead_reasons,
         )
     except LLMError as exc:
         lead_content, lead_tool_log = "", []
         degraded = True
         yield "agent_failed", {"role_key": "report_lead", "error": str(exc)}
+    # VS7 P1a（修正）: 口径必须与 report_builder **逐字一致**。
+    # report_builder.py:296,368 的判据是 `lead = parse_lead_review(lead_content)` 后
+    # 的 **解析结果** 真值（"audited" if lead else "degraded"），而不是原始字符串非空：
+    # lead 返回"非空但无法解析的散文"时 parse_lead_review 返回 {}，report_builder 判
+    # degraded 而"仅判字符串非空"会判 audited —— 矛盾依旧。故此处复用同一解析函数。
+    if lead_reasons or not parse_lead_review(lead_content):
+        degraded = True
     for tool_call in lead_tool_log:
         yield "tool_call", {
             "role_key": "report_lead",
@@ -313,6 +349,11 @@ async def run_research(
     yield "report_progress", {"section": 0, "total": total_sections, "name": "开始整合备忘录"}
 
     report_data = _build_report(ticker, company_name, agent_results)
+    # VS7 P0: 质量标记的单一源头——并入 report_data 内部，随报告一起持久化。
+    # 定时路径（scheduler）只落库 payload["report"]，交互路径（routers/research）
+    # 额外读顶层 quality 再合并；放在源头后两条路径天然一致。
+    quality = "degraded" if degraded else "audited"
+    report_data["quality"] = quality
     for i, section in enumerate(sections, 1):
         yield "report_progress", {
             "section": i,
@@ -324,9 +365,10 @@ async def run_research(
     done_payload = {
         "ticker": ticker,
         "report": report_data,
-        # G-03: 报告诚实质量标记——任一环节失败即为 degraded，正常为 audited。
+        # G-03/VS7: 报告诚实质量标记——任一环节失败即为 degraded，正常为 audited。
         # 与 report_builder.lead_review_status 同语义（degraded 前端已有降级提示机制）。
-        "quality": "degraded" if degraded else "audited",
+        # 顶层保留以兼容既有 SSE 消费方与前端 resolveReportQuality。
+        "quality": quality,
         # Tool logs retain the data-source trail (including news URLs) for
         # later report review instead of discarding research provenance.
         "agent_results": {

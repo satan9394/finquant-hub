@@ -273,9 +273,14 @@ async def start_research(body: ResearchRequest, request: Request, user: CurrentU
                     break
                 if event == "done":
                     report = data.get("report", {})
-                    # G-03: 报告诚实质量标记随报告持久化（audited/degraded），
-                    # 前端研究报告展示可据此提示"部分环节失败"。
-                    quality = data.get("quality", "audited")
+                    # G-03/VS7: 报告诚实质量标记随报告持久化（audited/degraded）。
+                    # 源头（research_orch）已把 quality 并入 report 内部，这里的合并是
+                    # 幂等的兜底：顶层缺失时优先沿用 report 内已有的 quality，绝不
+                    # 把 degraded 反写成 audited。
+                    quality = data.get("quality")
+                    if not quality and isinstance(report, dict):
+                        quality = report.get("quality")
+                    quality = quality or "audited"
                     if isinstance(report, dict):
                         report = {**report, "quality": quality}
                     await _complete_report(report_id, report, data.get("agent_results", {}), user_id)

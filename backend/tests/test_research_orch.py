@@ -347,6 +347,175 @@ async def test_complete_flow_marks_quality_audited(monkeypatch, isolated_registr
     ]
     assert events[-1][0] == "done"
     assert events[-1][1]["quality"] == "audited"
+    # VS7 P0: quality 必须并入 report_data 内部（定时路径只落库 report）。
+    assert events[-1][1]["report"]["quality"] == "audited"
+    # VS7 P1a: 正常路径下两种口径一致（屏上 Alert 看 quality，Markdown 导出看
+    # lead_review_status）。
+    assert events[-1][1]["report"]["lead_review_status"] == "audited"
+
+
+@pytest.mark.asyncio
+async def test_lead_empty_content_is_degraded_and_matches_lead_review_status(monkeypatch):
+    """VS7 P1a: lead 返回空内容（无异常）→ quality=degraded，与 report_builder 的
+    lead_review_status='degraded' 口径一致（否则屏上提示与导出提示互相矛盾）。"""
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "report_lead":
+            return "", []
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    assert events[-1][0] == "done"
+    assert done["report"]["lead_review_status"] == "degraded"
+    assert done["quality"] == "degraded"
+    assert done["report"]["quality"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_lead_unparseable_prose_is_degraded_and_matches_lead_review_status(monkeypatch):
+    """VS7 P1a（Evaluator 阻断项修正）: lead 返回**非空但无法解析成 JSON 的散文**时，
+    `report_builder.parse_lead_review` 得到 `{}` → `lead_review_status='degraded'`；
+    `quality` 必须同为 degraded，否则屏上 Alert 与 Markdown 导出互相矛盾。
+    旧实现只判 `not lead_content`（原始字符串真值），本场景会误判 audited。"""
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "report_lead":
+            return "抱歉，我无法完成本次审核。", []  # 非空、无 JSON 括号 → parse 得 {}
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    assert events[-1][0] == "done"
+    assert done["report"]["lead_review_status"] == "degraded"
+    assert done["quality"] == "degraded", "非空散文 lead 必须与 lead_review_status 同口径降级"
+    assert done["report"]["quality"] == "degraded"
+
+
+class ExhaustingToolClient:
+    """每轮都请求工具（永不给出最终回答）→ 触发工具循环耗尽。"""
+
+    def __init__(self):
+        self.rounds = 0
+
+    async def chat_with_tools_safe(self, messages, tools):
+        self.rounds += 1
+        return "", [{
+            "id": f"call-{self.rounds}",
+            "function": {"name": "integration_probe", "arguments": json.dumps({"role_key": "x"})},
+        }], None
+
+    async def chat_with_tools(self, messages, tools):
+        return "final answer", [], None
+
+
+@pytest.mark.asyncio
+async def test_call_agent_flags_tool_execution_failure(isolated_registry):
+    """VS7 P1b: 工具执行异常 → degraded_reasons 记录 tool_failed（内容不完整）。"""
+    isolated_registry.register(RaisingTool())
+    client = FakeToolCallingClient([
+        {"id": "call-1", "function": {"name": "raising", "arguments": "{}"}},
+    ])
+    reasons: list[str] = []
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "final answer"
+    assert logs[0]["result"].startswith("工具执行异常")
+    assert reasons == ["tool_failed"]
+
+
+@pytest.mark.asyncio
+async def test_call_agent_flags_tool_loop_exhaustion(isolated_registry):
+    """VS7 P1b: 工具循环耗尽 → degraded_reasons 记录 tool_loop_exhausted。"""
+    executions = []
+    isolated_registry.register(IntegrationProbeTool(executions))
+    client = ExhaustingToolClient()
+    reasons: list[str] = []
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "final answer"
+    assert len(logs) == 5, "5 轮 tool_use 循环耗尽后才强制收敛"
+    assert reasons == ["tool_loop_exhausted"]
+
+
+@pytest.mark.asyncio
+async def test_call_agent_reports_no_degraded_reason_on_happy_path(isolated_registry):
+    """VS7 零回归：工具全部成功时不产生任何降级原因。"""
+    executions = []
+    isolated_registry.register(IntegrationProbeTool(executions))
+    client = FakeToolCallingClient([
+        {"id": "call-1", "function": {"name": "integration_probe", "arguments": json.dumps({"role_key": "x"})}},
+    ])
+    reasons: list[str] = []
+
+    content, _logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "final answer"
+    assert reasons == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["tool_failed", "tool_loop_exhausted"])
+async def test_agent_degraded_reasons_propagate_to_report_data(monkeypatch, reason):
+    """VS7 P1b: _call_agent 收集到的降级原因必须传导到 report_data.quality（P0 落库源头）。"""
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(
+        client, role, ticker, company_name, registry, *, degraded_reasons=None, **kwargs
+    ):
+        if role["role_key"] == "report_lead":
+            return "主编结论", []
+        if degraded_reasons is not None:
+            degraded_reasons.append(reason)
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    assert done["quality"] == "degraded"
+    assert done["report"]["quality"] == "degraded"
 
 
 @pytest.mark.asyncio
