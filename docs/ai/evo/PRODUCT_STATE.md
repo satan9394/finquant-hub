@@ -18,6 +18,9 @@
   - 编排者核实并**证伪**了 A2 的一个未验证假说（"pages/Research.tsx 是死页面"）——实为 `ResearchWorkspace.tsx:26/81` 在 `mode==='deep'` 下渲染，**VS-3 可达性成立**。教训：审计者假说须以代码事实裁决。
   - 采纳 A2 已核实的 **P0 候选**作为下一 slice：AI 首用配置被文档引向手编 `.env`，而站内模型管理可用且凭据自动持久化（`credential_store.py:29-47` + `config.py:51` 证实）。
 - R17-R18：**VS-5（AI 首用配置引导一致性）** —— 独立 Evaluator **REJECT（窄口径）**：主要主张全部验证通过，但抓出 `docs/PRD.md` 三处与代码冲突（我新写的"`.env` 启动时迁入加密凭据表"**是虚构机制**——实际是 `model_router.py:38-39` 运行时 `os.getenv` 现读；另有"后续可加 Fernet"与已实现加密矛盾、schema 注释仍写"明文"）→ 按处方修复 → 复评 **ACCEPT** → `79462dd` + 精确性修正。
+- R47-R58：**VS-7（降级语义补全）** —— Implementer 交出四部分（quality 源头并入 `report_data`；lead 空/不可解析判降级；工具异常与循环耗尽捕获；router 幂等兜底）。独立 Evaluator **REJECT**（P0 落库链、`tool_loop_exhausted` 位置、router 兜底三项经核实成立，但 **P1a「同口径」为假**：`research_orch` 判**原始字符串**非空、`report_builder` 判 `parse_lead_review()` **解析后 dict** 真值 → "非空但不可解析的散文 lead"下二者仍矛盾，只消除了空串那一种）→ 改用同一解析函数 + 补变异敏感测试 → 复评 **ACCEPT**（61 passed）→ `c51fa20`。
+  - **复盘**：该缺陷源于**我的任务书措辞含糊**（只写"口径一致"、未写明"同一个判定函数"），实现者按字面实现且注释自洽、测试全绿。教训已补入 `memory/VERIFICATION_BLIND_SPOT.md`。
+  - 由此派生的缺口已落卡：`BACKLOG-049`（工具失败 5 种返回形态仅异常态被判降级）。
 
 ## 已解决问题
 - **G-02 调度无限重试**：`_MAX_RETRY_ATTEMPTS=5` claim 拦截。
@@ -57,10 +60,11 @@
 
 ## 仍存在缺口（路线图，含 R2 部分发现）
 - **✅ 已完成 VS-5**：AI 首用配置引导改为站内模型管理为主（QUICKSTART/README），PRD 三处事实错误修正；独立评估 REJECT→修复→**ACCEPT**。
-- **✅ 已完成 VS-6**：首启启动体验（浏览器等就绪再开 + 失败可自助）；独立评估 REJECT（2 项必修：计时按次数非按时间、pip 失败文案矛盾）→ 修复 → 复评中。
-- **NOW（待定，由 D2 发现驱动）**：**降级标记不落库（P0）** 与 **降级白名单过窄（P1）** 高度耦合 → 很可能是下一 Slice（VS-7）。
-- **NEXT**：A2 的 UX 部分补审；G-04 站内帮助入口；`start.bat:34` 升级不重装依赖。
-- **LATER**：导航"一组一子项"结构摩擦；重试抖动/Retry-After/熔断；备份含 `-wal/-shm`；密钥脱敏扩大；G-07/09；G-12；G-06。
+- **✅ 已完成 VS-6**：首启启动体验（浏览器等就绪再开 + 失败可自助）；独立评估 REJECT（2 项必修：计时按次数非按时间、pip 失败文案矛盾）→ 修复 → **ACCEPT**。
+- **✅ 已完成 VS-7**：降级语义补全（quality 源头并入 `report_data` → 定时/交互两路径一致落库；lead 空/不可解析判降级；工具异常与循环耗尽捕获）；独立评估 REJECT（P1a 谓词不同）→ 修复（复用 `parse_lead_review` 同口径）→ 复评 **ACCEPT**（61 passed）。
+- **NOW（已就绪，待实现）**：**VS-8 免工具链兜底**（`IMPLEMENTATION_BRIEF_VS8.md`）——`start.bat:14-19` 的 Bun 检查无条件致命，使 `:57` 的产物复用逻辑不可达；预置 `frontend/dist` 的发行包对未装 Bun 用户**硬停**，与 `QUICKSTART:36` 承诺矛盾（A2 P0，编排者已核实）。同卡修 `start.bat:89` 与 VS-5 站内配置引导的分叉。
+- **NEXT**：`BACKLOG-049`（工具失败 5 种形态仅异常态判降级）；G-04 站内帮助入口；A2 的 P1（Python 严格钉 3.12、端口占用首推"重启电脑"）；A2 的 P2（Dashboard 入口名与落地页不一致）。
+- **LATER**：导航"一组一子项"结构摩擦；重试抖动/Retry-After；备份含 `-wal`/`-shm`；密钥脱敏扩大；G-07/09；G-12；G-06。
 - VS-3 遗留（非阻断）：`openStoredReport` 用内联三元；报告列表页未加质量徽章。
 - VS-4 遗留：`chat_stream` 未重试（保守设计）。
 

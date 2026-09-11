@@ -102,3 +102,42 @@ quality = "degraded" if degraded or report_data.get("lead_review_status") != "au
    - router 顶层优先的潜在反转（§4.3）。
 
 **判定**：**REJECT** — 阻断项仅 §2（P1a 口径不一致，可一行修复）；其余三项核心机制与 56 条测试均通过。
+
+---
+
+# 复评（EVALUATOR，第二轮）：commit `c51fa20`
+
+复核方式：只读 `backend/app/services/research_orch.py` + `backend/app/services/report_builder.py`（含 `tests/test_research_orch.py` 新用例），跑 1 条命令。
+
+## 7. P1a 阻断项已消除
+
+- `research_orch.py:20`：`from ..services.report_builder import build_unified_report, parse_lead_review` —— 已显式导入同一函数。
+- `research_orch.py:329`：`if lead_reasons or not parse_lead_review(lead_content): degraded = True` —— 判据与 `report_builder.py:296,368`（`lead = parse_lead_review(lead_content)` → `"audited" if lead else "degraded"`）**逐字同口径**。旧的 `not lead_content` 已消失。
+
+## 8. 「重复解析」隐患不成立
+
+- `report_builder.py:95-108` 的 `parse_lead_review` 是**纯函数**：无 `@lru_cache`/模块级缓存、无 I/O、无全局写入；仅 `str.strip` + 模块级常量正则 `_JSON_FENCE.search`（`:15`，编译后只读）+ `json.loads` → 返回新 dict。同输入必得同结果，与调用顺序/状态无关。
+- 传参同一性：`research_orch.py:329` 判定用的 `lead_content`，经 `:337-341` 原样写入 `agent_results["report_lead"]["content"]`，`:385` 又原样取出传给 `build_unified_report(..., lead_content=lead)`（`:386`）→ 实为同一字符串对象。**不存在两次解析拿到不同输入的可能**。
+- 因此 `done_payload["quality"]`（`:355,371`）与 `report.lead_review_status`（`report_builder.py:368`）恒等，屏上 Alert 与 Markdown 导出不再矛盾。
+
+## 9. 正常路径未被误降级 + 无循环导入
+
+- 合法 JSON lead → `parse_lead_review` 返回非空 dict → `:329` 不触发；`test_complete_flow_marks_quality_audited`（`:330-354`）断言 `quality == "audited"` 且 `lead_review_status == "audited"`，绿。
+- `LLMError` 分支（`:320-322`）`lead_content = ""` → 解析得 `{}` → 仍降级，语义保持。
+- 循环导入：`report_builder.py:10-12` 只依赖 `prompts`/`tools`，不反向依赖 `research_orch`；定向测试全部导入成功，无 `ImportError`。
+
+## 10. 新用例确为变异敏感
+
+`tests/test_research_orch.py:383-406`：`fake_call_agent` 对 `report_lead` 返回 `"抱歉，我无法完成本次审核。"`（非空、无花括号 → 解析得 `{}`）。该用例路径中 `_call_agent` 被 monkeypatch，`lead_reasons` 恒为空，其余 Agent 均返回 `"ok"`，故 `degraded` 的**唯一置位点就是 `:329`**。把判据退回 `not lead_content` → `degraded` 保持 False → `:405` `done["quality"] == "degraded"` 失败（`:406` 同样失败）。变异敏感成立。
+旧「空串」用例（`:358-379`）仍在，且绿。
+
+## 11. 命令结果
+
+`pytest tests/test_research_orch.py tests/test_research_jobs.py tests/test_llm_client.py tests/test_report_builder.py -q --no-cov -p no:cacheprovider` → **61 passed in 14.75s**。
+
+## 12. 残留（非阻断，与上轮一致）
+
+- 工具返回 `{"success": false}` / 幻觉工具名的失败分支仍不计入 degraded（口径缺口）。
+- `routers/research.py:280-285` 顶层 quality 优先的潜在反转（当前不可达）。
+
+**复评判定：ACCEPT** — P1a 阻断项已按同口径修复，双路径语义一致，测试变异敏感，61/61 通过；未发现新阻断项。未修改任何实现文件。
