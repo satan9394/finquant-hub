@@ -21,7 +21,7 @@
 | **L68-69**（新增） | `:build_frontend` 内、`cd frontend` 之前插入：`rem 到这里才真正需要 Bun...` + `if defined FQ_BUN_MISSING goto bun_missing`。这是**唯一**检查 `FQ_BUN_MISSING` 的地方。 |
 | **L91-92**（改写，原为 1 行 L89） | 配置提示对齐验收标准第 4 条（逐字，见 §3.4）。 |
 | **L158-162**（新增） | `:bun_missing` 标签块：错误说明 + `https://bun.sh` 安装指引 + `docs\QUICKSTART.md` 锚点。 |
-| **L156 / L164**（未改） | `:build_failed` 仍以 `goto fail` 收尾；`:fail` 仍是 `pause` + `popd` + `exit /b 1`。新块插在两者之间，**不会串标签**。 |
+| **L156**（**本次新增** `goto fail`） | `:build_failed` 现以 `goto fail` 收尾——**该行是本次改动**（旧版靠自然落入 `:fail`，diff 为 `+goto fail`）。`:fail`（L164）本身未改，仍是 `pause` + `popd` + `exit /b 1`。新块 `:bun_missing` 插在两者之间，**不会串标签**。 |
 
 改动后的关键顺序（`start.bat`）：
 
@@ -227,7 +227,7 @@ Press any key to continue . . .
 - `:build_failed`（L150）→ L156 `goto fail`，**其后不会被 `:bun_missing` 截断**。
 - `:bun_missing`（L158-162）**无 `goto`**，自然落入 `:fail`（L164）→ `pause` / `popd` / `exit /b 1`，与 `:build_failed` 的收尾方式一致。
 - 实测旁证：§3.2 两个场景均打印了完整指引**并且**出现 `Press any key to continue . . .` 后退出，说明落到了 `:fail` 的 `pause`，而非"batch label not found"。
-- `git show HEAD:start.bat` 与本地旧文件 md5 一致（两处均 `8A387DEB...`），确保对照有效。
+- **基线核对（经 Evaluator 修正措辞）**：`git show ec0fa6c^:start.bat` 输出的原始 blob 是 **LF 换行**，其 md5 为 `29F7EB2C…` / 8492B；经 **LF→CRLF 转换后**为 8649B、md5 `8A387DEBE7FB6938CB59B01B05EFD942`，与工作区基线文件**逐位相同**（Evaluator 独立复算确认）。此前本节写作"两处均 `8A387DEB…`"不准确——**必须做换行转换后**才相等。
 
 ---
 
