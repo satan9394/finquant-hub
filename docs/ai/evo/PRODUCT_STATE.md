@@ -64,6 +64,9 @@
 - **✅ 已完成 VS-7**：降级语义补全（quality 源头并入 `report_data` → 定时/交互两路径一致落库；lead 空/不可解析判降级；工具异常与循环耗尽捕获）；独立评估 REJECT（P1a 谓词不同）→ 修复（复用 `parse_lead_review` 同口径）→ 复评 **ACCEPT**（61 passed）。
 - **NOW（已就绪，待实现）**：**VS-8 免工具链兜底**（`IMPLEMENTATION_BRIEF_VS8.md`）——`start.bat:14-19` 的 Bun 检查无条件致命，使 `:57` 的产物复用逻辑不可达；预置 `frontend/dist` 的发行包对未装 Bun 用户**硬停**，与 `QUICKSTART:36` 承诺矛盾（A2 P0，编排者已核实）。同卡修 `start.bat:89` 与 VS-5 站内配置引导的分叉。
 - **NEXT**：`BACKLOG-049`（工具失败 5 种形态仅异常态判降级）；G-04 站内帮助入口；A2 的 P1（Python 严格钉 3.12、端口占用首推"重启电脑"）；A2 的 P2（Dashboard 入口名与落地页不一致）。
+- **NOT_NOW（主动拒绝，附理由）**：
+  - A2-P1「Python 严格钉死 3.12」（`start.bat:41,46-47`）：**拒绝**。该钉版与文档**完全一致**（`README:50,69`、`QUICKSTART:11,15,123` 均写 Python 3.12），非矛盾项；放宽到 3.13 需**真实兼容性验证**（依赖/二进制轮子/标准库行为），成本远超收益，且目标用户按 QUICKSTART 装 3.12 即可。
+  - A2-P1「端口占用首推重启电脑」（`start.bat:29-30`，VS-6 所写）：**暂缓**。第 1 步已是"关掉旧窗口"，重启作为第 2 步对非技术用户是**可执行且可靠**的兜底；FAQ（`QUICKSTART:94`）已给 `netstat` 进阶手段。收益低，留观。
 - **LATER**：导航"一组一子项"结构摩擦；重试抖动/Retry-After；备份含 `-wal`/`-shm`；密钥脱敏扩大；G-07/09；G-12；G-06。
 - VS-3 遗留（非阻断）：`openStoredReport` 用内联三元；报告列表页未加质量徽章。
 - VS-4 遗留：`chat_stream` 未重试（保守设计）。
