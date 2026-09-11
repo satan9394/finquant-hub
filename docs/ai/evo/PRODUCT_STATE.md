@@ -72,7 +72,10 @@
   - 复盘已沉淀：`memory/VERIFICATION_BLIND_SPOT.md`（**错误前提会穿透自验+他验**——brief 写错时，Evaluator 只能验一致性，抓不出前提错误；必须由独立审计质疑前提）。
 - **P0 未修**：**降级标记不落库**——`research_orch.py:324-329` 把 `quality` 放在 done_payload **顶层**，而 `scheduler.py:171-183` 只持久化 `report`/`agent_results` → **定时研究产出的降级报告以 `status='completed'` 入库，DB 重载后与正常报告无区别**（用户看不到降级）。注：交互路径由 `routers/research.py` 合并 quality 后落库（VS-1 已修），但**调度路径漏了**。
 - **P1 未修**：降级白名单过窄——仅捕 `LLMError`（`research_orch.py:227/291`）；**工具异常被吞成文本**（`llm_client.py:318-322`）、`tool_loop_exhausted` 未被消费（`research_orch.py:254`）、lead 空返回仍标 `audited`。
-- **P1 未修**：重试放大——无抖动、不读 `Retry-After`、无熔断；最坏 5 agent × 6 轮 × 3 尝试 ≈ **90 次上游请求**（`llm_client.py:20-22,111-128,282-283,350`）。
+- **P1→降为 P2 加固（编排者已复核 R80）**：重试放大——无抖动、不读 `Retry-After`、无熔断。
+  - **算式属实**：`_MAX_ATTEMPTS=3`（`llm_client.py:21`）× 每 agent 6 次调用（`research_orch.py:144` 的 `for _round in range(5)` + 1 次强制收尾）× 5 个 agent = **最坏 90 次上游请求**。
+  - **但影响有界**：退避仅 0.5s→1.0s（总增时延约 45s），且研究是**用户发起、单次运行**，非后台高频；4xx 不重试已正确排除"坏 key 打 3 次"。
+  - **真正值得做的一条**：**完全未读 `Retry-After`**（实测命中 0 处）。供应商在 429/503 上明确给出等待时长时我们仍按固定退避立刻重试，属**协议层面的不礼貌**，可能招致更长限流。→ 列为 **NEXT 小项（低成本、可判定）**：`_post_chat_with_retry` 在可重试状态码且响应含 `Retry-After` 时按其等待（设上限），否则用现有退避；顺带加抖动。
 - **✅ 已修并待判定（P1→数据安全）**：启动备份只复制 `finquant.db`（不含 `-wal`）→ **VS-9 改为 `sqlite3.Connection.backup()`**（`ab15be8`）。**编排者在真实数据上的四路实测**：旧 `Copy-Item` = 24/0/331（丢数据）、`Connection.backup()` = 26/1/334、`VACUUM INTO` = 26/1/334、三件套基准 = 26/1/334 ⇒ 旧方式确实静默丢失（schema v25/v26 迁移成果与 `user_credentials` 行都在 WAL 中）。
   - **架构一致性**：`Connection.backup()` 是**全仓既有约定共 4 处**（`database.py:1854-1875` 两处迁移备份、`audit_database_recovery.py`、`verify_local_install.ps1:203`）——VS-2 的 `Copy-Item` 是**唯一异类**，本卡把它拉回同一约定。
   - **⚠️ 环境变化（影响后续验证方法）**：真实 `backend\data` 的 `-wal`/`-shm` 已被 **checkpoint**（实现者观察到并主动报告；真实库仍为 26/1/334、integrity ok、无数据丢失）。**副作用：真实目录上"新旧实现的差异信号已消失"**——现在对真实数据用旧的 `Copy-Item` 也会得到 26/1/334。**后续凡验证备份/WAL 相关改动，必须自造 WAL 场景**（建库→`journal_mode=WAL`→插数据→**保持连接不关闭**使数据留在 `-wal` 未合并），否则会得到假阳性。
