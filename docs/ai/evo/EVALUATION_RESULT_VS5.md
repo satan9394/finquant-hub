@@ -45,3 +45,29 @@
 
 ## 四、方法与边界
 只读核验：`git show eecc603`（含全量 diff）、`credential_store.py`、`config.py`、`main.py:66-100`、`model_router.py:28-45`、`database.py:2236-2250`、`models_crud.py`、`i18n/zh.ts`、`App.tsx`；未修改任何文件（新增本报告除外）；未执行运行时/测试（环境 429 限流，且本卡为纯文档判定，代码事实可由静态证据唯一确定）。
+
+---
+
+# 复评结论（第二轮，2026-08-31）
+
+- 被验对象：`docs/PRD.md` 三处修复（对应上轮 C1/C2/C3）
+- 复核方式（极简）：`docs/PRD.md:265-284`、`:530-559` 定点阅读 + 1 条 `Select-String` + 2 条定点 grep 验证迁移机制
+- 结论：**ACCEPT**
+
+## 逐项核对
+
+| # | 上轮要求 | 现状 | 判定 |
+|---|---|---|---|
+| 1 | `:543` 改为 env **现读**、**不写入加密凭据表** | 「该 key 由运行时按 `api_key_env` 从环境变量**现读**，**不写入加密凭据表**」，已无「启动迁入」字样 | ✅ |
+| 2 | `:545` 改为加密**已落地**（Fernet） | 「凭据加密**已落地**（Fernet 对称加密，见 `backend/app/services/credential_store.py`），不再处于"预留接口"阶段」 | ✅ |
+| 3 | `:276` 去掉「明文，MVP 接受」 | 现为「历史列：Fernet 加密存储，启动时迁入凭据表（见 §9.2）」 | ✅ |
+| 4 | 三条旧表述 grep 0 命中 | `Select-String -Path docs/PRD.md,docs/QUICKSTART.md,README.md -Pattern '明文，MVP 接受\|后续可加 Fernet\|迁入加密凭据表'` → **MATCHES=0** | ✅ |
+| 5 | 未引入新事实错误（迁移机制描述） | `credential_store.py:156-176` `migrate_legacy_model_api_keys`：`SELECT id, user_id, provider, api_key FROM model_configs WHERE user_id IS NOT NULL AND api_key<>''` → `put_credential(...)` → `UPDATE model_configs SET api_key=NULL`；`main.py:20` 导入、启动调用——与「启动时迁入凭据表」一致；`model_router.py:38-39` `os.getenv(cfg["api_key_env"])` 现读亦与 `:543` 一致 | ✅ |
+
+## 非阻塞备注（不影响 ACCEPT，且不要求本轮再改）
+
+`PRD.md:276` 的「Fernet 加密存储」措辞沿自上轮我的处方原文（见本文件 §三.3），并非实现者新引入；严格地说，该历史列在迁移前**自身是明文**（`credential_store.py:157` docstring: "Move legacy plaintext model keys into encrypted storage, then clear the source"），加密发生在迁入 `user_credentials` 之时。若后续顺手统一，可写为「历史列：旧明文 key，启动时迁入加密凭据表后置空（见 §9.2）」。此为措辞精度问题，不构成与代码的事实冲突。
+
+## 边界
+
+本轮只读：`docs/PRD.md`（定点）、`backend/app/services/credential_store.py`（:150-176）、1 条 grep；除本报告追加段外未改动任何文件。

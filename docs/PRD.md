@@ -273,7 +273,7 @@ CREATE TABLE model_configs (
     base_url      TEXT NOT NULL,            -- API endpoint，如 https://api.deepseek.com
     model_name    TEXT NOT NULL,            -- 模型名，如 deepseek-v4-flash
     api_key_env   TEXT,                     -- 环境变量名（如 DEEPSEEK_API_KEY），存变量名不存值
-    api_key       TEXT,                     -- 历史列：Fernet 加密存储，启动时迁入凭据表（见 §9.2）
+    api_key       TEXT,                     -- 历史列：旧明文 key，启动时迁入加密凭据表后置空（见 §9.2）
     temperature   REAL DEFAULT 0.7,
     max_tokens    INTEGER DEFAULT 4096,
     is_default    INTEGER DEFAULT 0,        -- 1=当前默认模型
