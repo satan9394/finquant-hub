@@ -11,11 +11,14 @@
 用户设了定时研究。某天模型/工具出问题，报告实际不完整。**现状**：交互路径能看到降级提示，但**定时路径的报告重开后与正常报告一模一样**——用户据此做投资判断。且若失败发生在**工具调用**层（而非 LLM 层），任何路径都不标降级。
 
 ## 当前问题（证据，已核实/待实现者复核）
-- **P0 落库**：`research_orch.py:324-329` 把 `quality` 放在 `done_payload` **顶层**；`scheduler.py:171-183`（定时路径）只持久化 `payload["report"]` 与 `payload["agent_results"]` → **quality 丢失**；而 `routers/research.py`（交互路径）额外把 quality 合并进 report 才落库。**两条路径行为不一致**。
-- **P1 捕获面**（D2 标注，实现者需复核行号）：
+- **P0 落库**：`research_orch.py:327-329` 把 `quality` 放在 `done_payload` **顶层**；`scheduler.py:171-183`（定时路径）只持久化 `payload["report"]` 与 `payload["agent_results"]` → **quality 丢失**；而 `routers/research.py`（交互路径）额外把 quality 合并进 report 才落库。**两条路径行为不一致。**
+- **P1a 界面与导出口径不一致（编排者已实测核实）**：
+  - `report_builder.py:368`：`lead_review_status = "audited" if lead else "degraded"` → **lead 返回空内容即 degraded**；
+  - `research_orch.py:329`：`quality` 仅在**异常**路径置 degraded（`:232` agent LLMError、`:262` node_failed、`:293` lead LLMError）；
+  - ⇒ **lead 空返回（无异常）时 `lead_review_status='degraded'` 而 `quality='audited'`** → Markdown 导出带降级提示、**屏上 Alert 不显示**（VS-3 的 Alert 只看 `quality`）。同一份报告两种口径。
+- **P1b 捕获面**（D2 标注，实现者需复核行号）：
   - 工具异常被 `llm_client.py:318-322` 吞成文本，不置 degraded；
-  - `tool_loop_exhausted`（`research_orch.py:254` 附近）未被消费，不置 degraded；
-  - lead 返回**空内容**时仍可能判 `audited`。
+  - `tool_loop_exhausted`（`research_orch.py` 事件白名单 `:254` 附近）未被消费，不置 degraded。
 
 ## 理想行为
 - 质量标记由**单一源头**产生并随 `report_data` 一起持久化 → 交互/定时两条路径天然一致，无需各自补救。
