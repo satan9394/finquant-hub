@@ -2066,6 +2066,7 @@ const zh: Record<string, string> = {
   'deep.progress.processing': '处理中',
   'deep.report.empty': '报告生成完成，但没有可展示的正文。',
   'deep.report.degradedNotice': '⚠️ 主编审计未完成：本报告的团队评审章节由模型自动生成，未经主编复核。',
+  'deep.report.qualityDegraded': '⚠️ 本报告生成不完整：部分分析环节未能完成，内容可能有缺漏，请谨慎参考。',
   'deep.request.failed': '研究请求失败',
   'deep.stream.missing': '研究服务未返回事件流',
   'deep.stream.interruptedStage': '研究流意外中断',

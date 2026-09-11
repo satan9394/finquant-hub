@@ -57,16 +57,34 @@ type ResearchStreamData = {
   report_id?: number;
   name?: string;
   report?: Record<string, unknown>;
+  // G-03: done_payload 顶层携带 quality（audited/degraded），不在 report 内部。
+  quality?: string;
   error?: string;
   message?: string;
 };
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
+/**
+ * G-03: 从 done 事件解析报告质量。
+ * 后端 done_payload 把 quality 放在**顶层**（与 report 平级）；历史/落库形态则可能在
+ * report 内部。两处都认，避免实时路径读空导致"生成不完整"警示不显示。
+ */
+export function resolveReportQuality(data: { quality?: unknown; report?: Record<string, unknown> | null }): 'audited' | 'degraded' {
+  const raw = data.quality ?? data.report?.quality;
+  return raw === 'degraded' ? 'degraded' : 'audited';
+}
+
 export function reportToMarkdown(report: Record<string, unknown>, t: Translate): string {
-  const degradedPrefix = report.lead_review_status === 'degraded'
+  // G-03: 主编降级沿用原有文案（零回归）；任一环节失败的降级（quality）用通用文案，
+  // 避免把"agent 环节失败"误述成"主编审计未完成"。
+  const leadDegraded = report.lead_review_status === 'degraded';
+  const qualityDegraded = report.quality === 'degraded';
+  const degradedPrefix = leadDegraded
     ? `**${t('deep.report.degradedNotice')}**\n\n---\n\n`
-    : '';
+    : qualityDegraded
+      ? `**${t('deep.report.qualityDegraded')}**\n\n---\n\n`
+      : '';
   if (Array.isArray(report.chapters)) {
     return degradedPrefix + report.chapters
       .filter((chapter): chapter is { title: string; content: string } => (
@@ -142,6 +160,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
   const [reportContent, setReportContent] = useState('');
   const [reportTitle, setReportTitle] = useState('');
   const [done, setDone] = useState(false);
+  // G-03: 报告质量（audited/degraded）——任一环节失败时屏上诚实提示"内容可能不完整"。
+  const [reportQuality, setReportQuality] = useState<'audited' | 'degraded' | null>(null);
   const [history, setHistory] = useState<HistoryGroup[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
@@ -179,6 +199,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
       setTicker(report.ticker);
       setReportTitle(t('deep.report.title', { name: (report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker }));
       setReportContent(reportToMarkdown(report.report_data, t));
+      setReportQuality(report.report_data.quality === 'degraded' ? 'degraded' : 'audited');
       setDone(report.status === 'completed');
       setAgents(AGENT_KEYS.map((key) => ({
         name: t(AGENT_LABELS[key]?.nameKey ?? key),
@@ -236,6 +257,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     setDone(false);
     setReportContent('');
     setReportTitle('');
+    setReportQuality(null);
     setSelectedReportId(null);
     resetAgents();
 
@@ -290,10 +312,14 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
             break;
           }
           case 'done': {
-            const report = data.report ?? {};
+            // G-03: quality 由后端 done_payload 顶层携带（不在 report 内），
+            // 同时兼容历史/落库形态的 report.quality，避免实时路径读空导致警示不显示。
+            const quality = resolveReportQuality(data);
+            const report: Record<string, unknown> = { ...(data.report ?? {}), quality };
             setReportTitle(t('deep.report.title', { name: String(report.company_name ?? code) }));
             accContent = reportToMarkdown(report, t);
             setReportContent(accContent || t('deep.report.empty'));
+            setReportQuality(quality);
             setDone(true);
             streamCompleted = true;
             setRunning(false);
@@ -422,6 +448,15 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
       {(running || done || reportContent) ? (
         <div className="research-report-layout">
           <div className="research-report-layout__content">
+          {/* G-03: 报告诚实质量提示——任一环节失败的降级报告在屏上明示，不让用户误以为完整。 */}
+          {done && reportQuality === 'degraded' ? (
+            <Alert
+              type="warning"
+              message={t('deep.report.qualityDegraded')}
+              role="status"
+              style={{ marginBottom: 12 }}
+            />
+          ) : null}
           <ResultLayer
             layer="summary"
             title={t('deep.summary.title')}
