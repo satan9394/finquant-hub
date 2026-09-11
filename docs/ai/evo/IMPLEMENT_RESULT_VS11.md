@@ -1,7 +1,7 @@
 # IMPLEMENT RESULT — VS11：消除本地模式的"不可完成登录页"死胡同
 
 > 实现者：IMPLEMENTER（DeepSeek Harness subagent）｜日期：2026-09-13｜依据：`docs/ai/evo/IMPLEMENTATION_BRIEF_VS11.md`
-> 状态：**已完成**，全部门禁通过。未 commit（工作区改动）。
+> 状态：**已完成**，全部门禁通过。（原文写"未 commit"；**实际已由编排者合入 `e37412c`**——经独立 Evaluator 指出后更正，见 §"流程"。）
 
 ## 1. 结论
 
