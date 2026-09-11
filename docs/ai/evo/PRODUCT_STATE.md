@@ -71,7 +71,8 @@
 - **P1 未修**：降级白名单过窄——仅捕 `LLMError`（`research_orch.py:227/291`）；**工具异常被吞成文本**（`llm_client.py:318-322`）、`tool_loop_exhausted` 未被消费（`research_orch.py:254`）、lead 空返回仍标 `audited`。
 - **P1 未修**：重试放大——无抖动、不读 `Retry-After`、无熔断；最坏 5 agent × 6 轮 × 3 尝试 ≈ **90 次上游请求**（`llm_client.py:20-22,111-128,282-283,350`）。
 - **P1 未修**：启动备份只 `Copy-Item finquant.db`（`start.bat:96`），**不含 `-wal`/`-shm`** → WAL 下非一致性快照（失败不阻塞启动这点是对的）。
-- **P1 未修**：密钥脱敏仅替换 `self.api_key`（`llm_client.py:99`）；错误文案经 `research_orch` → SSE 可能**落库到 `run_events.payload_json`**（`research_jobs.py:44-48`）。
+- **P1 未修**：密钥脱敏仅替换 `self.api_key`（`llm_client.py:99`）；错误文案经 `research_orch` → SSE 可能**落库到 `run_events.payload_json`**（`research_jobs.py:364-367` 的 `payload={"status":…, "error": error}`，error 源自 `scheduler.py:366-368` 的 `str(exc)`）。
+  - **编排者已复核并下调严重度（R72）**：主路径脱敏**是生效的**——`model_router.py:37-44` 把解析出的真实 key（用户加密凭据 > 旧 api_key 字段 > 环境变量）传入 `LLMClient(api_key=…)`，故 `self.api_key` 非空、`body.replace` 有效。**残留缺口收窄为三类边界**：①供应商回显的是截断/URL 编码后的 key 时匹配不到；②key 若位于 `base_url` 查询串，`_response_error` **只清洗 api_key 不清洗 URL**；③`self.api_key` 为空时替换退化为空操作（但此时也无 key 可泄）。→ 降为 **P2 加固项**，非 P0。
 - **未验证 5 处**（D2 已标注）：`routers/research.py` 是否消费 quality、`database.py` 迁移/磁盘、同步工具是否阻塞事件循环、供应商是否回显密钥、`pending_idempotency_key` 写入方。
 
 ## 仍存在缺口（路线图，含 R2 部分发现）
