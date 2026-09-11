@@ -1,4 +1,8 @@
+import email.utils
 import json
+import random
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -277,3 +281,164 @@ async def test_chat_retry_exhausted_5xx_reports_last_status(monkeypatch):
     with pytest.raises(LLMError, match="503"):
         await LLMClient("https://llm.test", "key", "model").chat([])
     assert len(calls) == llm_client._MAX_ATTEMPTS
+
+
+# ==================== VS10: 尊重 Retry-After + 退避抖动 ====================
+
+@pytest.fixture
+def recorded_sleeps(monkeypatch):
+    """把 asyncio.sleep 换成记录器：断言等待时长，且绝不真实等待。
+
+    只替换 llm_client 模块内的 asyncio 引用（该模块仅用 asyncio.sleep），
+    不污染全局 asyncio（pytest-asyncio 自身依赖它）。
+    """
+    waits: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    monkeypatch.setattr(llm_client, "asyncio", SimpleNamespace(sleep=fake_sleep))
+    return waits
+
+
+def _ok_response() -> httpx.Response:
+    return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 3}})
+
+
+def _run_chat(monkeypatch, responses: list[httpx.Response]):
+    """安装 MockTransport 并返回 (client, calls 列表)。"""
+    calls: list[httpx.Request] = []
+
+    def handler(request):
+        calls.append(request)
+        return responses.pop(0)
+
+    _install_transport(monkeypatch, handler)
+    return LLMClient("https://llm.test", "key", "model"), calls
+
+
+@pytest.mark.asyncio
+async def test_retry_after_integer_seconds_is_respected(monkeypatch, recorded_sleeps):
+    """① 429 + Retry-After: 7 → 等待 ≥7 秒（而非固定退避 0.5s），仍成功返回。"""
+    # 退避基数置 0（autouse fixture），若未读 Retry-After 记录到的只会是 0.0 → 断言必失败。
+    client, calls = _run_chat(monkeypatch, [
+        httpx.Response(429, text="rate limited", headers={"Retry-After": "7"}),
+        _ok_response(),
+    ])
+    content, tokens = await client.chat([])
+    assert (content, tokens) == ("ok", 3)
+    assert len(calls) == 2
+    assert len(recorded_sleeps) == 1
+    assert recorded_sleeps[0] >= 7
+    assert recorded_sleeps[0] <= llm_client._RETRY_AFTER_MAX_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_retry_after_http_date_is_respected(monkeypatch, recorded_sleeps):
+    """② 503 + HTTP-date（未来 5 秒）→ 等待 ≈ 该日期与当前时间之差。"""
+    future = datetime.now(timezone.utc) + timedelta(seconds=5)
+    header = email.utils.format_datetime(future, usegmt=True)  # RFC 1123，秒级精度
+    assert header.endswith("GMT")
+    client, _calls = _run_chat(monkeypatch, [
+        httpx.Response(503, text="unavailable", headers={"Retry-After": header}),
+        _ok_response(),
+    ])
+    await client.chat([])
+    assert len(recorded_sleeps) == 1
+    # 秒级截断 → 实测差值落在 (4, 5]；给足区间容差（≥数秒且 ≤ 上限）。
+    assert 3.0 <= recorded_sleeps[0] <= 6.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("header", ["abc", "-3", "0x10", ""])
+async def test_retry_after_invalid_falls_back_without_raising(monkeypatch, recorded_sleeps, header):
+    """③ 非法值 → 回落原退避，不抛异常，重试次数与既有语义一致。"""
+    calls: list[httpx.Request] = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, text="rate limited", headers={"Retry-After": header})
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(LLMError, match="429"):
+        await LLMClient("https://llm.test", "key", "model").chat([])
+    assert len(calls) == llm_client._MAX_ATTEMPTS
+    assert len(recorded_sleeps) == llm_client._MAX_ATTEMPTS - 1
+    assert recorded_sleeps == [0.0, 0.0]  # 基数置 0 的回落退避（未采用非法值）
+
+
+@pytest.mark.asyncio
+async def test_retry_after_past_http_date_falls_back(monkeypatch, recorded_sleeps):
+    """③ 已过去的 HTTP-date → 回落退避，绝不为负（sleep 不得收到负数）。"""
+    past = datetime.now(timezone.utc) - timedelta(minutes=5)
+    client, _calls = _run_chat(monkeypatch, [
+        httpx.Response(429, text="rate limited",
+                       headers={"Retry-After": email.utils.format_datetime(past, usegmt=True)}),
+        _ok_response(),
+    ])
+    assert (await client.chat([]))[0] == "ok"
+    assert recorded_sleeps == [0.0]
+    assert all(wait >= 0 for wait in recorded_sleeps)
+
+
+@pytest.mark.asyncio
+async def test_retry_after_is_capped_at_max(monkeypatch, recorded_sleeps):
+    """④ 上限生效：Retry-After: 99999 → 单次等待 = 上限（30s），不真等 99999 秒。"""
+    client, _calls = _run_chat(monkeypatch, [
+        httpx.Response(429, text="rate limited", headers={"Retry-After": "99999"}),
+        _ok_response(),
+    ])
+    await client.chat([])
+    assert len(recorded_sleeps) == 1
+    assert recorded_sleeps[0] <= llm_client._RETRY_AFTER_MAX_SECONDS
+    assert recorded_sleeps[0] == llm_client._RETRY_AFTER_MAX_SECONDS == 30.0
+
+
+@pytest.mark.asyncio
+async def test_missing_retry_after_uses_jittered_backoff(monkeypatch, recorded_sleeps):
+    """⑤ 缺失 → 回落带抖动的退避：抖动函数被调用，且多次取样不全相等。"""
+    monkeypatch.setattr(llm_client, "_BACKOFF_BASE_SECONDS", 1.0)
+    uniform_args: list[tuple[float, float]] = []
+    real_uniform = random.uniform
+
+    def spy_uniform(low, high):
+        uniform_args.append((low, high))
+        return real_uniform(low, high)
+
+    monkeypatch.setattr(llm_client, "random", SimpleNamespace(uniform=spy_uniform))
+    client, _calls = _run_chat(monkeypatch, [
+        httpx.Response(503, text="unavailable"),
+        _ok_response(),
+    ])
+    await client.chat([])
+    assert uniform_args and uniform_args[0] == (0.75, 1.25)  # base 1.0 × [1-0.25, 1+0.25]
+    assert len(recorded_sleeps) == 1
+    assert 0.75 <= recorded_sleeps[0] <= 1.25
+
+    samples = {llm_client._backoff_seconds(1) for _ in range(50)}
+    assert len(samples) > 1  # 抖动存在：取样不全相等 → 并行 agent 不会同步重试
+
+
+@pytest.mark.asyncio
+async def test_retry_after_lowercase_header_key(monkeypatch, recorded_sleeps):
+    """⑥ 小写响应头键名 `retry-after` → 同样被尊重（httpx Headers 大小写不敏感）。"""
+    client, _calls = _run_chat(monkeypatch, [
+        httpx.Response(429, text="rate limited", headers={"retry-after": "4"}),
+        _ok_response(),
+    ])
+    await client.chat([])
+    assert recorded_sleeps == [4.0]
+
+
+@pytest.mark.asyncio
+async def test_retry_after_honoured_per_response_when_statuses_mix(monkeypatch, recorded_sleeps):
+    """错误场景：先 429（Retry-After: 2）后 503（Retry-After: 6）→ 每次按当次响应决定等待。"""
+    client, calls = _run_chat(monkeypatch, [
+        httpx.Response(429, text="rate limited", headers={"Retry-After": "2"}),
+        httpx.Response(503, text="unavailable", headers={"Retry-After": "6"}),
+        httpx.Response(503, text="unavailable"),
+    ])
+    with pytest.raises(LLMError, match="503"):
+        await client.chat([])  # 最后一次不再等待，返回响应交调用方报状态码
+    assert len(calls) == 3
+    assert recorded_sleeps == [2.0, 6.0]

@@ -3,8 +3,12 @@
 仅依赖 OpenAI Chat Completions 协议，DeepSeek/其他兼容供应商即插即用。
 """
 import asyncio
+import email.utils
 import json
+import math
+import random
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -20,6 +24,73 @@ JSONDict = dict[str, Any]
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 _MAX_ATTEMPTS = 3          # 首次 + 2 次重试
 _BACKOFF_BASE_SECONDS = 0.5  # 退避：0.5s → 1.0s
+
+# VS10: 尊重上游 Retry-After + 退避去同步。
+# 1) 上游在 429/503 上明确给出等待时长时按其等待（协议礼节），避免被加重限流；
+# 2) 单次等待必须有上限，恶意/异常的超大值不得让一次研究长时间挂住；
+# 3) 回落退避加抖动，避免并行 agent 因参数相同而同步重试形成脉冲。
+_RETRY_AFTER_MAX_SECONDS = 30.0   # 单次等待上限（秒）
+_BACKOFF_JITTER_RATIO = 0.25      # 回落退避抖动幅度：base × [0.75, 1.25]
+
+
+def _http_date_seconds(raw: str) -> float | None:
+    """把 HTTP-date（RFC 9110 的 IMF-fixdate 等格式）解析为距现在的秒数。
+
+    无法解析、无时区信息时按 UTC 处理；**已过去的日期返回 None**（视为不可用，
+    交由调用方回落到原退避），绝不返回负数导致 sleep 异常。
+    """
+    try:
+        parsed = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = (parsed - datetime.now(timezone.utc)).total_seconds()
+    return delta if delta > 0 else None
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """解析响应头 Retry-After（整数秒或 HTTP-date），返回受限的单次等待秒数。
+
+    无法解析 / 负数 / 已过去的日期 / 非有限值 → 返回 None，由调用方回落原退避。
+    任何情况下都不抛异常（头解析失败不得让一次研究失败）。
+    """
+    try:
+        raw = response.headers.get("retry-after")
+    except Exception:  # pragma: no cover - 防御：异常 header 实现不得影响重试
+        return None
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    seconds: float | None
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = _http_date_seconds(text)
+    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, _RETRY_AFTER_MAX_SECONDS)
+
+
+def _backoff_seconds(attempt: int) -> float:
+    """回落退避：指数基数 × 抖动（base=0 时保持 0，测试可置零跳过等待）。"""
+    base = _BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+    if base <= 0:
+        return 0.0
+    return base * random.uniform(1 - _BACKOFF_JITTER_RATIO, 1 + _BACKOFF_JITTER_RATIO)
+
+
+def _retry_delay_seconds(attempt: int, response: httpx.Response | None) -> float:
+    """本次重试前应等待的秒数：上游 Retry-After 优先，否则带抖动的指数退避。"""
+    if response is not None:
+        retry_after = _retry_after_seconds(response)
+        if retry_after is not None:
+            return retry_after
+    return _backoff_seconds(attempt)
 
 # 受控工具循环事件枚举（借鉴 OpenAI Agents SDK run_streamed 的类型化事件）。
 # chat_with_tools_loop 通过 event_sink 回调发出这些事件，SSE 层/编排层直接消费，
@@ -105,10 +176,13 @@ class LLMClient:
         可重试：网络错误/超时（httpx.HTTPError）、HTTP 429/5xx。
         不可重试：其它 4xx（地址或鉴权类错误，重试无意义）——直接返回响应交调用方报错。
         重试耗尽后：网络类异常抛 LLMError；状态码类返回最后一次响应交调用方生成可行动错误。
+        等待时长（VS10）：可重试响应带 Retry-After 时按上游指示等待（受 _RETRY_AFTER_MAX_SECONDS
+        上限约束）；缺失/非法时回落带抖动的指数退避。总尝试次数不变，仍 ≤ _MAX_ATTEMPTS。
         """
         url = f"{self.base_url}/chat/completions"
         last_exc: Exception | None = None
         for attempt in range(1, _MAX_ATTEMPTS + 1):
+            response: httpx.Response | None = None
             try:
                 async with self._http_client() as http:
                     response = await http.post(url, json=payload, headers=self._headers())
@@ -122,7 +196,7 @@ class LLMClient:
                 if attempt == _MAX_ATTEMPTS:
                     return response
             if attempt < _MAX_ATTEMPTS:
-                await asyncio.sleep(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+                await asyncio.sleep(_retry_delay_seconds(attempt, response))
         raise LLMError(
             "网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。"
         ) from last_exc
