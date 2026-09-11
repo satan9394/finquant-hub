@@ -58,5 +58,18 @@ bat 无自动化测试框架，采用**实测**：
 - 字节级 CRLF/UTF-8 校验。
 由独立 Evaluator 复核核心判据（备份文件能否读到 WAL 中数据）与"伪成功"防线。
 
-## 建议实现方向（供参考，非强制）
-优先用**现有 venv 的 Python stdlib `sqlite3`** 执行 `VACUUM INTO '目标路径'`——它产出单一、一致、已含 WAL 内容的副本，且不需新依赖；失败时回落 `:backup_failed`，不要退化回"只复制 .db"。
+## 建议实现方向（**已实测，优先对齐项目既有约定**）
+**首选：`sqlite3.Connection.backup()`** —— 这**已是本项目的既有约定**：`backend/app/database.py:1854-1863`、`1866-1875` 的迁移前备份（产出 `finquant.db.pre-v10.bak`、`pre-v12.bak`…）一直用它。它是 SQLite **官方在线备份 API**，产出一致快照且天然包含 WAL 内容，Python stdlib 自带、零新依赖。**与既有实践对齐优于另发明一套**。
+
+次选：`VACUUM INTO '<目标>'`（同样可用，实测等价）。
+
+**编排者在真实数据上的四路实测（只读源库、临时目录操作）**：
+
+| 方案 | schema_version | user_credentials | 全库总行数 | integrity_check |
+| --- | --- | --- | --- | --- |
+| A 旧：只 `Copy-Item` `.db` | **24** | **0** | **331** | ok |
+| **B `Connection.backup()`** | **26** | **1** | **334** | ok |
+| C `VACUUM INTO` | 26 | 1 | 334 | ok |
+| D 基准：三件套(`.db`+`-wal`+`-shm`) | 26 | 1 | 334 | ok |
+
+⇒ A≠D（旧方式确实丢数据），**B=C=D**（两条修复路径都正确）。实现时选 B 或 C 均可，但**不得**回到 A。
