@@ -71,7 +71,10 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
         seconds = float(text)
     except ValueError:
         seconds = _http_date_seconds(text)
-    if seconds is None or not math.isfinite(seconds) or seconds < 0:
+    # VS10（评估者发现）: 严格要求 seconds > 0。`Retry-After: 0` 虽是合法头，但按它
+    # 字面等待 0 秒等于"立刻重试"——既无收益，又绕过抖动（抖动正是为并行 agent 去同步），
+    # 会形成 0 秒紧循环。故视为"无有效信息"，回落带抖动的退避。
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
         return None
     return min(seconds, _RETRY_AFTER_MAX_SECONDS)
 

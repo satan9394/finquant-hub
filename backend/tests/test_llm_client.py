@@ -350,8 +350,11 @@ async def test_retry_after_http_date_is_respected(monkeypatch, recorded_sleeps):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("header", ["abc", "-3", "0x10", ""])
+@pytest.mark.parametrize("header", ["abc", "-3", "0x10", "", "0", "0.0"])
 async def test_retry_after_invalid_falls_back_without_raising(monkeypatch, recorded_sleeps, header):
+    """含 `Retry-After: 0`：字面等待 0 秒等于立刻重试且绕过抖动，故视为无效 → 回落退避。
+
+    （"0" 与 "0.0" 由独立评估者发现原先漏测；若退回 `seconds < 0` 判据，本参数会记录到 0.0 并失败。）"""
     """③ 非法值 → 回落原退避，不抛异常，重试次数与既有语义一致。"""
     calls: list[httpx.Request] = []
 
