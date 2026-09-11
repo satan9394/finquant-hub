@@ -539,10 +539,9 @@ CREATE TABLE discussion_rooms (
 
 ### 9.2 密钥管理
 
-- API Key 存储在 `backend/.env` 文件，格式：`DEEPSEEK_API_KEY=sk-xxx`
-- `.env` 已加入 `.gitignore`
-- 提供 `.env.example` 模板
-- SQLite 中存储的 API Key 为明文（MVP 接受风险，本地个人环境）
+- **推荐路径**：在网页「设置 → 模型管理」中直接粘贴 API Key，以 **Fernet 加密**存入本地数据库（凭据服务 `credential_store`，密钥材料仅以元数据形式可读）；本地安装会在 `backend/data/` 自动生成并长期复用密钥文件，重启后无需重填。
+- **进阶路径**：也可写入 `backend/.env`（`DEEPSEEK_API_KEY=sk-xxx`），启动时读取并在启动流程中迁入加密凭据表；`.env` 已加入 `.gitignore`，并提供 `.env.example` 模板。
+- 数据库中的 API Key 为**加密存储**（非明文）；错误信息与日志对密钥做脱敏处理。请像对待密码一样保管 `backend/data` 目录与 `.env`。
 - 架构预留加密字段接口（后续可加 Fernet 对称加密）
 - **首次提交前确认**：执行 `git status` 确认 `.env` 未被跟踪；如已误提交，立即清除并添加至 `.gitignore` 后再提交
 
