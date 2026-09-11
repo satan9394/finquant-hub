@@ -256,5 +256,8 @@ async def run_scheduled_research_job(
     await db.commit()
     if cursor.rowcount != 1:
         raise HTTPException(409, "定时研究任务正在运行或排队中")
-    background_tasks.add_task(run_research_job, job_id, user_id, idempotency_key)
+    # 手动"立即运行"：显式绕过连败熔断，作为用户修好配置后的人工恢复出口。
+    background_tasks.add_task(
+        run_research_job, job_id, user_id, idempotency_key, ignore_retry_cap=True,
+    )
     return {"id": job_id, "status": "queued", "idempotency_key": idempotency_key}

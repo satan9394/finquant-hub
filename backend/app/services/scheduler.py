@@ -329,8 +329,13 @@ async def run_research_job(
     job_id: int,
     user_id: int,
     idempotency_key: str | None = None,
+    *,
+    ignore_retry_cap: bool = False,
 ) -> bool:
-    """Claim and execute one persisted research job without overlapping itself."""
+    """Claim and execute one persisted research job without overlapping itself.
+
+    ``ignore_retry_cap``：手动"立即运行"传 True，以便在连败熔断后仍能人工恢复。
+    """
     job = await database.query_one(
         "SELECT * FROM scheduled_research_jobs WHERE id=? AND user_id=?", (job_id, user_id)
     )
@@ -342,6 +347,7 @@ async def run_research_job(
     lease_owner = f"local-{os.getpid()}-{job_id}-{id(asyncio.current_task())}"
     run = await claim_research_job(
         job_id, user_id, idempotency_key=identity, lease_owner=lease_owner,
+        ignore_retry_cap=ignore_retry_cap,
     )
     if run is None:
         return False

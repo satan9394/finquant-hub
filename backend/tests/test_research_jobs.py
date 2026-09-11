@@ -384,12 +384,16 @@ async def test_claim_stops_retrying_after_max_attempts():
              "worker", ),
         )
 
-    # 下一次 claim（attempt 将 = max+1）应被上限拦截 → None。
+    # 下一次 claim 应被熔断 → None（传 now 使 24h 窗口覆盖这些 run 的时间戳）。
     outcome = await claim_research_job(
         job_id, 1, idempotency_key="g02-latest",
-        lease_owner="worker", lease_seconds=60,
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 1, 9, 0),
     )
     assert outcome is None
+    # P2: 熔断时必须把 next_run_at 推进（否则每轮空转）
+    stuck = await get_research_job(job_id, 1)
+    assert stuck["next_run_at"] != "2026-08-01 08:00:00"
+    assert stuck["last_status"] != "running"
 
 
 async def _insert_job(name: str) -> int:
@@ -446,6 +450,7 @@ async def test_claim_cap_does_not_leave_job_stuck_running():
 
     assert await claim_research_job(
         job_id, 1, idempotency_key="g02-cap", lease_owner="worker", lease_seconds=60,
+        now=datetime(2026, 8, 1, 9, 0),
     ) is None
 
     job = await get_research_job(job_id, 1)
@@ -471,6 +476,62 @@ async def test_claim_resumes_after_a_success_resets_failure_streak():
 
     outcome = await claim_research_job(
         job_id, 1, idempotency_key="g02-resumed",
-        lease_owner="worker", lease_seconds=60,
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 1, 9, 0),
     )
     assert outcome is not None, "成功一次后应恢复可调度"
+
+
+@pytest.mark.asyncio
+async def test_claim_ignores_cancelled_runs_when_counting_failures():
+    """R-2 回归：应用关闭/重启打断运行写的是 'cancelled'，不得计入失败熔断
+    （否则重启 5 次就把定时任务永久停掉，且文案会误报为'配置/网络问题'）。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-cancelled")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 2):
+        await _insert_run(job_id, attempt, "cancelled")
+
+    outcome = await claim_research_job(
+        job_id, 1, idempotency_key="g02-cancelled-claim",
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 1, 9, 0),
+    )
+    assert outcome is not None, "cancelled 不是失败，不应触发熔断"
+
+
+@pytest.mark.asyncio
+async def test_manual_run_bypasses_retry_cap():
+    """R-1 回归：连败熔断只约束自动重试——手动"立即运行"必须能恢复
+    （否则命中上限后该任务只能改数据库才能再调度）。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-manual-bypass")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 1):
+        await _insert_run(job_id, attempt, "failed")
+
+    # 自动路径被熔断
+    assert await claim_research_job(
+        job_id, 1, idempotency_key="g02-auto-blocked",
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 1, 9, 0),
+    ) is None
+    # 手动路径（ignore_retry_cap=True）可以恢复
+    manual = await claim_research_job(
+        job_id, 1, idempotency_key="g02-manual-ok",
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 1, 9, 5),
+        ignore_retry_cap=True,
+    )
+    assert manual is not None
+    assert manual.get("id")
+
+
+@pytest.mark.asyncio
+async def test_failed_runs_outside_window_do_not_break_circuit():
+    """R-1 回归：失败计数限定时间窗——窗口过后自动恢复，不会永久无法调度。"""
+    from app.services import research_jobs as rj
+    job_id = await _insert_job("g02-window")
+    for attempt in range(1, rj._MAX_RETRY_ATTEMPTS + 1):
+        await _insert_run(job_id, attempt, "failed")  # started_at = 2026-08-01 08:00
+
+    # 窗口（24h）之外的后续时刻：计数归零 → 允许再次调度
+    outcome = await claim_research_job(
+        job_id, 1, idempotency_key="g02-after-window",
+        lease_owner="worker", lease_seconds=60, now=datetime(2026, 8, 3, 9, 0),
+    )
+    assert outcome is not None, "超出失败窗口后应自动恢复"

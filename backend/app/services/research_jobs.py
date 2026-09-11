@@ -14,9 +14,11 @@ from .cron import CronExpression
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 JSONDict = dict[str, Any]
 _RUNTIME_LOCK = asyncio.Lock()
-# G-02: 定时研究任务失败重试上限（含首次之后的失败 attempt）。
-# 达到上限后 claim 返回 None，调度器不再抓取，防止持续失败时无限重试。
+# G-02: 自动重试熔断——同一 job 在时间窗内连续失败达到上限即暂停自动重试。
+# 只统计 'failed'（不计 'cancelled'：应用关闭/重启打断运行不是失败），
+# 且限定在 _FAILURE_WINDOW_HOURS 窗口内，使任务能自动恢复而不会永久停摆。
 _MAX_RETRY_ATTEMPTS = 5
+_FAILURE_WINDOW_HOURS = 24
 _HEX_KEY = re.compile(r"[0-9a-f]{64}")
 _EVENT_PAYLOAD_KEYS = {
     "attempt", "error", "lease_expires_at", "lease_owner", "reason",
@@ -139,8 +141,13 @@ async def claim_research_job(
     lease_owner: str,
     now: datetime | None = None,
     lease_seconds: int = 60,
+    ignore_retry_cap: bool = False,
 ) -> JSONDict | None:
-    """Atomically claim one local job and create its leased run attempt."""
+    """Atomically claim one local job and create its leased run attempt.
+
+    ``ignore_retry_cap``: 手动"立即运行"使用——连败熔断只约束**自动**重试，
+    必须给用户留一个人工恢复出口（否则命中上限后该任务永久无法再调度）。
+    """
     current = now or datetime.now()
     clean_owner = lease_owner.strip()
     if not clean_owner or len(clean_owner) > 100:
@@ -171,30 +178,45 @@ async def claim_research_job(
                 return None
             job = dict(job_row)
             next_at = next_run_at(str(job["cron_expr"]), current)
-            # G-02（修正）：重试上限必须
+            # G-02（修正 2）：重试上限必须
             #   ① 只统计"自上次成功以来"的连续失败（原实现按 job 全历史 attempt 累加，
-            #      导致正常任务跑满上限次数后也被永久拦下）；
+            #      正常任务跑满上限次数后也被永久拦下）；
             #   ② 在改动 job 状态（last_status='running'）之前判定——原实现先提交
             #      running 再 return None，job 会永久卡在 running、无 run 行可被
-            #      recover_stale_research_runs 回收，定时研究静默死亡。
+            #      recover_stale_research_runs 回收，定时研究静默死亡；
+            #   ③ 只计 'failed'，不计 'cancelled'——应用关闭/重启打断运行会写 cancelled
+            #      （scheduler.py:359-363），那不是失败，否则重启 5 次就把任务永久停掉；
+            #   ④ 只约束自动重试：手动"立即运行"以 ignore_retry_cap=True 绕过（恢复出口）。
             failed_row = await (await db.execute(
                 "SELECT COUNT(*) AS n FROM scheduled_research_runs r "
-                "WHERE r.job_id=? AND r.user_id=? AND r.status IN ('failed', 'cancelled') "
+                "WHERE r.job_id=? AND r.user_id=? AND r.status='failed' "
+                "AND r.started_at >= ? "
                 "AND r.id > COALESCE((SELECT MAX(s.id) FROM scheduled_research_runs s "
                 "  WHERE s.job_id=? AND s.user_id=? AND s.status='completed'), 0)",
-                (job_id, user_id, job_id, user_id),
+                (
+                    job_id,
+                    user_id,
+                    format_local(current - timedelta(hours=_FAILURE_WINDOW_HOURS)),
+                    job_id,
+                    user_id,
+                ),
             )).fetchone()
             consecutive_failures = int(failed_row["n"]) if failed_row else 0
-            if consecutive_failures >= _MAX_RETRY_ATTEMPTS:
-                # 停止失败重试风暴：不创建新 run（不烧上游），记录原因并推进到下一次
-                # 计划时间——正常调度不受影响，下一次到点仍会尝试一次。
+            if not ignore_retry_cap and consecutive_failures >= _MAX_RETRY_ATTEMPTS:
+                # 熔断自动重试（防崩溃循环无限烧上游）：不创建新 run，记录原因，
+                # 并把 next_run_at 推到下次计划时间（不再每轮空转）。
+                # 恢复出口（三条，均不需要改数据库）：
+                #   ① 手动"立即运行"——手动路径以 ignore_retry_cap=True 绕过本闸门；
+                #   ② 时间窗自动恢复——窗口（_FAILURE_WINDOW_HOURS）过后计数归零；
+                #   ③ 窗口内再次成功一次即重新计数。
                 await db.execute(
                     "UPDATE scheduled_research_jobs SET last_status='failed', last_error=?, "
                     "next_run_at=?, pending_idempotency_key=NULL, updated_at=datetime('now') "
                     "WHERE id=? AND user_id=?",
                     (
-                        f"连续失败 {consecutive_failures} 次，已暂停自动重试；"
-                        "请检查模型配置、额度与网络后，等待下次计划或手动重跑。",
+                        f"最近 {_FAILURE_WINDOW_HOURS} 小时内已连续失败 {consecutive_failures} 次，"
+                        "自动重试已暂停。请检查模型配置、额度与网络；"
+                        "修复后点“立即运行”即可恢复（或等待下个时间窗自动恢复）。",
                         next_at,
                         job_id,
                         user_id,
