@@ -187,6 +187,10 @@ async def claim_research_job(
             #   ③ 只计 'failed'，不计 'cancelled'——应用关闭/重启打断运行会写 cancelled
             #      （scheduler.py:359-363），那不是失败，否则重启 5 次就把任务永久停掉；
             #   ④ 只约束自动重试：手动"立即运行"以 ignore_retry_cap=True 绕过（恢复出口）。
+            # 计数 = "上次成功之后、且落在 _FAILURE_WINDOW_HOURS 窗口内"的 failed 数
+            # （两个条件为 AND，同为收紧项）。阈值为 >=（含端点）。
+            # 解熔是渐进的：失败聚簇在数小时内时，最早一条滑出窗口即解熔
+            # （此时计数可能为 4 而非 0），比"满窗口才解"更保守。
             failed_row = await (await db.execute(
                 "SELECT COUNT(*) AS n FROM scheduled_research_runs r "
                 "WHERE r.job_id=? AND r.user_id=? AND r.status='failed' "

@@ -57,3 +57,33 @@
 ## 5. 判定
 
 **REJECT** —— 两个原始 P0（`last_status='running'` 先于判定、attempt 全历史累加误杀）**已确认真实修复**，3 个回归测试变异敏感、19 passed。但上限分支造成不可自愈的永久停摆（R-1），且 `cancelled` 计入失败使其更易触发（R-2），文案反向误导（R-3）。建议按 §3 最小改动修复后复验（复验点：命中上限 → 手动触发可成功；或下次计划到点确实尝试一次）。
+
+---
+
+# 复评（R-1 / R-2 / R-3，commit `d731b57`）
+
+范围：`backend/app/services/research_jobs.py`、`backend/tests/test_research_jobs.py`（+ 定点核对 `scheduler.py` / `settings.py` 调用点），并实跑测试。
+
+## 逐条核对
+
+R-1（熔断后不可恢复）— 已修复。`:144` 新增关键字参数 `ignore_retry_cap: bool = False`；`:205` 判定为 `if not ignore_retry_cap and consecutive_failures >= _MAX_RETRY_ATTEMPTS`，语义与建议一致。恢复出口真实存在且只有手动一条：`settings.py:261` 手动"立即运行"传 `ignore_retry_cap=True`；`scheduler.py:333` 默认 `False`、`:350` 原样透传；自动调度路径 `scheduler.py:396` 不带该参数（默认 False），全仓再无其它 `run_research_job` 调用点，不存在自动路径误传 True 使熔断失效的风险。
+
+R-2（`cancelled` 计入失败）— 已修复。`:190-203` 计数 SQL 为 `r.status='failed' AND r.started_at >= ? AND r.id > COALESCE(MAX(id) WHERE status='completed', 0)`，`cancelled` 已排除；`:199` 时间窗起点为 `format_local(current - timedelta(hours=_FAILURE_WINDOW_HOURS))`，`timedelta` 在 `:8` 已随 `datetime` 导入，参数元组 `(job_id, user_id, window, job_id, user_id)` 与 SQL 中 5 个 `?` 顺序逐一对齐，无错位；比较双方同为 `_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"` 文本（写入见 `:257`），字典序即时序，正确。
+
+R-3（文案不实）— 已修复。`:217-219` 改为"自动重试已暂停，请检查模型配置、额度与网络；修复后点'立即运行'即可恢复（或等待下个时间窗自动恢复）"，不再承诺"下次计划自动尝试"。
+
+回归未发生：熔断分支 `:212-225` 只 `UPDATE ... last_status='failed', last_error, next_run_at=?, pending_idempotency_key=NULL` 后 `return None`，既不创建 run、也不置 `running`，且推进了 `next_run_at`；`mark_job_running`（`:464-484`）死代码问题为 P3，本轮未处理也无回归。
+
+测试有效性：新增 4 例均为变异敏感、非恒真。`test_manual_run_bypasses_retry_cap` 先断言自动路径 `is None` 再断言手动路径非空（旧实现两项必挂）；`test_claim_ignores_cancelled_runs_when_counting_failures` 插 6 条 `cancelled` 并要求 claim 成功；`test_failed_runs_outside_window_do_not_break_circuit` 把 `now` 推到窗口外并要求恢复；另有测试断言熔断后 `next_run_at` 已推进、`last_status != 'running'`（补上了上轮 §4 的覆盖缺口）。
+
+实跑：`pytest tests/test_research_jobs.py -q --no-cov` → **22 passed in 6.17s**。
+
+## 两个条件的语义与边界（质疑点回答）
+
+时间窗与"自上次成功以来"是 **AND 交集**，两者同为收紧条件、不会互相抵消：计数 = "上次成功之后、且落在 24h 窗口内"的 `failed` 数，任一条件都能降低计数。自动恢复由窗口衰减实现，且是**真恢复**——熔断期间不产生新 run，故最后一次失败后最多 24h 计数必然衰减到阈值以下，不存在"永久停摆"。
+
+边界为 `>=`（含端点），恰好 24h 的那条仍计入。恢复是渐进的而非一次清零：失败聚簇在数小时内时，最早一条先滑出窗口即解熔（此时计数可能为 4 而非 0，再失败一次即重新熔断），比"满 24h 才解"更保守，行为合理；文案"等待下个时间窗自动恢复"是近似表述而非虚假承诺（该前提下必然成立），不构成阻断。
+
+## 判定
+
+**ACCEPT** —— R-1/R-2/R-3 三项均按建议修复，自动/手动路径隔离正确，无 `cancelled` 误计、无参数错位、无未导入符号，22 passed。遗留非阻断项：`mark_job_running`（`:464-484`）仍是死代码（P3，上轮已记）；边界 `>=` 与"渐进解熔"语义建议后续在注释中一句话写清即可，无需改实现。

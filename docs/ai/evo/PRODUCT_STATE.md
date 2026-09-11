@@ -31,7 +31,8 @@
 3. **D2 报告的其余 P0/P1 尚未处理**（见路线图），其中"降级标记不落库"同为 P0，需优先评估。
 
 ## D2 可靠性审计（R2）发现清单
-- **✅ 已修（P0）**：G-02 上限拦截顺序+语义两处缺陷 → `eff8e2d`（含 3 回归守卫测试）。
+- **✅ 已修并复评 ACCEPT（P0）**：G-02 上限拦截两处缺陷（判定前置、只计 failed、24h 时间窗自动恢复、手动「立即运行」绕过熔断、文案如实）→ `eff8e2d` + `d731b57`（复评 `3e49de5c` ACCEPT，22 passed）。
+  - 复盘已沉淀：`memory/VERIFICATION_BLIND_SPOT.md`（**错误前提会穿透自验+他验**——brief 写错时，Evaluator 只能验一致性，抓不出前提错误；必须由独立审计质疑前提）。
 - **P0 未修**：**降级标记不落库**——`research_orch.py:324-329` 把 `quality` 放在 done_payload **顶层**，而 `scheduler.py:171-183` 只持久化 `report`/`agent_results` → **定时研究产出的降级报告以 `status='completed'` 入库，DB 重载后与正常报告无区别**（用户看不到降级）。注：交互路径由 `routers/research.py` 合并 quality 后落库（VS-1 已修），但**调度路径漏了**。
 - **P1 未修**：降级白名单过窄——仅捕 `LLMError`（`research_orch.py:227/291`）；**工具异常被吞成文本**（`llm_client.py:318-322`）、`tool_loop_exhausted` 未被消费（`research_orch.py:254`）、lead 空返回仍标 `audited`。
 - **P1 未修**：重试放大——无抖动、不读 `Retry-After`、无熔断；最坏 5 agent × 6 轮 × 3 尝试 ≈ **90 次上游请求**（`llm_client.py:20-22,111-128,282-283,350`）。
