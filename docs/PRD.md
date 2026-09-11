@@ -273,7 +273,7 @@ CREATE TABLE model_configs (
     base_url      TEXT NOT NULL,            -- API endpoint，如 https://api.deepseek.com
     model_name    TEXT NOT NULL,            -- 模型名，如 deepseek-v4-flash
     api_key_env   TEXT,                     -- 环境变量名（如 DEEPSEEK_API_KEY），存变量名不存值
-    api_key       TEXT,                     -- 或直接存 key（明文，MVP 接受）
+    api_key       TEXT,                     -- 历史列：Fernet 加密存储，启动时迁入凭据表（见 §9.2）
     temperature   REAL DEFAULT 0.7,
     max_tokens    INTEGER DEFAULT 4096,
     is_default    INTEGER DEFAULT 0,        -- 1=当前默认模型
@@ -540,9 +540,9 @@ CREATE TABLE discussion_rooms (
 ### 9.2 密钥管理
 
 - **推荐路径**：在网页「设置 → 模型管理」中直接粘贴 API Key，以 **Fernet 加密**存入本地数据库（凭据服务 `credential_store`，密钥材料仅以元数据形式可读）；本地安装会在 `backend/data/` 自动生成并长期复用密钥文件，重启后无需重填。
-- **进阶路径**：也可写入 `backend/.env`（`DEEPSEEK_API_KEY=sk-xxx`），启动时读取并在启动流程中迁入加密凭据表；`.env` 已加入 `.gitignore`，并提供 `.env.example` 模板。
+- **进阶路径**：也可写入 `backend/.env`（`DEEPSEEK_API_KEY=sk-xxx`）；该 key 由运行时按 `api_key_env` 从环境变量**现读**，**不写入加密凭据表**。`.env` 已加入 `.gitignore`，并提供 `.env.example` 模板。
 - 数据库中的 API Key 为**加密存储**（非明文）；错误信息与日志对密钥做脱敏处理。请像对待密码一样保管 `backend/data` 目录与 `.env`。
-- 架构预留加密字段接口（后续可加 Fernet 对称加密）
+- 凭据加密**已落地**（Fernet 对称加密，见 `backend/app/services/credential_store.py`），不再处于"预留接口"阶段
 - **首次提交前确认**：执行 `git status` 确认 `.env` 未被跟踪；如已误提交，立即清除并添加至 `.gitignore` 后再提交
 
 ### 9.3 版本控制
