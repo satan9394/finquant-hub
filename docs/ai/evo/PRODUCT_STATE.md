@@ -32,7 +32,10 @@
 - P1：Python 严格钉死 3.12（`start.bat:41,46-49`）。
 - P1：端口占用首要建议是"重启电脑"（`start.bat:29-30`，VS-6 所写）——A2 认为对非技术用户过重。
 - P2：Dashboard 的 `/chat`、`/discussion` 入口（`Dashboard.tsx:94,109,125`）全部重定向到 `/research?mode=…`（`App.tsx:323-324`），**入口名与落地页不一致**。
-- P3×2 + 未验证 5 项（含 LOCAL_ONLY 是否真无登录墙、默认语言是否中文）见报告原文。
+- P3×2 + 未验证 5 项（见报告原文）。
+- **A2 请编排者验证的两项已闭环（R50）**：
+  1. **本地模式无登录墙 —— 成立**：`backend/app/routers/auth.py:90,125-126` 在 `LOCAL_ONLY_MODE` 下 `/api/auth/me` 直接返回本地所有者 → 前端 `authStore.initialize()` 拿到用户即 `isAuthenticated=true` → `AuthGate`（`App.tsx:386-388`）不重定向。`QUICKSTART:50` 声明正确。
+  2. **默认语言为中文 —— 成立**：`frontend/src/i18n/index.ts:12` 无保存偏好时回退 `'zh'`；`LanguageContext.tsx:11` 默认 `'zh'`。目标用户不会撞到英文界面。
 - **A2 的反常识结论**：应用内首启体验（Dashboard hero/能力横幅/带参示例按钮、等端口就绪再开浏览器、三段式错误文案、自动备份+恢复文档）**质量相当高**，缺口集中在"**服务启动之前**"这一段。
 
 ## ⚠️ 待补事项（跨轮跟踪）
