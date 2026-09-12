@@ -97,7 +97,8 @@ export default function Dashboard() {
           dataSource={stats?.recent_conversations?.slice(0, 5) ?? []}
           renderItem={(item) => (
             <List.Item>
-              <Link to="/chat" style={{ alignItems: 'center', display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+              {/* VS16：列表项必须带上该条记录的 id（规范目标 /research?mode=fast&session=），否则落到空白新建界面。 */}
+              <Link to={`/research?mode=fast&session=${item.id}`} style={{ alignItems: 'center', display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
                 <Text ellipsis>{item.title || t('today.conversation', { id: item.id })}</Text>
                 <Text type="secondary" style={{ fontSize: 11 }}>{item.last_message?.slice(0, 30)}</Text>
               </Link>
@@ -112,7 +113,8 @@ export default function Dashboard() {
           dataSource={stats?.recent_rooms?.slice(0, 5) ?? []}
           renderItem={(item) => (
             <List.Item>
-              <Link to="/discussion" style={{ alignItems: 'center', display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+              {/* VS16：讨论项带上 room id（规范目标 /research?mode=review&room=）。 */}
+              <Link to={`/research?mode=review&room=${item.id}`} style={{ alignItems: 'center', display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
                 <Text ellipsis>{item.topic}</Text>
                 <Tag color={item.current_phase === 'done' ? 'green' : item.current_phase === 'failed' ? 'red' : 'blue'}>{t(item.current_phase === 'done' ? 'today.state.done' : item.current_phase === 'failed' ? 'today.state.failed' : 'today.state.running')}</Tag>
               </Link>

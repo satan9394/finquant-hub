@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Dashboard, {
   DecisionInboxPanel, LocalCapabilityBanner, MarketSignalAvailability, type DecisionInboxItem,
 } from '../src/pages/Dashboard';
 import apiClient from '../src/services/api';
-import type { DashboardStats } from '../src/types';
+import type { DashboardStats, DiscussionRoom, Session } from '../src/types';
 
 vi.mock('../src/services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
@@ -225,4 +225,65 @@ describe('Dashboard page mount of LocalCapabilityBanner (BACKLOG-035b)', () => {
     // model_ai 行动作仍可用。
     expect(screen.getByRole('button', { name: '配置模型' })).toBeTruthy();
   });
+});
+
+// ==================== VS16：首页"最近会话/最近讨论"点击后打开"那一条" ====================
+
+const recentConversation: Session = {
+  id: 7, title: '关于 600519 的追问', mode: 'single', role_preset: null, model_id: 1, status: 'active',
+  created_at: '2026-09-10T00:00:00Z', updated_at: '2026-09-10T00:00:00Z',
+  message_count: 2, last_message: '现金流如何',
+};
+
+const recentRoom: DiscussionRoom = {
+  id: 42, conversation_id: 142, topic: '上周那篇 600519 的讨论',
+  participants: [{ role_key: 'risk_manager', name: '风险官', avatar: '盾' }],
+  total_rounds: 3, current_phase: 'done', summary: null, created_at: '2026-09-09T00:00:00Z',
+};
+
+const recordStats: DashboardStats = {
+  ...statsFixture, recent_conversations: [recentConversation], recent_rooms: [recentRoom],
+};
+
+function Destination() {
+  const location = useLocation();
+  return <output data-testid="destination">{location.pathname + location.search}</output>;
+}
+
+describe('Dashboard recent-record deep links (VS16)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('links each recent conversation and discussion item to that exact record', async () => {
+    mockDashboardApis(() => Promise.resolve({ data: recordStats }));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    const conversationLink = await screen.findByRole('link', { name: /关于 600519 的追问/ });
+    expect(conversationLink.getAttribute('href')).toBe('/research?mode=fast&session=7');
+    const roomLink = screen.getByRole('link', { name: /上周那篇 600519 的讨论/ });
+    expect(roomLink.getAttribute('href')).toBe('/research?mode=review&room=42');
+  });
+
+  it.each([['/chat', 0], ['/discussion', 1]] as const)(
+    'keeps the card-level 查看全部 entry free of any record id (%s)',
+    async (expected, index) => {
+      mockDashboardApis(() => Promise.resolve({ data: recordStats }));
+      render(
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/chat" element={<Destination />} />
+            <Route path="/discussion" element={<Destination />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+
+      const viewAll = await screen.findAllByRole('button', { name: '查看全部' });
+      expect(viewAll).toHaveLength(2);
+      fireEvent.click(viewAll[index]);
+      expect((await screen.findByTestId('destination')).textContent).toBe(expected);
+    },
+  );
 });

@@ -59,6 +59,10 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const starterPrompt = initialPrompt?.trim() || searchParams.get('prompt')?.trim();
+  // VS16：首页"最近会话"深链 ?session=<id>。仅接受十进制正整数；
+  // 缺省 / 'abc' / '0' / '-1' / '1.5' / '5x' 一律视为"无深链请求"（不选中、不为它发请求）。
+  const sessionParam = searchParams.get('session')?.trim() ?? '';
+  const requestedSessionId = /^\d+$/.test(sessionParam) && Number(sessionParam) > 0 ? Number(sessionParam) : null;
   const {
     sessions, currentSessionId, messages, streamingContent, isStreaming,
     setSessions, addSession, removeSession, setCurrentSessionId,
@@ -70,21 +74,40 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [selectedRole, setSelectedRole] = useState<string | undefined>();
   const [inputValue, setInputValue] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // VS16：会话列表是否已成功返回。深链只有在"拿到当前用户自己的会话列表"之后才允许生效，
+  // 否则无法区分"id 不存在/非本人"与"列表还没回来"。
+  const [sessionsResolved, setSessionsResolved] = useState(false);
+  const appliedSessionRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 加载会话列表 + 角色列表
   useEffect(() => {
-    apiClient.get('/chat/sessions').then((res) => setSessions(res.data.items)).catch(() => {});
+    let cancelled = false;
+    apiClient.get('/chat/sessions')
+      .then((res) => { if (!cancelled) { setSessions(res.data.items); setSessionsResolved(true); } })
+      .catch(() => { /* 列表不可得 → 深链回落，保持既有选择，不臆造会话 */ });
     apiClient.get('/agents').then((res) => {
       setAgents(res.data.items);
       if (res.data.items.length > 0) setSelectedRole(res.data.items[0].role_key);
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, [setSessions]);
 
   useEffect(() => {
     if (starterPrompt) setInputValue(starterPrompt);
   }, [starterPrompt]);
+
+  // VS16：?session=<id> —— 会话列表返回后，仅当该 id 出现在**当前用户自己的会话列表**里才选中它
+  // （后端 /chat/sessions 已按 user_id 过滤）。非法 / 不存在 / 已删除 / 非本人 → 优雅回落：
+  // 不改变既有选择、不为该 id 发任何请求，页面留在该功能区默认视图。
+  // appliedSessionRef 保证只应用一次：用户随后在左栏点其它会话不会被强行拉回深链的那一条。
+  useEffect(() => {
+    if (requestedSessionId === null || !sessionsResolved) return;
+    if (appliedSessionRef.current === requestedSessionId) return;
+    appliedSessionRef.current = requestedSessionId;
+    if (sessions.some((session) => session.id === requestedSessionId)) setCurrentSessionId(requestedSessionId);
+  }, [requestedSessionId, sessions, sessionsResolved, setCurrentSessionId]);
 
   // 加载当前会话消息
   useEffect(() => {

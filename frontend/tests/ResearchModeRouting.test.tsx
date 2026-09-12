@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ResearchWorkspace from '../src/pages/ResearchWorkspace';
@@ -21,13 +21,18 @@ vi.mock('../src/pages/Thesis', () => ({
   default: () => <div data-testid="thesis-capability">THESIS</div>,
 }));
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname + location.search}</output>;
+}
+
 function renderMode(path: string) {
   return render(
     <LanguageProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/research" element={<ResearchWorkspace />} />
-          <Route path="/research/:symbol" element={<ResearchWorkspace />} />
+          <Route path="/research" element={<><ResearchWorkspace /><LocationProbe /></>} />
+          <Route path="/research/:symbol" element={<><ResearchWorkspace /><LocationProbe /></>} />
         </Routes>
       </MemoryRouter>
     </LanguageProvider>,
@@ -74,5 +79,28 @@ describe('Research mode routing', () => {
     expect(screen.queryByTestId('fast-capability')).toBeNull();
     fireEvent.click(screen.getByRole('radio', { name: '审查' }));
     expect(screen.getByTestId('review-capability').textContent).toContain('600519');
+  });
+
+  // VS16：切模式不得把"某一条记录"的深链 id 带到新模式（fast 带 session / review 带 room）。
+  it('drops the fast-mode session deep link when switching depth', () => {
+    renderMode('/research?mode=fast&session=7');
+    expect(screen.getByTestId('location').textContent).toContain('session=7');
+
+    fireEvent.click(screen.getByRole('radio', { name: '深度研究' }));
+    expect(screen.getByTestId('location').textContent).toContain('mode=deep');
+    expect(screen.getByTestId('location').textContent).not.toContain('session');
+
+    fireEvent.click(screen.getByRole('radio', { name: '审查' }));
+    expect(screen.getByTestId('location').textContent).toContain('mode=review');
+    expect(screen.getByTestId('location').textContent).not.toContain('session');
+  });
+
+  it('drops the review-mode room deep link when switching depth', () => {
+    renderMode('/research?mode=review&room=42');
+    expect(screen.getByTestId('location').textContent).toContain('room=42');
+
+    fireEvent.click(screen.getByRole('radio', { name: '快速' }));
+    expect(screen.getByTestId('location').textContent).toContain('mode=fast');
+    expect(screen.getByTestId('location').textContent).not.toContain('room');
   });
 });

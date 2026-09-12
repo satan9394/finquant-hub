@@ -29,7 +29,10 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
   const starterTopic = initialTopic?.trim() || searchParams.get('topic')?.trim();
-  const requestedRoomId = Number(searchParams.get('room'));
+  // VS16：首页"最近讨论"深链 ?room=<id>。仅接受十进制正整数；
+  // 缺省 / 'abc' / '0' / '-1' / '1.5' / '42x' 一律视为"无深链请求"（不选中、不为它发请求）。
+  const roomParam = searchParams.get('room')?.trim() ?? '';
+  const requestedRoomId = /^\d+$/.test(roomParam) && Number(roomParam) > 0 ? Number(roomParam) : null;
   const {
     rooms, currentRoomId, messages, streamingContent, isStreaming,
     setRooms, addRoom, setCurrentRoomId, setMessages, addMessage, setIsStreaming,
@@ -47,6 +50,9 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   const [streamingByAgent, setStreamingByAgent] = useState<DiscussionStreamingByAgent>({});
 
   const abortRef = useRef<AbortController | null>(null);
+  // VS16：深链只应用一次。缺了它，`rooms` 一变（例如新建讨论走 addRoom 产生新数组）就会出现
+  // "抢回焦点"：用户手选了 room 43，却被他从 URL 点进来的旧 room 42 拽回去。
+  const appliedRoomRef = useRef<number | null>(null);
 
   // 加载房间列表 + 角色
   useEffect(() => {
@@ -54,10 +60,13 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
     apiClient.get('/agents').then((res) => setAgents(res.data.items ?? [])).catch(() => {});
   }, [setRooms]);
 
+  // VS16：?room=<id> —— 仅当该 id 出现在**当前用户自己的房间列表**里才选中（后端 /discussion/rooms 已按 user_id 过滤）。
+  // 非法 / 不存在 / 非本人 → 不选中、不为它发任何请求，页面留在该功能区默认视图。
   useEffect(() => {
-    if (Number.isInteger(requestedRoomId) && rooms.some((room) => room.id === requestedRoomId)) {
-      setCurrentRoomId(requestedRoomId);
-    }
+    if (requestedRoomId === null || appliedRoomRef.current === requestedRoomId) return;
+    if (!rooms.some((room) => room.id === requestedRoomId)) return;  // 列表未回来或该 room 不存在 → 继续等待/回落
+    appliedRoomRef.current = requestedRoomId;
+    setCurrentRoomId(requestedRoomId);
   }, [requestedRoomId, rooms, setCurrentRoomId]);
 
   useEffect(() => {

@@ -68,6 +68,9 @@ function ResearchModeSurface({ mode, symbol }: { mode: Exclude<AgentMode, 'analy
   const subject = symbol ? decodeURIComponent(symbol).toUpperCase() : '';
   const selectMode = (nextMode: AgentMode) => {
     const next = new URLSearchParams(searchParams);
+    // VS16：切换模式即离开"某一条记录"，不得把旧记录的深链 id 带到新模式（fast 带 session / review 带 room）。
+    next.delete('session');
+    next.delete('room');
     if (nextMode === 'analyst') next.delete('mode');
     else next.set('mode', nextMode);
     setSearchParams(next, { replace: true });
