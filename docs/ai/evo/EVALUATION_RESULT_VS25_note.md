@@ -1,0 +1,6 @@
+VS-25 判定归档后的登记（ACCEPT）
+
+- 判定：**ACCEPT**（EVALUATION_RESULT_VS25.md，已归档于 3f98a32）。评估者用**不复用实现者 mock 形状**的独立探针（替换 axios adapter 走真实响应拦截器，不 mock src/services/api）复核三条要害：①失败真可归因且误导提示已消除——自造 503 的 data.detail 被逐字渲染进 ant-alert-error 的 description，401/timeout 落同一错误面；自造变异 M-A ⇒ 8 failed|1 passed，其中 `expected "Mock" to not be called with arguments: ['至少选择 3 个角色']` 直接证明"误导提示不再是唯一解释"这条承重；②重试真重发——真实 adapter 计数 1→2、实现者用例 1→2→3 严格等于点击数，变异 M-B（仅切 onRetry）⇒ 2 failed 均为 expected 1 to be 2；③零回归——2 files/16 passed + 回归抽样 3 files/38 passed + 串行 build exit 0。
+- **交叉印证**：评估者独立测得 i18n zh/en 各 2486，与实现者报的 2483 差 3，差值恰为 VS-27 的三个键——**与提交信息里"同区块无法分离、已并入 96fb632"的说法互证**，说明那次并入不是虚报。
+- **过程留痕（评估者主动记录的两处自身失误）**：①其第一版探针 P1 自身排序有误（先点重试后翻 mock），失败是用例 bug 而非实现缺陷；②M-B 首轮锚点因 14 空格是 16 空格的子串而命中 2 次，脚本抛错但 TARGET 停在 M-A 态，那轮"M-B"实为 M-A 复现，已改 expect=2 重跑。
+- **两条非阻塞观察（列 NEXT）**：**O1** 请求尚在途的窗口内点"创建"仍会得到通用"请至少选择 3 个角色"（不是静默死胡同：失败即出可重试错误态，且 axios timeout 30s 有界）；**O2** `Chat.tsx:119-127` 存在**同类静默吞错**（喂 Chat 的角色选择器），建议单开卡——与 VS-25 实现者的报备一致。
