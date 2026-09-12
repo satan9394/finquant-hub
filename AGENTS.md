@@ -86,6 +86,8 @@ frontend/src/
 - **宁可说"未知"也不要说成"成功"**：不确定就标 `degraded` / "未验证"；绝不把失败渲染成成功，也绝不把局部失败说成整轮失败。
 - **`start.bat` 的行尾由 `.gitattributes` 保证 CRLF**（`*.bat text eol=crlf`，2026-09-11 补）。此前仓库里存的是 **LF**，只因本机 `core.autocrlf=true` 才检出 CRLF ⇒ **`autocrlf=false` 的克隆者（Linux/macOS 默认）会拿到 LF-only 的批处理**（Windows 双击入口）。**验证行尾不要只看工作副本**——那只是本机配置的产物；要验证就用**真实克隆 + 显式 `-c core.autocrlf=false`**，并用 `git ls-files --eol <path>` 看 `i/`（索引）与 `attr/`。**注意**：`git checkout-index --work-tree=<临时目录>` 会在**该临时目录**里找 `.gitattributes`，得不到仓库规则，用它做这类验证会得出错误结论。
 - **数据一致性改动要当心 SQLite WAL**：只复制 `finquant.db` 会**静默丢弃 `-wal` 中已提交的事务**；用 `sqlite3.Connection.backup()`（全仓既有约定）。且**真实 `backend\data` 的 WAL 已被 checkpoint**，想验证 WAL 行为必须**自造场景**（保持连接不关闭 + `wal_autocheckpoint=0`）。
+- **批处理载荷改动必须经 `cmd.exe` 实测，不能只把载荷字符串喂给 PowerShell**：`start.bat` 的备份载荷用双引号裹住是**承重的**——载荷内含 `|`（`New-Item … | Out-Null`、`Get-ChildItem … | Sort-Object`）与 `&`（`& $py -c $code`），**引号一丢，cmd 会把它们当管道/命令分隔符**，命令行被切断、备份**永不生成**（实测：`'Out-Null' is not recognized…`、退出码 255、产物目录为空）。夹具必须把 `powershell.exe … -Command ^` **连续行一起逐字**做成 `.bat` 经 `cmd.exe` 运行；**直接调 PowerShell 喂字符串会绕过 cmd 解析层，这类缺陷完全不可见**。
+- **回收含 junction 的目录会失败**：`DeleteDirectory(<沙箱>, …,'SendToRecycleBin')` 对**内含 junction 的目录**常报 `Attempted to perform an unauthorized operation`。正确处理：**先单独回收那个 junction 本身**（回收 junction 只删链接、**不伤目标**——已验证：回收指向 `backend\.venv` 的 junction 后，真实 venv 的 `python.exe` 与 190 个 `site-packages` 目录完好），**若父目录仍失败**，则**逐文件回收 + 由深到浅回收各层目录 + 最后回收顶层**。另外 `.git` 内对象文件是**只读**的，克隆出的沙箱要先 `$_.Attributes='Normal'` 再回收。
 
 详见 `memory/`：`MAIN_SESSION_TOKEN_DISCIPLINE.md`、`SUBAGENT_TIMEOUT_DISCIPLINE.md`、`VERIFICATION_BLIND_SPOT.md`。
 
