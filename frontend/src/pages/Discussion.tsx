@@ -3,7 +3,7 @@
  * ============================================================ */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Layout, List, Button, Modal, Input, Select, InputNumber, Typography, message, Empty, Tag, Spin, Alert,
+  Layout, List, Button, Modal, Input, Select, InputNumber, Typography, message, Empty, Tag, Alert,
 } from 'antd';
 import { PlusOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
@@ -11,7 +11,7 @@ import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import InvestmentCommittee from '../components/InvestmentCommittee';
-import LoadFailureAlert from '../components/LoadFailureAlert';
+import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -42,12 +42,19 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
 
   const [agents, setAgents] = useState<AgentPreset[]>([]);
   const [roomDetail, setRoomDetail] = useState<DiscussionRoom | null>(null);
+  // VS29：`roomDetail` **属于哪个房间**。右栏只渲染"属于当前房间"的详情 ⇒
+  // "切房间失败时右栏显示上一条内容"（串台）在结构上不可能发生，而不是靠记得加守卫。
+  const [roomDetailId, setRoomDetailId] = useState<number | null>(null);
+  // VS29：详情读取的三态（loadingDetail 在途 / detailFailed+detailError 失败 / roomDetail 成功）。
+  const [detailFailed, setDetailFailed] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  // VS29：详情请求序号，丢弃过期响应（切房间/重试可能晚于前一次请求返回）。
+  const detailRequestRef = useRef(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [topic, setTopic] = useState('');
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [totalRounds, setTotalRounds] = useState(3);
   const [creating, setCreating] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [streamingByAgent, setStreamingByAgent] = useState<DiscussionStreamingByAgent>({});
 
   const abortRef = useRef<AbortController | null>(null);
@@ -155,18 +162,49 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   }, [agents, starterTopic]);
 
   // 加载房间详情
-  useEffect(() => {
-    if (!currentRoomId) { setRoomDetail(null); return; }
+  // VS29：抽成可重复调用的 loadRoomDetail —— 详情错误态上的"重试"必须**真的**重新发起这条请求。
+  // 三件事一次做对：
+  //   ①**切房间即作废旧内容**（清空 roomDetail/roomDetailId）：右栏不得在"上一条讨论"的内容上
+  //     显示新房间的标题（串台）；修前 roomDetail 只在 `!currentRoomId` 时清空，切房间失败就串台。
+  //   ②失败必须**原位说出来**（detailFailed/detailError ⇒ 错误态 + 重试），修前只弹一次 toast，
+  //     且 `loadingDetail || !roomDetail` 会**永久停在 Spin**（既不是加载、也没有失败提示）。
+  //   ③**仅成功才清失败态**：重试发起时不清 detailFailed（与 Chat/Discussion 列表、Dashboard 同口径）。
+  const loadRoomDetail = useCallback(async (roomId: number) => {
+    const requestId = ++detailRequestRef.current;
     setStreamingByAgent({});
-    setLoadingDetail(true);
-    apiClient.get(`/discussion/rooms/${currentRoomId}`)
-      .then((res) => {
-        setRoomDetail(res.data.room);
-        setMessages(currentRoomId, res.data.messages || []);
-      })
-      .catch(() => message.error(t('discussion.loadFailed')))
-      .finally(() => setLoadingDetail(false));
-  }, [currentRoomId, setMessages]);
+    setRoomDetail(null);
+    setRoomDetailId(null);
+    try {
+      const res = await apiClient.get(`/discussion/rooms/${roomId}`);
+      // 过期响应直接丢弃：不得让先发的慢请求覆盖后发的重试结果。
+      if (detailRequestRef.current !== requestId) return;
+      const room = res.data?.room as DiscussionRoom | undefined;
+      // 成功响应里没有房间对象 ⇒ 仍然是"没能读到详情"，不是"这个房间是空的"。
+      if (!room) { setDetailFailed(true); setDetailError(''); return; }
+      setRoomDetail(room);
+      setRoomDetailId(roomId);
+      setDetailFailed(false);
+      setDetailError('');
+      setMessages(roomId, res.data.messages || []);
+    } catch (error: unknown) {
+      if (detailRequestRef.current !== requestId) return;
+      setDetailFailed(true);
+      setDetailError(error instanceof Error ? error.message : '');
+    }
+  }, [setMessages]);
+
+  useEffect(() => {
+    if (!currentRoomId) {
+      // 作废在途请求：房间已取消选择，迟到的响应不得再写回右栏。
+      detailRequestRef.current += 1;
+      setRoomDetail(null);
+      setRoomDetailId(null);
+      setDetailFailed(false);
+      setDetailError('');
+      return;
+    }
+    void loadRoomDetail(currentRoomId);
+  }, [currentRoomId, loadRoomDetail]);
 
   // 创建房间
   const handleCreate = async () => {
@@ -286,6 +324,15 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   };
 
   const currentMessages = currentRoomId ? (messages[currentRoomId] || []) : [];
+  // VS29：右栏只认"属于当前房间"的详情。`roomDetailId` 与 `currentRoomId` 不一致时一律当作没有内容，
+  // 于是"切房间失败还显示上一条内容"（串台）在结构上不可能发生。
+  const scopedDetail = roomDetail && roomDetailId === currentRoomId ? roomDetail : null;
+  const detailState = readStateOf({
+    failed: detailFailed,
+    resolved: scopedDetail !== null,
+    error: detailError,
+    count: scopedDetail ? 1 : 0,
+  });
 
   return (
     <Layout style={{ minHeight: 'calc(100dvh - 56px)', background: 'var(--fq-surface-1)' }}>
@@ -309,15 +356,19 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
           ) : null}
         </div>
         {/* VS22：列表请求失败 ⇒ 原位给出与首页、Chat 左栏同款的错误态（失败文案 + 具体错误 + 可点重试）。
-            只有请求成功且为空时，才轮到 List 的"暂无讨论"——空态只代表"确实没有数据"。 */}
-        {roomsFailed ? (
-          <div style={{ padding: 12 }}>
-            <LoadFailureAlert message={t('discussion.listFailed')} error={roomsError} onRetry={() => void loadRooms()} />
-          </div>
-        ) : null}
-        {/* "读取失败且本地没有任何房间"时整块不渲染列表，避免它顺手写出"暂无讨论"；
-            但失败之后本地新建的房间是**真实存在**的，必须照常可见。 */}
-        {roomsFailed && rooms.length === 0 ? null : (
+            只有请求成功且为空时，才轮到"暂无讨论"——空态只代表"确实没有数据"。
+            VS29：三态由 LoadStateView 一个 switch 渲染（互斥由结构保证），在途不再伪装成"暂无讨论"；
+            失败后本地新建的房间仍照常可见。 */}
+        <div style={{ padding: 12 }}>
+        <LoadStateView
+          state={readStateOf({ failed: roomsFailed, resolved: roomsResolved, error: roomsError, count: rooms.length })}
+          failureMessage={t('discussion.listFailed')}
+          onRetry={() => void loadRooms()}
+          loadingText={t('discussion.listLoading')}
+          emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('discussion.empty')} />}
+          retainedCount={rooms.length}
+          showContentOnError
+        >
         <List
           size="small"
           dataSource={rooms}
@@ -343,9 +394,9 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
               </div>
             </List.Item>
           )}
-          locale={{ emptyText: <Empty description={t('discussion.empty')} /> }}
         />
-        )}
+        </LoadStateView>
+        </div>
       </Sider>
 
       {/* 内容区 */}
@@ -354,15 +405,23 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
           <div style={{ textAlign: 'center', padding: 80, color: 'var(--fq-text-tertiary)' }}>
             <Title level={4} type="secondary">{t('discussion.selectRoom')}</Title>
           </div>
-        ) : loadingDetail || !roomDetail ? (
-          <div role="status" aria-live="polite" style={{ textAlign: 'center', padding: 40 }}>
-            <Spin />
-            <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>{t('discussion.loading')}</Text>
-          </div>
         ) : (
+          /* VS29：详情三态由 LoadStateView 一个 switch 渲染。
+             - 在途 ⇒ 加载态（`announceLoading` 开启：这是本页的主内容区，且 `Discussion.test.tsx`
+               用 `getByRole('status')` 唯一命中它）；
+             - 失败 ⇒ 原位错误态 + 真会重新发起请求的重试（修前只弹一次 toast 且会永久停在 Spin）；
+             - 成功 ⇒ 属于**当前房间**的详情（scopedDetail；不 showContentOnError ⇒ 失败时绝不显示上一条）。 */
+          <LoadStateView
+            state={detailState}
+            failureMessage={t('discussion.detailFailed')}
+            onRetry={() => { if (currentRoomId) void loadRoomDetail(currentRoomId); }}
+            loadingText={t('discussion.loading')}
+            announceLoading
+          >
+          {scopedDetail ? (
           <>
             {/* 启动/停止按钮 */}
-            {roomDetail?.current_phase !== 'done' && (
+            {scopedDetail.current_phase !== 'done' && (
               <div style={{ marginBottom: 16, textAlign: 'center' }}>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                   {t('discussion.quota')}
@@ -378,22 +437,24 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
             )}
 
             <InvestmentCommittee
-              topic={roomDetail.topic}
-              phase={roomDetail.current_phase === 'done' ? 'completed' : roomDetail.current_phase === 'failed' ? 'partial' : isStreaming ? 'in-session' : 'awaiting-confirmation'}
-              members={roomDetail.participants.map((participant) => {
+              topic={scopedDetail.topic}
+              phase={scopedDetail.current_phase === 'done' ? 'completed' : scopedDetail.current_phase === 'failed' ? 'partial' : isStreaming ? 'in-session' : 'awaiting-confirmation'}
+              members={scopedDetail.participants.map((participant) => {
                 const streaming = streamingByAgent[participant.role_key];
                 return {
                   key: participant.role_key,
                   name: participant.name,
                   role: participant.role_key,
                   avatar: participant.avatar,
-                  status: streaming?.status ?? (roomDetail.current_phase === 'done' ? 'completed' : 'waiting'),
+                  status: streaming?.status ?? (scopedDetail.current_phase === 'done' ? 'completed' : 'waiting'),
                   summary: currentMessages.slice().reverse().find((message) => message.agent_name === participant.role_key)?.content,
                   streaming,
                 };
               })}
             />
           </>
+          ) : null}
+          </LoadStateView>
         )}
 
         <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fq-text-tertiary)', marginTop: 16 }}>

@@ -1119,8 +1119,13 @@ const zh: Record<string, string> = {
   'today.noConversations': '暂无会话',
   'today.noDiscussions': '暂无讨论',
   'today.statsFailed': '近期记录读取失败',
+  // VS29：三态里的"加载中"。与 today.noConversations / today.noDiscussions 互斥——
+  // stats 还没有任何结论时只许说"正在读取"，不得渲染"暂无会话/暂无讨论"。
+  'today.recordsLoading': '正在读取最近记录…',
   // VS22：与上方两张卡片同一个 stats 失败，"研究运行"区块也必须说出来（同一种错误态、同一个重试）。
   'today.researchRunsFailed': '研究运行记录读取失败',
+  // VS29：研究运行区块的加载态。在途时不得渲染 `<p>UNKNOWN</p>`（那是"确实没有/未知"的写法）。
+  'today.runsLoading': '正在读取研究运行记录…',
   'today.conversation': '会话 #{id}',
   'today.state.done': '已完成',
   'today.state.failed': '失败，可重试',
@@ -1854,6 +1859,8 @@ const zh: Record<string, string> = {
   // VS22：左栏列表**读取失败**时的错误态文案。与 chat.empty 是互斥的两件事：
   // 只有请求成功且列表为空才允许出现"暂无会话"。
   'chat.listFailed': '会话列表读取失败',
+  // VS29：加载态。与 chat.empty 互斥：在途（还没有任何结论）时不得出现"暂无会话"。
+  'chat.listLoading': '正在读取会话列表…',
   'chat.selectSession': '请选择或创建一个会话',
   // VS19：深链（?session=<id>）落空时的一次性提示。两种失败必须分清——
   // missing=列表已成功返回但不含该 id（"已不存在"）；unavailable=列表请求本身失败（不得说成"已不存在"）。
@@ -1893,11 +1900,16 @@ const zh: Record<string, string> = {
   'discussion.empty': '暂无讨论',
   // VS22：左栏列表**读取失败**时的错误态文案，与 discussion.empty 互斥（语义同 chat.listFailed）。
   'discussion.listFailed': '讨论列表读取失败',
+  // VS29：加载态。与 discussion.empty 互斥：在途时不得出现"暂无讨论"。
+  'discussion.listLoading': '正在读取讨论列表…',
   'discussion.selectRoom': '请选择或创建一个讨论房间',
   // VS19：深链（?room=<id>）落空时的一次性提示，语义同 chat.deepLink*。
   'discussion.deepLinkMissing': '该讨论已不存在，已显示当前讨论列表',
   'discussion.deepLinkUnavailable': '讨论列表读取失败，未能打开指定讨论',
   'discussion.loading': '正在加载讨论详情…',
+  // VS29：详情**读取失败**的失败文案（与 discussion.loading / 上一条内容都互斥）。
+  // 修前这条路径只弹一次 toast、且 roomDetail 不随房间切换清空 ⇒ 右栏显示上一条内容（串台）。
+  'discussion.detailFailed': '讨论详情读取失败',
   'discussion.quota': '模型额度：开始后按所选角色和轮次多次调用模型；仅打开房间不会运行。',
   'discussion.stop': '停止讨论',
   'discussion.start': '开始讨论',
@@ -2460,6 +2472,8 @@ const zh: Record<string, string> = {
   'decision.impact': '影响：{impact}',
   'decision.footer': '截至 {dueAt} · 证据质量 {quality}',
   'memory.error.load': '记忆读取失败，请稍后重试。',
+  // VS29：加载态。与 memory.empty 互斥——在途时不得出现"暂无研究记忆"（修前两者会同屏并存）。
+  'memory.loading': '正在读取研究记忆…',
   'memory.error.action': '操作失败；记录状态或 evidence 约束可能已变化。',
   'memory.error.invalidJson': '编辑内容必须是有效的 JSON 对象。',
   'memory.error.delete': '删除失败；仅支持当前用户记录的单条 soft delete。',

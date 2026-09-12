@@ -15,7 +15,7 @@ import TodayNeedAttention from '../components/TodayNeedAttention';
 import TodayUniverse from '../components/TodayUniverse';
 import TodayMarketPulse from '../components/TodayMarketPulse';
 import ResearchRuns from '../components/ResearchRuns';
-import LoadFailureAlert from '../components/LoadFailureAlert';
+import { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text, Title } = Typography;
@@ -67,10 +67,10 @@ export default function Dashboard() {
   // VS19：原先这里是 `catch { /* non-critical context */ }`——请求失败被完全吞掉，下面两张"最近记录"
   // 卡片于是渲染出"暂无会话/暂无讨论"，与"确实没有数据"在界面上不可区分（同页决策收件箱/市场区块都有
   // Alert 错误态，静默属遗漏而非约定）。现在失败即进入显式错误态，并保留重试入口。
+  // VS29：**重试发起时不再先清失败态**（原先 `setStatsFailed(false)` 会让两张卡片在往返期间闪回
+  // "暂无会话"）。全产品统一口径：仅成功才清（见 IMPLEMENT_RESULT_VS29 §4）。
   const loadStats = useCallback(async () => {
-    setStatsFailed(false);
-    setStatsError('');
-    try { setStats((await apiClient.get('/dashboard/stats')).data); }
+    try { setStats((await apiClient.get('/dashboard/stats')).data); setStatsFailed(false); setStatsError(''); }
     catch (error: unknown) {
       // 唯一判据是"请求是否成功"：失败就不保留过期快照当作当前事实，只显示错误态 + 重试。
       setStats(null);
@@ -78,9 +78,12 @@ export default function Dashboard() {
       setStatsFailed(true);
     }
   }, []);
-  const loadDecisionInbox = useCallback(async () => { setDecisionLoading(true); setDecisionError(''); try { setDecisionItems((await apiClient.get('/dashboard/decision-inbox')).data.items as DecisionInboxItem[]); } catch (error: unknown) { setDecisionItems([]); setDecisionError(error instanceof Error ? error.message : t('today.error.decision')); } finally { setDecisionLoading(false); } }, [t]);
-  const loadMarket = useCallback(async () => { setMarketLoading(true); setMarketError(''); try { setMarketPulse(await fetchMarketPulse(12, 8, 12)); } catch (error: unknown) { setMarketError(error instanceof Error ? error.message : t('today.error.market')); } finally { setMarketLoading(false); } }, [t]);
-  const loadNews = useCallback(async () => { setNewsLoading(true); setNewsError(''); try { setLatestNews((await apiClient.get<LatestNewsResponse>('/dashboard/news', { params: { max_results: 6 } })).data); } catch (error: unknown) { setNewsError(error instanceof Error ? error.message : t('today.error.news')); } finally { setNewsLoading(false); } }, [t]);
+  // VS29 口径（全产品唯一）：**仅成功才清失败态**。
+  // 下面三条与 loadStats 同构 —— 修前它们在重试发起时就 `setXError('')`，于是重试往返期间
+  // 失败态凭空消失（用户会以为已经好了），与本页其余读取的做法自相矛盾。
+  const loadDecisionInbox = useCallback(async () => { setDecisionLoading(true); try { setDecisionItems((await apiClient.get('/dashboard/decision-inbox')).data.items as DecisionInboxItem[]); setDecisionError(''); } catch (error: unknown) { setDecisionItems([]); setDecisionError(error instanceof Error ? error.message : t('today.error.decision')); } finally { setDecisionLoading(false); } }, [t]);
+  const loadMarket = useCallback(async () => { setMarketLoading(true); try { setMarketPulse(await fetchMarketPulse(12, 8, 12)); setMarketError(''); } catch (error: unknown) { setMarketError(error instanceof Error ? error.message : t('today.error.market')); } finally { setMarketLoading(false); } }, [t]);
+  const loadNews = useCallback(async () => { setNewsLoading(true); try { setLatestNews((await apiClient.get<LatestNewsResponse>('/dashboard/news', { params: { max_results: 6 } })).data); setNewsError(''); } catch (error: unknown) { setNewsError(error instanceof Error ? error.message : t('today.error.news')); } finally { setNewsLoading(false); } }, [t]);
   useEffect(() => { void loadStats(); void loadDecisionInbox(); void loadMarket(); void loadNews(); }, [loadStats, loadDecisionInbox, loadMarket, loadNews]);
   useEffect(() => { const sync = () => setProductProgress(readProductProgress()); window.addEventListener(PRODUCT_PROGRESS_EVENT, sync); window.addEventListener('storage', sync); return () => { window.removeEventListener(PRODUCT_PROGRESS_EVENT, sync); window.removeEventListener('storage', sync); }; }, []);
 
@@ -95,11 +98,22 @@ export default function Dashboard() {
   const researchRuns = (stats?.recent_rooms ?? []).slice(0, 5).map((room) => ({ id: room.id, title: room.topic, state: room.current_phase, progress: null, updatedAt: null }));
   const attentionCount = decisionItems.length;
   const majorChangeCount = decisionItems.filter((item) => item.priority === 'high').length;
-  // VS19：两张"最近记录"卡片共用的错误态——与同页"决策收件箱"（DecisionInboxPanel）同款 Alert：
-  // 明确的失败文案 + 具体错误 + 可点的重试。仅当 stats 请求成功时才会走到列表与空态。
-  // VS22：改由共用组件 LoadFailureAlert 渲染（左栏列表与"研究运行"区块用同一个），
-  // 保证"同一页面对同一个失败只有一种待遇"这条口径不可能再被各写一遍写歪。
-  const statsAlert = <LoadFailureAlert message={t('today.statsFailed')} error={statsError} onRetry={() => void loadStats()} />;
+  // VS29：三态的**事实**（谁优先由 readStateOf 决定，本页不再自己拼 loading/empty 条件）。
+  //   statsResolved：是否成功读到过一次 stats（失败时上面已把 stats 置回 null ⇒ 与"没读到过"同义）；
+  //   statsPending：还没有任何结论（在途 / 尚未发起）—— 修前没有这个维度，于是首屏把"在途"渲染成
+  //                 "暂无会话/暂无讨论"与 `<p>UNKNOWN</p>`。
+  const statsResolved = stats !== null;
+  const statsPending = !statsResolved && !statsFailed;
+  const conversationsState = readStateOf({
+    failed: statsFailed, resolved: statsResolved, error: statsError,
+    count: stats?.recent_conversations?.slice(0, 5).length ?? 0,
+  });
+  const discussionsState = readStateOf({
+    failed: statsFailed, resolved: statsResolved, error: statsError,
+    count: stats?.recent_rooms?.slice(0, 5).length ?? 0,
+  });
+  // 两张卡片与"研究运行"区块共用的重试：同一个 stats 请求、同一个入口形态。
+  const retryStats = () => void loadStats();
 
   return <main className="workbench-page">
     <Title level={4} className="workbench-page__title">{t('today.title')}</Title>
@@ -113,11 +127,17 @@ export default function Dashboard() {
     <TodayMarketPulse><section className="workbench-brief-grid" aria-label={t('today.briefAria')}><MarketBrief data={marketPulse} loading={marketLoading} error={marketError} /><LatestNews data={latestNews} loading={newsLoading} error={newsError} /></section></TodayMarketPulse>
     {/* VS22：`statsFailed` 为真时本区块同样显式报错（同一失败、同一形态、同一个重试入口），
         不再像修前那样退化成空列表——那会让"读取失败"和"确实没有研究运行"不可区分。 */}
-    <ResearchRuns runs={researchRuns} error={statsFailed ? statsError : null} onRetry={() => void loadStats()} />
+    <ResearchRuns runs={researchRuns} error={statsFailed ? statsError : null} loading={statsPending} onRetry={retryStats} />
     <section className="task-launchpad" aria-labelledby="task-launchpad-title"><div className="task-launchpad__header"><div><Text className="task-launchpad__eyebrow">{t('today.launch.eyebrow')}</Text><h2 id="task-launchpad-title">{t('today.launch.title')}</h2></div><Text type="secondary">{t('today.launch.description')}</Text></div><div className="task-launchpad__progress" aria-label={t('today.progress', { done: completedProgress })}><div className="task-launchpad__progress-heading"><Text strong>{t('today.progress', { done: completedProgress })}</Text><Button type="link" size="small" onClick={() => setProductHelpDismissed(!productProgress.helpDismissed)}>{t(productProgress.helpDismissed ? 'today.showHint' : 'today.hideHint')}</Button></div><Progress percent={Math.round((completedProgress / 3) * 100)} showInfo={false} size="small" /><div className="task-launchpad__steps">{progressSteps.map((step) => <span className={step.done ? 'is-done' : ''} key={step.key}>{t(step.done ? 'today.done' : 'today.pending')} · {t(`today.progress.${step.key}`)}</span>)}</div>{!productProgress.helpDismissed ? <Text className="task-launchpad__hint">{t('today.hint')}</Text> : null}</div><div className="task-launchpad__grid">{coreTasks.map((task) => <article className="task-launchpad__card" key={task.key}><span className="task-launchpad__icon" aria-hidden="true">{task.icon}</span><div className="task-launchpad__copy"><Text type="secondary">{t(`today.task.${task.key}.area`)}</Text><h3>{t(`today.task.${task.key}.question`)}</h3><p>{t(`today.task.${task.key}.result`)}</p><Text className="task-launchpad__example">{t('today.example', { example: t(`today.task.${task.key}.example`) })}</Text></div><div className="task-launchpad__actions"><Button type="primary" onClick={task.run}>{t(`today.task.${task.key}.action`)}</Button><Button aria-label={t('today.tryExampleAria', { task: t(`today.task.${task.key}.area`) })} onClick={task.runExample}>{t('today.tryExample')}</Button></div></article>)}</div></section>
     <section className="workbench-context-grid" aria-label={t('today.recentContext')}>
       <Card title={t('today.conversations')} size="small" extra={<Button type="link" onClick={() => navigate('/chat')}>{t('today.viewAll')}</Button>}>
-        {statsFailed ? statsAlert : (
+        <LoadStateView
+          state={conversationsState}
+          failureMessage={t('today.statsFailed')}
+          onRetry={retryStats}
+          loadingText={t('today.recordsLoading')}
+          emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('today.noConversations')} />}
+        >
         <List
           size="small"
           dataSource={stats?.recent_conversations?.slice(0, 5) ?? []}
@@ -130,12 +150,17 @@ export default function Dashboard() {
               </Link>
             </List.Item>
           )}
-          locale={{ emptyText: t('today.noConversations') }}
         />
-        )}
+        </LoadStateView>
       </Card>
       <Card title={t('today.discussions')} size="small" extra={<Button type="link" onClick={() => navigate('/discussion')}>{t('today.viewAll')}</Button>}>
-        {statsFailed ? statsAlert : (
+        <LoadStateView
+          state={discussionsState}
+          failureMessage={t('today.statsFailed')}
+          onRetry={retryStats}
+          loadingText={t('today.recordsLoading')}
+          emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('today.noDiscussions')} />}
+        >
         <List
           size="small"
           dataSource={stats?.recent_rooms?.slice(0, 5) ?? []}
@@ -148,9 +173,8 @@ export default function Dashboard() {
               </Link>
             </List.Item>
           )}
-          locale={{ emptyText: t('today.noDiscussions') }}
         />
-        )}
+        </LoadStateView>
       </Card>
     </section>
     <div className="workbench-footer-actions"><Space wrap><Button icon={<PlusOutlined />} onClick={() => navigate('/chat')}>{t('today.startChat')}</Button><Button icon={<TeamOutlined />} onClick={() => navigate('/discussion')}>{t('today.createDiscussion')}</Button><Button icon={<RobotOutlined />} onClick={() => navigate('/models')}>{t('today.manageModels')}</Button><Button icon={<MessageOutlined />} onClick={() => { void loadStats(); void loadMarket(); void loadNews(); }}>{t('today.refresh')}</Button><Button icon={<ReloadOutlined />} onClick={() => navigate('/research')}>{t('today.continueResearch')}</Button></Space></div>

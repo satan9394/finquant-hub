@@ -1119,8 +1119,13 @@ const en: Record<string, string> = {
   'today.noConversations': 'No conversations',
   'today.noDiscussions': 'No discussions',
   'today.statsFailed': 'Could not load recent records',
+  // VS29: the loading state. Mutually exclusive with today.noConversations / today.noDiscussions —
+  // while stats has no conclusion yet we may only say "loading", never "no conversations".
+  'today.recordsLoading': 'Loading recent records…',
   // VS22: same stats failure as the two cards above — the research-runs block must say so too.
   'today.researchRunsFailed': 'Could not load research runs',
+  // VS29: loading state of the research-runs block. `<p>UNKNOWN</p>` is the "genuinely unknown" marker.
+  'today.runsLoading': 'Loading research runs…',
   'today.conversation': 'Conversation #{id}',
   'today.state.done': 'Done',
   'today.state.failed': 'Failed · retry available',
@@ -1854,6 +1859,8 @@ const en: Record<string, string> = {
   // VS22: error state for a *failed* left-rail list read. Mutually exclusive with chat.empty —
   // "No sessions" may only appear once the request succeeded and the list is genuinely empty.
   'chat.listFailed': 'Could not load your sessions',
+  // VS29: loading state. Mutually exclusive with chat.empty — "No sessions" may not appear while loading.
+  'chat.listLoading': 'Loading conversations…',
   'chat.selectSession': 'Select or create a session',
   // VS19: one-shot notice when a ?session=<id> deep link cannot be honoured. The two
   // failures stay distinct: missing = the list loaded and does not contain the id;
@@ -1894,11 +1901,16 @@ const en: Record<string, string> = {
   'discussion.empty': 'No discussions',
   // VS22: error state for a *failed* left-rail list read (same split as chat.listFailed).
   'discussion.listFailed': 'Could not load your discussions',
+  // VS29: loading state. Mutually exclusive with discussion.empty — "No discussions" may not appear while loading.
+  'discussion.listLoading': 'Loading discussions…',
   'discussion.selectRoom': 'Select or create a discussion room',
   // VS19: one-shot notice when a ?room=<id> deep link cannot be honoured (same split as chat.deepLink*).
   'discussion.deepLinkMissing': 'That discussion no longer exists. Showing your current discussion list.',
   'discussion.deepLinkUnavailable': 'Could not read your discussion list, so the linked discussion was not opened.',
   'discussion.loading': 'Loading discussion details…',
+  // VS29: failure text for a *failed* detail read (mutually exclusive with discussion.loading and
+  // with the previously selected room's content).
+  'discussion.detailFailed': 'Could not load discussion details',
   'discussion.quota': 'Model quota: starting runs multiple model calls based on the selected roles and rounds. Opening a room does not run it.',
   'discussion.stop': 'Stop discussion',
   'discussion.start': 'Start discussion',
@@ -2461,6 +2473,8 @@ const en: Record<string, string> = {
   'decision.impact': 'Impact: {impact}',
   'decision.footer': 'Due {dueAt} · Evidence quality {quality}',
   'memory.error.load': 'Could not load research memory. Try again later.',
+  // VS29: loading state. Mutually exclusive with memory.empty — "No research memory" may not show while loading.
+  'memory.loading': 'Loading research memory…',
   'memory.error.action': 'The action failed; the record state or evidence constraint may have changed.',
   'memory.error.invalidJson': 'Edited content must be a valid JSON object.',
   'memory.error.delete': 'Delete failed. Only one current-user record can be soft-deleted at a time.',

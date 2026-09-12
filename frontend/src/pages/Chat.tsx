@@ -13,7 +13,7 @@ import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
-import LoadFailureAlert from '../components/LoadFailureAlert';
+import { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -333,15 +333,18 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
           </Button>
         </div>
         {/* VS22：列表请求失败 ⇒ 原位给出与首页同款的错误态（失败文案 + 具体错误 + 可点重试）。
-            只有请求成功且为空时，才轮到 List 的"暂无会话"——空态只代表"确实没有数据"。 */}
-        {sessionsFailed ? (
-          <div style={{ padding: 12 }}>
-            <LoadFailureAlert message={t('chat.listFailed')} error={sessionsError} onRetry={() => void loadSessions()} />
-          </div>
-        ) : null}
-        {/* "读取失败且本地没有任何会话"时整块不渲染列表，避免它顺手写出"暂无会话"；
-            但失败之后本地新建的会话是**真实存在**的，必须照常可见。 */}
-        {sessionsFailed && sessions.length === 0 ? null : (
+            只有请求成功且为空时，才轮到"暂无会话"——空态只代表"确实没有数据"。
+            VS29：三态（加载中 / 空 / 失败）改由 LoadStateView **一个 switch** 渲染 ⇒ 互斥由结构保证，
+            在途期间不可能再顺手写出"暂无会话"；失败后本地新建的会话仍照常可见（不藏真实记录）。 */}
+        <LoadStateView
+          state={readStateOf({ failed: sessionsFailed, resolved: sessionsResolved, error: sessionsError, count: sessions.length })}
+          failureMessage={t('chat.listFailed')}
+          onRetry={() => void loadSessions()}
+          loadingText={t('chat.listLoading')}
+          emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('chat.empty')} />}
+          retainedCount={sessions.length}
+          showContentOnError
+        >
         <List
           size="small"
           dataSource={sessions}
@@ -369,9 +372,8 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
               </div>
             </List.Item>
           )}
-          locale={{ emptyText: <Empty description={t('chat.empty')} /> }}
         />
-        )}
+        </LoadStateView>
       </Sider>
 
       {/* 右栏：消息流 */}

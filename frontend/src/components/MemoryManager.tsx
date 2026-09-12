@@ -9,6 +9,7 @@ import {
   type InvestmentMemory,
 } from '../services/researchApi';
 import { useLanguage } from '../i18n/LanguageContext';
+import { LoadStateView, readStateOf } from './LoadFailureAlert';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -25,22 +26,34 @@ export default function MemoryManager() {
   const [items, setItems] = useState<InvestmentMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
-  const [error, setError] = useState('');
+  // VS29：**读取**失败与**动作**（确认/编辑/删除/导出）失败是两件事，必须分开：
+  // 读取失败进三态视图（与"暂无研究记忆"互斥）；动作失败是另一条操作的结果，可以并存。
+  // 修前两者共用一个 `error`，于是出现"同屏同时显示'读取失败'与'暂无研究记忆'"（互相否定）。
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  // VS29：是否成功读取过一次 —— "确实没有研究记忆"只在它为真时成立（readStateOf 的第 3 条）。
+  const [resolved, setResolved] = useState(false);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       setItems(await fetchMemories(includeDeleted));
-    } catch {
-      setError(t('memory.error.load'));
+      // VS29 口径：**仅成功才清失败态**（与 Chat/Discussion 列表、Dashboard 同一种做法）。
+      setResolved(true);
+      setLoadFailed(false);
+      setLoadError('');
+    } catch (error: unknown) {
+      // 失败不得伪装成"暂无研究记忆"：由三态视图统一呈现（失败文案 + 具体原因 + 重试）。
+      setLoadFailed(true);
+      setLoadError(error instanceof Error ? error.message : '');
     } finally {
       setLoading(false);
     }
-  }, [includeDeleted, t]);
+  }, [includeDeleted]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -50,13 +63,13 @@ export default function MemoryManager() {
     content?: Record<string, unknown>,
   ) => {
     setBusyId(item.id);
-    setError('');
+    setActionError('');
     try {
       await actOnMemory(item.id, { action, ...(content ? { content } : {}) });
       setEditingId(null);
       await load();
     } catch {
-      setError(t('memory.error.action'));
+      setActionError(t('memory.error.action'));
     } finally {
       setBusyId(null);
     }
@@ -68,18 +81,18 @@ export default function MemoryManager() {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required');
       await runAction(item, 'edit', parsed as Record<string, unknown>);
     } catch {
-      setError(t('memory.error.invalidJson'));
+      setActionError(t('memory.error.invalidJson'));
     }
   };
 
   const remove = async (item: InvestmentMemory) => {
     setBusyId(item.id);
-    setError('');
+    setActionError('');
     try {
       await deleteMemory(item.id);
       await load();
     } catch {
-      setError(t('memory.error.delete'));
+      setActionError(t('memory.error.delete'));
     } finally {
       setBusyId(null);
     }
@@ -95,9 +108,12 @@ export default function MemoryManager() {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {
-      setError(t('memory.error.export'));
+      setActionError(t('memory.error.export'));
     }
   };
+
+  // VS29：三态判据（优先级只在 readStateOf 里定义一次）。
+  const memoryState = readStateOf({ failed: loadFailed, resolved, error: loadError, count: items.length });
 
   return (
     <section aria-labelledby="memory-manager-title">
@@ -116,10 +132,21 @@ export default function MemoryManager() {
         </Space>
       </Flex>
 
-      {error && <Paragraph type="danger" role="alert" style={{ marginTop: 16 }}>{error}</Paragraph>}
-      <Spin spinning={loading}>
+      {/* VS29：动作失败与读取失败是两条路径，文案也分开（不会再和"暂无研究记忆"同屏互否）。 */}
+      {actionError && <Paragraph type="danger" role="alert" style={{ marginTop: 16 }}>{actionError}</Paragraph>}
+      {/* VS29：三态互斥由 LoadStateView 的一个 switch 保证 —— 左侧导航上"读取失败"和"暂无研究记忆"
+          从此不可能同时出现。刷新在途时用 Spin 覆盖在已有内容上（内容不清空），不改变状态判据。 */}
+      <Spin spinning={loading && memoryState.status === 'ready'}>
+        <LoadStateView
+          state={memoryState}
+          failureMessage={t('memory.error.load')}
+          onRetry={() => void load()}
+          loadingText={t('memory.loading')}
+          emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('memory.empty')} />}
+          retainedCount={items.length}
+          showContentOnError
+        >
         <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 20 }}>
-          {!loading && items.length === 0 && <Empty description={t('memory.empty')} />}
           {items.map((item) => (
             <Card key={item.id} size="small" title={`${item.subject_id} · ${item.memory_type}`}>
               <Space wrap>
@@ -176,6 +203,7 @@ export default function MemoryManager() {
             </Card>
           ))}
         </Space>
+        </LoadStateView>
       </Spin>
     </section>
   );
