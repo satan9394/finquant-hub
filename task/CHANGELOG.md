@@ -749,3 +749,18 @@
 - Docs updated: 上列 + `docs/ai/evo/IMPLEMENTATION_BRIEF_VS{18,19,20,21,22}.md`、`RELIABILITY_REPORT_R4.md`、`PRODUCT_UX_REPORT_R4.md`、各 `IMPLEMENT_RESULT`/`EVALUATION_RESULT`。
 - Verification: **VS-18 已独立评估 ACCEPT**（评估者自建逐字 `.bat` 夹具经 `cmd.exe`：静态全绿、旧/新载荷失败路径对照、其他 PID 残件不被回收而新提示确实数到、照文档走不会再选中 `.partial`；并**定位**了实现者未能定位的 cmd 怪象根因）；**VS-21 门禁由编排者独立复跑确认**（`48 passed` / `ruff All checks passed`），其**上界用假时钟实测**（被验 270.0s ≤ 预算+单次尝试超时；移除预算判断的副本回到 420.0s＝3×120+2×30），鉴别力为副本变异后 `6 failed`。VS-19/VS-21 的独立验收与 VS-20 的交付在本条落笔时**仍在进行**，结论见各自 `EVALUATION_RESULT_*`。（更新：**VS-19 已 ACCEPT**——评估者用自己的进程复跑 5 文件 49/49、独立重做变异验证（删 `setStatsFailed(true)` 与两处 `notified*Ref` 判读 → 恰好 4 红；把 `*Unavailable` 换成 `*Missing`、把重试改成只清错误态 → 3 红），并以 `expected … to be called 1 times, but got 2 times` **反证"列表再变一次"确实触发了第二次 effect**，故"只提示一次"非偶然通过；另确认 `git diff 3cdd46d HEAD -- frontend` 为空、判定锚定在被验提交。）
 - Risk: medium。**编排者记录两处自身失误（均已修正并沉淀）**：①把 VS-19 的**故意变异**（`notified*Ref` 守卫行、`setStatsFailed(true)`）当成真缺陷连发两次纠正——变异窗口与真缺陷在源码层同形，规则已补"审查面"；②BOM 假设被证伪后仍一度准备把它当根因写入规则（后经评估者定位真因为 LF+非 ASCII，并由编排者独立复现后才入册）。另记：VS-21 的预算**只覆盖单次调用**，整轮研究仍无聚合上界（已立 NEXT 的 deadline 项）；VS-19 实现者主动报备的同类面（Chat/Discussion 左栏与 `ResearchRuns` 空态）已立 **VS-22**。
+
+## 2026-09-12 — 第五轮独立审计（R5：A5 产品UX / D5 可靠性）与综合
+
+- What changed：
+  - **无代码改动**（R5 是纯审计轮）。产出：`docs/ai/evo/RELIABILITY_REPORT_R5.md`、`PRODUCT_UX_REPORT_R5.md`、`PRODUCT_GAP_MAP.md` 新增 R5 节（含综合与优先级裁决）、`PROJECT_BRIEF.md` 的**第五轮审计基线**（取代 R4 基线，R4 节保留为带日期的历史）。
+  - 随后据综合派出 **VS-24**（`IMPLEMENTATION_BRIEF_VS24.md`）：让"有标的时的追问"真正被接住。
+- Why：原目标的判据是"当前距离成熟产品最大的缺口是什么"，而 R4 的答案已是十余张卡之前——**继续沿 R4 派生清单做，等于用过期的信息回答同一个问题**（R191 阶段决策）。
+- Verification / 关键发现：
+  - **D5 的最高危项经编排者逐条 grep 独立核实成立**：**优先级倒挂**——VS-21/23 的整轮上界**只覆盖交互 chat**（`chat.py` 2 处 + `llm_client.py` 18 处），而**研究/讨论编排走 `research_orch.py:260` 的 5+1 轮循环且全不传 `deadline_seconds`（该文件零命中）** ⇒ 单 Agent 最坏 **1800s**、整轮约 **60 分钟**，无取消、`done` 无截断信号。
+  - **"三通道"实为一通道**：`tool_loop_truncated` 被 `chat.py:179` 白名单丢弃，且 `done.truncated_by_deadline` **前端零消费方**（编排者独立 grep）⇒ 用户只看到正文前缀；而 `llm_client.py:521-522` 注释称"事件通道同样显式"，**与事实不符**。
+  - **A5 的头号发现（P1-1）**：有标的时追问条提交**无人接住**——`App.tsx:334` 同 Route 改查询串不重挂载、`ResearchWorkspace:199-202` 只在挂载时读 `urlPrompt`、`:256-262` 自动搜索含 `!currentSymbol` ⇒ 界面零反馈；而同一按钮从 `/analysis/:ticker` 提交正常 ⇒ **同一按钮两条路径相反**。
+  - **A5 给出的根因级观察**：`LoadFailureAlert` 的契约**只有 error/onRetry、没有 loading/empty 维度** ⇒ "加载中 vs 空"只能逐面打补丁，**故该族应补契约而非继续逐面修**（已据此定 NOW-4）。
+  - **D5 的诚实做法被记入**：明确标注同秒并发 `$dest` 覆盖"**与 R4 相同、无新增**"，并**正面对账** R4 的 P1 已被 VS-18 真正修复——"不要凑条数"的反面约束被执行了。
+- Docs updated：上列 + `PRODUCT_STATE.md`（当前最高价值下一步改为 R5 结论与 NOW 顺位）。
+- Risk：低（无代码改动）。**编排者记录本轮两次自我纠错**：①结构复核发现自己在 R5 综合节里写出**重复的 D5 块**（本会话第二次同类错误，两次均靠结构复核而非重读发现），改用**按行号精确删除**并保持原行尾修复；②发现 CHANGELOG 条目标题日期（09-11）与会话**跨午夜到 09-12** 不符，遂显式记录跨日边界（本仓在日期上曾有事故）。另：`VS-24` 交付与验收在本条落笔时仍在进行。
