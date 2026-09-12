@@ -154,9 +154,13 @@
 
 ## R4 后的路线图
 
+> 状态截至 R174。**R4 三张衍生卡的实际进展**：VS-18 已 **ACCEPT** 并归档（`439b6ab`）；VS-19、VS-21 实现中；VS-20 因需改 `frontend/src/i18n/*`（与 VS-19 撞车）**有意押后**。
+
 - **NOW**：
-  1. **VS-18（P1，数据丢失，成本极低）**：让 `.partial` **不可能被误认为备份**——`QUICKSTART` 恢复步骤显式写"**只选 `finquant-backup-*.db`，不要选 `.db.<数字>.partial`**"（并说明残件成因与清理方式），`start.bat:121` 三处 `DeleteFile` 加 `try/catch`。
-  2. **VS-19（失败可见性收口）**：A4 的两条 P2 + D4 的"回放与实时不一致"——**同一主题（失败不可见）跨前后端**，宜合成一卡；D4 的"降级原因明细可见"可作紧随其后的 VS-20。
-- **NEXT**：重试的**整次调用时长预算**；`chat_stream` 重试；超时用量计账；`ResearchWorkspace:461-466`/`ThesisModeSurface` 未剥参（抽公共 `switchMode`）；Chat 与 Discussion 守卫口径统一；VS-16 评估者提的两条改进项。
-- **LATER**：`QUICKSTART` "选一个状态正常的备份"之外的恢复健壮性；`agent_reasons` 分级（数量而非布尔）；A4-P3×2 / P4×1；以及 R83 起沿用的 LATER 列表（构建指纹、真实工作区备份端到端证据、`/api/health` 暴露 `local_mode`、备份自动清理等）。
+  1. **✅ VS-18（P1，数据丢失，已 ACCEPT）**：让 `.partial` **不可能被误认为备份**——`QUICKSTART` 恢复步骤显式写"**只挑 `finquant-backup-*.db`，不要用任何以 `.partial` 结尾的文件**"（口径中性：内容可能完整也可能残缺、**无法从名字判断**），并给出"**只看最新不够、应按结尾而非按时间**"这条根因提示；`start.bat` 三处回收动作加 `try/catch`、遗留提示 `-Filter` 放宽为 `*.partial*`（尾星承重，覆盖伴生件）。**验收者结论**：照文档走不会再选中 `.partial`。**两条 NIT（不阻断）**：`:176` 仍留"状态正常的"模糊措辞（已被硬性文件名限定包住）；实现者报告 §1.2 的"改前"引文有误（仅报告笔误）——记 LATER。
+  2. **🔄 VS-19（失败可见性收口）**：A4 的两条 P2（首页 stats 失败不得伪装成空态；深链落空一次性提示）+ 严格区分"列表不含该 id"与"列表读取失败"（后者**不得**说成"已不存在"）。实现中。
+  3. **🔄 VS-21（重试总时长预算）**：`llm_client._post_chat_with_retry` 加可配置预算（可判定语义 + 上界 = 预算 + 单次尝试超时 + 两类耗尽可区分）。实现中。
+  4. **⏸ VS-20（回放/实时同源）**：结构化优先 + 哨兵仅作历史兼容兜底 + 原因可见或如实"原因未记录"。**待 VS-19 落地后派**（i18n 文件冲突）。
+- **NEXT**：`chat_stream` 是否加重试（**流式重试有重复已发出 token 的风险**，需单独设计）；超时是否计入用量/计费口径；`ResearchWorkspace:461-466`/`ThesisModeSurface` 未剥参（抽公共 `switchMode`）；Chat 与 Discussion 守卫口径统一；VS-16 评估者提的两条改进项。
+- **LATER**：VS-18 的两条 NIT；`agent_reasons` 分级（数量而非布尔）；A4-P3×2 / P4×1（`Dashboard:86` 硬编码 `UNKNOWN`、运行中 401 跳登录页、`LocalCapabilityBanner` 落点类型）；R83 起沿用的 LATER 列表（构建指纹、真实工作区备份端到端证据、`/api/health` 暴露 `local_mode`、备份自动清理等）。
 - **NOT_NOW**：沿用 R83 + VS-11 F1 的裁决。
