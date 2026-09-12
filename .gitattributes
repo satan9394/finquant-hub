@@ -1,2 +1,7 @@
 *.sh text eol=lf
 *.ps1 text eol=lf
+# Windows 双击入口是 start.bat：批处理必须保持 CRLF，不能取决于克隆者的 core.autocrlf。
+# 缺这条规则时仓库里存的是 LF，只有 autocrlf=true 的机器才会检出 CRLF——
+# 用 autocrlf=false（Linux/macOS 默认）克隆会得到 LF-only 的 .bat。
+*.bat text eol=crlf
+*.cmd text eol=crlf
