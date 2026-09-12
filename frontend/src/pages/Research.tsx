@@ -66,6 +66,34 @@ type ResearchStreamData = {
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 /**
+ * VS13：计算某次 agent 级 SSE 事件对 Agent 卡片状态的影响（纯函数，便于单测）。
+ *
+ * 仅处理 `agent_started` / `agent_completed` / `agent_failed` 三种事件；`role_key`
+ * 不在 `AGENT_KEYS` 中时**原样返回**（返回同一引用 → React 跳过重渲染，语义与改动前
+ * 的 `if (idx >= 0)` 守卫等价）。
+ *
+ * 之所以抽出来：这三种状态迁移在改动前**没有测试覆盖**（switch 内联在流回调里），
+ * 而 `agent_failed` 缺分支正是由此逃逸的。项目内既有同类先例见 `swarm.test.ts` 的
+ * `applySwarmEvent`。
+ */
+export function applyAgentEvent(
+  agents: ResearchAgent[],
+  event: 'agent_started' | 'agent_completed' | 'agent_failed',
+  agentKey: string | undefined,
+  failMessage?: string,
+): ResearchAgent[] {
+  const idx = AGENT_KEYS.indexOf(agentKey ?? '');
+  if (idx < 0) return agents;
+  const status: AgentStatus =
+    event === 'agent_started' ? 'running' : event === 'agent_completed' ? 'completed' : 'failed';
+  return agents.map((agent, i) =>
+    i === idx
+      ? { ...agent, status, ...(event === 'agent_failed' && failMessage ? { progress: failMessage } : {}) }
+      : agent
+  );
+}
+
+/**
  * G-03: 从 done 事件解析报告质量。
  * 后端 done_payload 把 quality 放在**顶层**（与 report 平级）；历史/落库形态则可能在
  * report 内部。两处都认，避免实时路径读空导致"生成不完整"警示不显示。
@@ -290,21 +318,21 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
             break;
           }
           case 'agent_started': {
-            const idx = AGENT_KEYS.indexOf(agentKey ?? '');
-            if (idx >= 0) {
-              setAgents((prev) => prev.map((a, i) =>
-                i === idx ? { ...a, status: 'running' as AgentStatus } : a
-              ));
-            }
+            setAgents((prev) => applyAgentEvent(prev, 'agent_started', agentKey));
             break;
           }
           case 'agent_completed': {
-            const idx2 = AGENT_KEYS.indexOf(agentKey ?? '');
-            if (idx2 >= 0) {
-              setAgents((prev) => prev.map((a, i) =>
-                i === idx2 ? { ...a, status: 'completed' as AgentStatus } : a
-              ));
-            }
+            setAgents((prev) => applyAgentEvent(prev, 'agent_completed', agentKey));
+            break;
+          }
+          // VS13: 后端在"单个 Agent 失败但整轮继续"时发的是非致命的 agent_failed
+          // （agent LLMError / node_failed 两条路径都用它）。此前无此分支 ⇒ 该卡片被
+          // agent_started 置为 running 后再无人终结，会一直转圈（下方流未完成兜底只在
+          // 流未正常结束时生效，正常 done 覆盖不到）。此处镜像 error 分支的按 Agent 处理，
+          // 但**不**弹全局 message.error——它不代表整轮失败，报告仍会完成并显示降级横幅。
+          case 'agent_failed': {
+            const failMessage = data.error ?? data.message ?? t('deep.request.failed');
+            setAgents((prev) => applyAgentEvent(prev, 'agent_failed', agentKey, failMessage));
             break;
           }
           case 'report_progress': {
