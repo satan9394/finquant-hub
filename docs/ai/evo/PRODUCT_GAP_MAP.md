@@ -161,6 +161,6 @@
   2. **🔄 VS-19（失败可见性收口）**：A4 的两条 P2（首页 stats 失败不得伪装成空态；深链落空一次性提示）+ 严格区分"列表不含该 id"与"列表读取失败"（后者**不得**说成"已不存在"）。实现中。
   3. **🔄 VS-21（重试总时长预算）**：`llm_client._post_chat_with_retry` 加可配置预算（可判定语义 + 上界 = 预算 + 单次尝试超时 + 两类耗尽可区分）。实现中。
   4. **⏸ VS-20（回放/实时同源）**：结构化优先 + 哨兵仅作历史兼容兜底 + 原因可见或如实"原因未记录"。**待 VS-19 落地后派**（i18n 文件冲突）。
-- **NEXT**：`chat_stream` 是否加重试（**流式重试有重复已发出 token 的风险**，需单独设计）；超时是否计入用量/计费口径；`ResearchWorkspace:461-466`/`ThesisModeSurface` 未剥参（抽公共 `switchMode`）；Chat 与 Discussion 守卫口径统一；VS-16 评估者提的两条改进项。
+- **NEXT**：**整轮研究的聚合等待上界（deadline）**——VS-21 只给了"**单次调用**预算"（默认 180s），而 `chat_with_tools_loop` **每轮独立起算**迭代，故"每次调用最多等 3 分钟"**不等于**"用户最多等 3 分钟"；需要一张 deadline 卡：把运行级截止时间向下传到每次调用（并定义**触发时做什么**：部分结果 / 明确降级 / 可恢复提示），同时把预算接 env/DB 运行时配置。`chat_stream` 是否加重试（**流式重试有重复已发出 token 的风险**，需单独设计）；超时是否计入用量/计费口径；`ResearchWorkspace:461-466`/`ThesisModeSurface` 未剥参（抽公共 `switchMode`）；Chat 与 Discussion 守卫口径统一；VS-16 评估者提的两条改进项。
 - **LATER**：VS-18 的两条 NIT；`agent_reasons` 分级（数量而非布尔）；A4-P3×2 / P4×1（`Dashboard:86` 硬编码 `UNKNOWN`、运行中 401 跳登录页、`LocalCapabilityBanner` 落点类型）；R83 起沿用的 LATER 列表（构建指纹、真实工作区备份端到端证据、`/api/health` 暴露 `local_mode`、备份自动清理等）。
 - **NOT_NOW**：沿用 R83 + VS-11 F1 的裁决。
