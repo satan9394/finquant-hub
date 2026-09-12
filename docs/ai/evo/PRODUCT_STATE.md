@@ -87,6 +87,18 @@
 
 ## R3 审计（第三轮，2026-09-13）发现
 
+**VS-12 已交付并 ACCEPT**（`d10f784`）：研究失败语义收口——`node_failed` 改非致命 `agent_failed`（真致命 `:308` 保留）、降级判据读结构覆盖工具失败 5 形态、新增空内容与 `finish_reason=="length"` 截断判据（`llm_client` 以 keyword-only 默认 `False` 向后兼容回传）。独立 Evaluator **ACCEPT**，且其验证**超出实现者报告范围**：
+- 自行找出**第三个 SSE 消费方** `routers/analysis.py:66-73`（报告未提及），确认三处一致"对 `error` 才 fail+break、对 `agent_failed` 直通" ⇒ router 零改动即非致命**成立，非漏改**；
+- 独立实测变异敏感性（真函数）：五形态全 True，退回前缀哨兵时恰好前四种丢判；
+- **独立排除反向风险**：`success:true`→非失败、合法 JSON 无 `success`→非失败、非 JSON/简短文本→非失败、空内容只看 `strip()==""` ⇒ **不存在"所有报告变 degraded"**；理论误判（`{` 开头非法 JSON、`{"success":1}`）在生产不可达（唯一调用点输入全部来自 `_execute_tool_call`）；
+- `_unpack_tool_response`：5 元组会抛 `ValueError`（**可见失败，非静默吞错**）；
+- `git show --stat` 确认 7 文件、**无 frontend/ 与 routers/**；门禁自跑 89 passed。
+
+**VS-12 评估者的非阻断项（编排者裁决）**：
+- **F1（升为下一卡 VS-13）**：`frontend/src/pages/Research.tsx` 的 SSE switch（`:286-336`）**没有 `agent_failed` 分支** ⇒ 崩溃 Agent 的卡片**永远停在 running**（也无 `agent_completed`）；改造前 `case 'error'`（`:329-333`）至少会置 failed 并显示原因。**归属**：该缺口**自 VS-1 起已存在于 LLMError 路径**，VS-12 只是延续同一路径——**非 VS-12 的判定错误**。报告级可见性仍在（`done` → `resolveReportQuality` 显示 degraded、正文含【分析失败】）。⇒ **VS-13 = 补 `case 'agent_failed'`，闭合"失败可见"的前端一环**。
+- F2：对话路径 `chat_with_tools_loop` 拿到 `finish_reason` 未消费（实现者已按卡声明"未做+原因+无回归"）→ LATER。
+- F3：`success is not True` 恒等比较，若未来出现 `success:1` 会误判（当前不可达）→ LATER（可在 VS-13 顺手加 `!= True` 的容错注释，勿扩大）。
+
 **VS-11 已交付并 ACCEPT**（`e37412c`）：消除本地模式"不可完成登录页"死胡同——`api.ts` 保留 HTTP `status`、`authStore` 新增 `unavailable` 状态与**可注入的有限重试**（仅 401/403 判需登录）、`AuthGate` 在 unavailable 时渲染重试提示而不跳登录页、`Login` 兜底、i18n +6 键、QUICKSTART FAQ。独立 Evaluator **ACCEPT**（自跑 17/17 + 既有 `Auth.test.tsx` 4/4 无回归；并**独立排除反向风险**——非本地部署下"需要登录"的唯一信号是 401（`auth.py:34-35,84`），且**主动立起并证伪**了"若后端返回字符串 id 会让成功路径全量误判 unavailable"这一致命假设）。
 - **评估者的 5 条非阻断项与编排者裁决**：
   - **F1（登录页本机兜底文案）**：评估者认为 `Login.tsx:86-101` 的 Alert 无条件渲染会让 Docker 用户在登录页看到"错误信息"，建议按 `user?.local_mode` 条件渲染。**编排者核实后削弱该发现**：文案**本已是条件式**（"**若你是**双击 start.bat 启动的本机版本…"），Docker 用户读到的是条件从句、不会被误导；且其建议的修法**在登录页不可行**（未认证时 `user` 为 null，`/api/health` 也不返回该字段）。**故不改代码**（有意克制，非漏修）。可选改进：让 `/api/health` 暴露 `local_mode`，UI 即可按部署形态定制文案 → 记 LATER。
