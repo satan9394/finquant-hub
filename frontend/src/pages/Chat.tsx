@@ -29,7 +29,20 @@ type ChatStreamData = {
   delta?: string;
   message_id?: number;
   token_count?: number | null;
+  truncated_by_deadline?: boolean;
 };
+
+/**
+ * VS28：整轮截止信号的**唯一读取点**。
+ *
+ * 后端把"提前结束"写在两处（正文前缀 + `done.truncated_by_deadline`），落库的
+ * 助手消息则由 `GET /chat/sessions/{id}/messages` 用同一常量回填该字段。
+ * 实时与回放都走这里：**只有显式 `true` 才算截断**（缺字段 = 未截断/历史数据，
+ * 不得误报）。这与 VS27 研究侧 `resolveTruncatedByDeadline` 同口径。
+ */
+export function resolveTruncatedByDeadline(value: unknown): boolean {
+  return value === true;
+}
 
 export function ChatStarterDraft({
   value,
@@ -279,6 +292,9 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
             conversation_id: currentSessionId,
             role: 'assistant',
             agent_name: null,
+            // VS28：正文里已经带了后端前置的提示；这里再把机器可读信号挂到消息上，
+            // 由 ChatMessageBubble 渲染成**持久**提示条（不是一闪而过的 toast）。
+            truncated_by_deadline: resolveTruncatedByDeadline(data.truncated_by_deadline),
             content: accumulatedContent,
             round_number: 0,
             token_count: data.token_count ?? null,

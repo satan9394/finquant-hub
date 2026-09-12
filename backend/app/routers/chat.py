@@ -28,6 +28,16 @@ DEFAULT_SYSTEM = (
     "回答直接、有数据支撑、有明确观点。此内容由 AI 生成，不构成投资建议。"
 )
 
+# VS23/VS28：整轮截止的**正文提示**文案。写入端（stream，截断时前置进正文与落库内容）
+# 与读取端（list_messages 的历史回放）共用这**同一个常量**——历史行里没有结构化标记列，
+# 回放只能由这条提示反推；两端同源才不会漂移（`用户所见 == 已保存内容`）。
+DEADLINE_TRUNCATION_NOTICE = "（因超过总时长上限提前结束，以下为已完成部分）"
+
+
+def _marked_truncated(content: Any) -> bool:
+    """该条落库内容是否为整轮截止的产出（与 stream() 的写入端判据同源）。"""
+    return isinstance(content, str) and content.startswith(DEADLINE_TRUNCATION_NOTICE)
+
 
 async def _execute_tool(name: str, arguments: str) -> str:
     """类型驱动执行工具：ToolRegistry.dispatch 负责 JSON 解析 + schema 前置校验。"""
@@ -108,11 +118,15 @@ async def delete_session(session_id: int, user: CurrentUser) -> dict[str, bool]:
 async def list_messages(session_id: int, user: CurrentUser) -> dict[str, Any]:
     user_id = int(user["id"])
     await _get_session(session_id, user_id)
-    return {
-        "items": await database.query_all(
-            "SELECT * FROM messages WHERE conversation_id=? AND user_id=? ORDER BY id", (session_id, user_id)
-        )
-    }
+    rows = await database.query_all(
+        "SELECT * FROM messages WHERE conversation_id=? AND user_id=? ORDER BY id", (session_id, user_id)
+    )
+    for row in rows:
+        # VS28：让"这条回答被整轮截止截断过"在**回放**时同样拿得到结构化字段，前端由此
+        # 渲染与实时路径**同一条**持久提示（而不是只在刚生成的那一次看得见）。
+        # 只对 assistant 行判定：用户自己打出这句提示词不该把自己的消息标成"被截断"。
+        row["truncated_by_deadline"] = row.get("role") == "assistant" and _marked_truncated(row.get("content"))
+    return {"items": rows}
 
 
 @router.post("/sessions/{session_id}/messages")
@@ -176,6 +190,12 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
             async def _event_sink(event: str, data: dict[str, Any]) -> None:
                 # 受控工具循环事件 → 收集后统一转发 SSE（事件枚举见 llm_client.TOOL_LOOP_EVENTS）。
                 # 保持"每工具调用一个 tool_call 事件"契约：仅在 completed 时发（含执行结果）。
+                # VS28 事实澄清：本白名单**刻意只放行 `tool_completed`** ⇒ `tool_loop_truncated`
+                # 等事件**不会**到客户端（客户端事件序列只有 tool_call/token/done）。
+                # "整轮截断"的用户可见通道因此只有两条，且都已接线：
+                #   ① 正文前缀 `DEADLINE_TRUNCATION_NOTICE`（同时落库，回放可见）；
+                #   ② `done.truncated_by_deadline`（前端消费并渲染持久提示；回放由
+                #      list_messages 用同一常量回填）。
                 if event == "tool_completed":
                     tool_events.append({
                         "event": "tool_call",
@@ -195,12 +215,12 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                 # "用户最多等 N 秒"——轮数上限只约束轮数，不约束时长。
                 deadline_seconds=DEFAULT_TOOL_LOOP_DEADLINE_SECONDS,
             )
-            # VS23：因截止提前结束必须**显式**透出——既不伪装成正常回答（回落文案进正文与
-            # done 载荷），也不静默丢弃已完成的工具调用记录。
+            # VS23/VS28：因截止提前结束必须**显式**透出——既不伪装成正常回答（回落文案进正文与
+            # done 载荷），也不静默丢弃已完成的工具调用记录。用户可见通道为「正文前缀 + done 字段」
+            # 两条，二者共用同一常量、与落库内容同源；事件通道不外发（见 _event_sink 注释）。
             truncated_by_deadline = bool(loop_status["truncated_by_deadline"])
             if truncated_by_deadline:
-                notice = "（因超过总时长上限提前结束，以下为已完成部分）"
-                full = f"{notice}\n\n{full}" if full else notice
+                full = f"{DEADLINE_TRUNCATION_NOTICE}\n\n{full}" if full else DEADLINE_TRUNCATION_NOTICE
             for ev in tool_events:
                 yield ev
             if full:

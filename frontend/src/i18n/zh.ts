@@ -1861,6 +1861,9 @@ const zh: Record<string, string> = {
   'chat.deepLinkUnavailable': '会话列表读取失败，未能打开指定会话',
   'chat.inputPlaceholder': '输入消息…（Shift+Enter 换行）',
   'chat.stop': '停止',
+  // VS28：整轮截止的**持久**提示（挂在消息本体上，不是 toast）。它是
+  // `done.truncated_by_deadline` 的消费方——此前该字段在前端全库零命中。
+  'chat.truncatedByDeadline': '⏱ 这条回答因超过总时长上限提前结束，以上为已完成的部分；该提示会一直保留在这条回答上。',
   'chat.runBacktest': '打开策略实验室',
   'chat.send': '发送',
   'chat.quota': '模型额度：点击“发送”后调用当前模型一次；URL 预填内容不会自动发送。',

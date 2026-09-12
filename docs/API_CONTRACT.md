@@ -22,7 +22,11 @@
 | `done` | `{"message_id": 12, "token_count": 245, "llm_token_count": 210, "tool_call_count": 2, "truncated_by_deadline": false, "user_message_id": 11}` |
 | `error` | `{"error": "错误描述"}` |
 
-**整轮截止（VS-23）**：该端点经 ToolRegistry function-calling 循环，**轮数上限只约束轮数、不约束时长**，故设整轮聚合等待上界 `DEFAULT_TOOL_LOOP_DEADLINE_SECONDS = 600s`。触发时：①正文（即 `token.delta`）**前置**「（因超过总时长上限提前结束，以下为已完成部分）」；②`done.truncated_by_deadline = true`。二者与**落库内容**同源——**用户所见 == 已保存内容**。截止**恰在一次成功调用之后**才越界时按**正常完成**处理（不误报截断）。
+**整轮截止（VS-23；消费方于 VS-28 补齐）**：该端点经 ToolRegistry function-calling 循环，**轮数上限只约束轮数、不约束时长**，故设整轮聚合等待上界 `DEFAULT_TOOL_LOOP_DEADLINE_SECONDS = 600s`。触发时（**两条用户可见通道，均已接线**）：①正文（即 `token.delta`）**前置**「（因超过总时长上限提前结束，以下为已完成部分）」；②`done.truncated_by_deadline = true`。二者与**落库内容**同源——**用户所见 == 已保存内容**。截止**恰在一次成功调用之后**才越界时按**正常完成**处理（不误报截断）。
+
+> **`done.truncated_by_deadline` 的消费方**：`frontend/src/pages/Chat.tsx` 读取该字段写入消息对象，`ChatMessageBubble` 渲染**持久**警示条（`chat.truncatedByDeadline`，挂在消息本体上，**不是** toast）。**回放同源**：`GET /api/chat/sessions/{id}/messages` 返回的每条助手消息也带 `truncated_by_deadline`（后端用写入端**同一常量** `chat.DEADLINE_TRUNCATION_NOTICE` 判定），故刷新页面后提示仍在。
+>
+> **`tool_loop_truncated` 不外发**：`llm_client.chat_with_tools_loop` 确实会向 `event_sink` 发出该受控事件，但 `routers/chat.py` 的 sink **只放行 `tool_completed`**（映射为 `tool_call`），故客户端事件序列里**没有** `tool_loop_truncated`（实测只有 `tool_call`/`token`/`done`）。它**不是**一条到客户端的通道，本表也不承诺它。
 
 **单次调用预算（VS-21/23）**：单次 LLM 调用另有总时长预算（默认 180s，上界 = 预算 + 单次尝试超时），预算耗尽抛携带（脱敏后的）上游响应片段的可行动错误；整轮截止会**压低**当轮的单次预算（取 `min(单次预算, 剩余整轮预算)`）。
 
@@ -136,7 +140,7 @@
 | `/api/chat/sessions` | GET | 列出活跃会话（含消息数和最后摘要） | MVP |
 | `/api/chat/sessions/{id}` | PUT | 更新会话标题/角色/模型 | MVP |
 | `/api/chat/sessions/{id}` | DELETE | 删除会话（级联删除消息） | MVP |
-| `/api/chat/sessions/{id}/messages` | GET | 获取会话历史消息（按时间升序） | MVP |
+| `/api/chat/sessions/{id}/messages` | GET | 获取会话历史消息（按时间升序）；每条助手消息带 `truncated_by_deadline`（见下） | MVP |
 | `/api/chat/sessions/{id}/messages` | POST | 发送消息，经 ToolRegistry function-calling 循环后以 **SSE 流**返回 `tool_call`/`token`/`done` | MVP |
 
 ---

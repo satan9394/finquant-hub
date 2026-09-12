@@ -1,5 +1,5 @@
 /* Shared message bubble for single-agent chat and discussions. */
-import { Typography } from 'antd';
+import { Alert, Typography } from 'antd';
 import dayjs from 'dayjs';
 import RoleAvatar from './RoleAvatar';
 import StreamingText from './StreamingText';
@@ -59,6 +59,20 @@ export default function ChatMessageBubble({ message, isStreaming, streamingConte
             {message.agent_name}
           </div>
         )}
+
+        {/* VS28：整轮截止的**消费方**。这条提示挂在消息本体上（不是 `message.warning`
+            那种一闪而过的 toast）：只要这条回答还在对话里，回看时就一直看得见。
+            实时来自 SSE `done.truncated_by_deadline`，回放来自 GET messages 的同一字段；
+            只有显式 true 才渲染——未截断/历史数据**不得**出现该提示。 */}
+        {message.role === 'assistant' && message.truncated_by_deadline === true ? (
+          <Alert
+            type="warning"
+            role="status"
+            data-testid="chat-truncated-by-deadline"
+            message={t('chat.truncatedByDeadline')}
+            style={{ marginBottom: 6 }}
+          />
+        ) : null}
 
         <div style={{
           padding: '10px 14px',

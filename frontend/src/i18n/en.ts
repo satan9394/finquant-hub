@@ -1862,6 +1862,9 @@ const en: Record<string, string> = {
   'chat.deepLinkUnavailable': 'Could not read your session list, so the linked session was not opened.',
   'chat.inputPlaceholder': 'Enter a message… (Shift+Enter for a new line)',
   'chat.stop': 'Stop',
+  // VS28: the persistent notice for a whole-round deadline truncation. It is attached to
+  // the message itself (not a toast) and is the consumer of `done.truncated_by_deadline`.
+  'chat.truncatedByDeadline': '⏱ This answer ended early because it exceeded the total time limit; everything above is the completed part. This notice stays on the answer.',
   'chat.runBacktest': 'Open Strategy Lab',
   'chat.send': 'Send',
   'chat.quota': 'Model quota: selecting Send calls the current model once. URL-prefilled text is never sent automatically.',

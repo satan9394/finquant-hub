@@ -128,7 +128,12 @@ def _retry_delay_seconds(attempt: int, response: httpx.Response | None) -> float
 # chat_with_tools_loop 通过 event_sink 回调发出这些事件，SSE 层/编排层直接消费，
 # 避免各调用方自行解析 tool_calls 后重新拼事件。
 # VS23 追加 `tool_loop_truncated`：整轮截止触发时提前结束的信号（与返回值里的
-# `truncated_by_deadline` 同源），使"提前结束"在**事件通道**上同样显式、不可静默。
+# `truncated_by_deadline` 同源）。
+# ⚠️ VS28 更正（原文为"使'提前结束'在**事件通道**上同样显式、不可静默"——与生产链路不符）：
+# 该事件只到达**调用方传入的 event_sink**，**不等于到达客户端**。`routers/chat.py` 的 sink
+# 刻意只放行 `tool_completed`，因此聊天 SSE 的客户端事件序列里**没有** `tool_loop_truncated`
+# （实测只有 tool_call/token/done）。用户可见的截断通道是另外两条：正文前缀 +
+# `done.truncated_by_deadline`（前端已消费并渲染持久提示）。
 TOOL_LOOP_EVENTS = (
     "tool_started", "tool_completed", "tool_failed", "tool_loop_done", "tool_loop_exhausted",
     "tool_loop_truncated",
@@ -525,7 +530,11 @@ class LLMClient:
                  "elapsed_seconds": float}       # 整轮已消耗墙钟（由注入的时钟测得）
             截断时第 1 项是**最后一段可用文本**（可能为空串）、第 2 项是已完成的工具调用记录，
             调用方据此如实提示"因超过总时长上限提前结束，以下为已完成部分"；若提供了 `event_sink`，
-            同时发出受控事件 `tool_loop_truncated`（事件通道与返回值同源，两条都不静默）。
+            同时向**该 sink** 发出受控事件 `tool_loop_truncated`。
+            ⚠️ VS28 更正（原文为"事件通道与返回值同源，两条都不静默"）：事件只到 sink，
+            **是否到达用户由调用方决定**——`routers/chat.py` 的白名单只放行 `tool_completed`，
+            聊天 SSE 里**看不到** `tool_loop_truncated`。故"用户看得见"不靠本事件，而靠调用方接线：
+            chat 走「正文前缀（并落库）+ `done.truncated_by_deadline`（前端消费→持久提示）」。
             完成后恰好越过截止 ⇒ 仍按**完成**返回（`truncated_by_deadline=False`）：
             完成就是完成，不得误报截断。
         """

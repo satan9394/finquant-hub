@@ -312,6 +312,13 @@ export interface Message {
   round_number: number;
   token_count: number | null;
   created_at: string;
+  /**
+   * VS28：该条回答是否因**整轮截止**被提前结束。
+   * 实时由 SSE `done.truncated_by_deadline` 写入；回放由
+   * `GET /chat/sessions/{id}/messages` 的同一字段写入（后端用写入端同一常量回填）。
+   * 只有显式 `true` 才算截断——缺字段 = 未截断/历史数据，不得误报。
+   */
+  truncated_by_deadline?: boolean;
 }
 
 // ==================== 讨论 ====================

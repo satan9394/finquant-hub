@@ -267,3 +267,69 @@ async def test_chat_does_not_mark_normal_completion_as_truncated(chat_deadline_d
     assert done["truncated_by_deadline"] is False
     assert stored == "正常回答"
 
+
+async def _only_conversation_id(user_id: int) -> int:
+    row = await database.query_one(
+        "SELECT id FROM conversations WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,)
+    )
+    assert row is not None
+    return int(row["id"])
+
+
+@pytest.mark.asyncio
+async def test_chat_history_replays_deadline_truncation_mark(chat_deadline_db, monkeypatch):
+    """VS28：截断标记必须在**回放**时同样拿得到（否则"持久提示"只活在刚生成的那一次）。
+
+    `GET /chat/sessions/{id}/messages` 用与写入端**同一常量**把该字段回填到 assistant 行；
+    用户自己的消息即使正文里带着同一句话，也**不得**被标成"被截断"。
+    """
+    user_id = chat_deadline_db
+
+    def truncated(deadline_seconds):
+        return ("已完成的部分正文", [], 7, {
+            "truncated_by_deadline": True,
+            "reason": "deadline_exceeded_before_tool_round",
+            "deadline_seconds": deadline_seconds,
+            "llm_calls": 3,
+            "elapsed_seconds": 601.0,
+        })
+
+    events, _, _ = await _run_chat_sse(user_id, monkeypatch, truncated)
+    assert "error" not in [event["event"] for event in events]
+    conversation_id = await _only_conversation_id(user_id)
+
+    # 用户消息故意以同一句提示词开头——角色判定必须挡住它。
+    await database.execute(
+        "INSERT INTO messages (conversation_id, role, content, token_count, user_id) VALUES (?, 'user', ?, 1, ?)",
+        (conversation_id, f"{chat.DEADLINE_TRUNCATION_NOTICE} 这是用户自己打的", user_id),
+    )
+
+    payload = await chat.list_messages(conversation_id, {"id": user_id})
+    rows = payload["items"]
+    assistant = next(row for row in rows if row["role"] == "assistant")
+    user_rows = [row for row in rows if row["role"] == "user"]
+
+    assert assistant["truncated_by_deadline"] is True, "回放必须能读出截断标记（前端据此渲染持久提示）"
+    assert all(row["truncated_by_deadline"] is False for row in user_rows), "用户消息不得被标成被截断"
+
+
+@pytest.mark.asyncio
+async def test_chat_history_does_not_mark_normal_completion(chat_deadline_db, monkeypatch):
+    """VS28 反例：未截断的运行 ⇒ 回放字段为 False，前端**不得**出现任何"被截断"提示。"""
+    user_id = chat_deadline_db
+
+    def completed(deadline_seconds):
+        return ("正常回答", [], 7, {
+            "truncated_by_deadline": False,
+            "reason": None,
+            "deadline_seconds": deadline_seconds,
+            "llm_calls": 1,
+            "elapsed_seconds": 1.0,
+        })
+
+    await _run_chat_sse(user_id, monkeypatch, completed)
+    payload = await chat.list_messages(await _only_conversation_id(user_id), {"id": user_id})
+
+    assert [row["truncated_by_deadline"] for row in payload["items"]] == [False, False]
+
+
