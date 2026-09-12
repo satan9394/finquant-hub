@@ -259,6 +259,44 @@ def _deadline_not_started_message(deadline_seconds: float | None) -> str:
     return f"因超过研究总时长上限（{limit}）未开始分析，已跳过"
 
 
+def _is_deadline_budget_exhaustion(exc: LLMError, client: Any, deadline_at: float | None) -> bool:
+    """VS30：这条 `LLMError` 是否**因整轮截止压低后的单次预算耗尽**而产生。
+
+    为什么需要它：VS27 把每次调用的单次预算压低为 `min(client.total_budget_seconds, 截止剩余)`
+    （`_remaining_call_budget`）。于是当"截止剩余 < 客户端预算"时，`llm_client` 的**预算耗尽**
+    路径会**先于** `_deadline_reached` 的轮间检查触发——该 Agent 确实是被总时长上限打死的，
+    但异常是从 `_request_tool_round` 抛出来的，只会进 `except LLMError` 分支，与
+    "轮间检查发现截止已过"那条路径**不是同一处代码**，此前不置 `truncated`，用户于是
+    看不到"本轮因超过总时长上限提前结束"。
+
+    判据**全部取自结构化信号**，不做任何错误文案匹配（仓内铁律：失败/降级判据读结构化信号）：
+      ① `deadline_at is not None`：本轮的整轮截止确实启用——没启用就不可能被它砍断；
+      ② `exc.budget_exhausted is True`：该错误由 `llm_client._post_chat_with_retry` 的
+         **预算耗尽**分支标注（上游 4xx / 网络重试耗尽 / 其它失败一律为 `False`）；
+      ③ `exc.effective_budget_seconds` **严格小于** `client.total_budget_seconds`：当时生效的
+         预算是被整轮剩余压低后的值 ⇒ 压死这次调用的那条约束就是截止。
+    ③ 用严格小于而非容差比较：`_remaining_call_budget` 是 `min()` 的结果，被压低的那一支必然
+    **严格小于**客户端预算（浮点上无"差一点"的歧义）；未被压低时两者**相等** ⇒ 判 False
+    （客户端自己的预算耗尽，与截止无关）。
+
+    三条缺一不可 ⇒ 不误报：普通 `LLMError`（无结构化字段的测试替身/历史错误形态）为 False；
+    客户端自身预算耗尽（未启用截止、截止剩余充足、或生效预算恰等于客户端预算）为 False。
+    """
+    if deadline_at is None:
+        return False
+    if getattr(exc, "budget_exhausted", False) is not True:
+        return False
+    effective = getattr(exc, "effective_budget_seconds", None)
+    client_budget = getattr(client, "total_budget_seconds", None)
+    if isinstance(effective, bool) or not isinstance(effective, (int, float)):
+        return False
+    if isinstance(client_budget, bool) or not isinstance(client_budget, (int, float)):
+        return False
+    if not (math.isfinite(effective) and math.isfinite(client_budget)):
+        return False
+    return float(effective) < float(client_budget)
+
+
 def _flag_incomplete_output(
     content: str,
     finish_reason: str | None,
@@ -443,6 +481,11 @@ async def run_research(
         `["deadline_exceeded"]`；一次都没发起 ⇒ `failed` + `error`（"未开始"）；
       - 信号与落库**同源**：`report_data.truncated_by_deadline` 与 `agent_results[key]`
         就是 router/scheduler 落库的那一份，前端实时与回放读同一字段（见 `Research.tsx`）。
+      - VS30：**两条触发路径同源同类**。"轮间检查发现截止已过"与"某次调用把**被截止压低的
+        单次预算**耗尽（llm_client 抛预算耗尽类 `LLMError`）"都会置同一个
+        `truncated_by_deadline`；判据是结构化的（`exc.budget_exhausted` +
+        `exc.effective_budget_seconds < client.total_budget_seconds`），不匹配错误文案。
+        后者只是失败得更早（异常先出），不代表"与截止无关"。
     """
     # 截止值非法必须在**任何副作用之前**拒绝（也早于记忆检索与 LLM client 获取）。
     if deadline_seconds is not None and (
@@ -515,6 +558,12 @@ async def run_research(
                 # 注意用 agent_failed 而非 error：error 会被 router 视作致命失败（fail+break），
                 # 报告将整体 failed 而非 degraded-completed——与 G-03 目标不符。
                 degraded = True
+                # VS30: 若这次失败是"**被整轮截止压低后的单次预算**耗尽"，它同样是**被截止砍断**的
+                # （VS27 令单次预算 = min(客户端预算, 截止剩余)，该情形下预算耗尽先于轮间检查触发），
+                # 必须与"轮间检查发现截止已过"那条路径一样置截断信号 ⇒ 前端横幅同样出现。
+                # 判据是结构化的（见 `_is_deadline_budget_exhaustion`），不匹配错误文案。
+                if _is_deadline_budget_exhaustion(exc, client, deadline_at):
+                    truncated = True
                 context.emit("agent_failed", {"role_key": role_key, "error": str(exc)})
                 agent_outcomes[role_key] = {
                     "status": AGENT_STATUS_FAILED,
@@ -627,6 +676,11 @@ async def run_research(
         # 异常对象在 except 块外不可见（Python 会清除 exc），因此显式留存原因文本，
         # 供结构化结局使用。
         lead_error = str(exc)
+        # VS30: 与 Agent 那条路径同源——主编被"截止压低后的单次预算"打死时，它同样是
+        # **被截止砍断**。这一支在生产时钟下必然真实（压低后的预算耗光 ⇒ 那一刻已越过截止），
+        # 而且它是**最后一个**环节，之后没有任何截止检查，此前整轮截断信号会停在 False。
+        if _is_deadline_budget_exhaustion(exc, client, deadline_at):
+            truncated = True
         yield "agent_failed", {"role_key": "report_lead", "error": str(exc)}
     # VS7 P1a（修正）: 口径必须与 report_builder **逐字一致**。
     # report_builder.py:296,368 的判据是 `lead = parse_lead_review(lead_content)` 后

@@ -157,7 +157,31 @@ def _finish_reason_of(data: JSONDict) -> str | None:
 
 
 class LLMError(Exception):
-    """LLM 调用失败，message 面向用户可读。"""
+    """LLM 调用失败，message 面向用户可读。
+
+    VS30：失败的**种类**必须结构化可读，调用方才能在不解析文案的前提下分辨
+    "这次是被整轮截止压低后的单次预算耗尽"与"普通失败（上游 4xx / 网络重试耗尽 /
+    客户端自身预算耗尽）"——仓内铁律是**不得用错误文案做字符串判据**，所以把判据
+    放在字段上，而不是放在 message 里。两个字段缺省即"普通失败"：
+
+      - `budget_exhausted`：本条错误是否由 `_post_chat_with_retry` 的 VS21
+        **总时长预算耗尽**分支产生（`_budget_exhausted_error`）。普通失败一律 `False`。
+      - `effective_budget_seconds`：当时**实际生效**的单次预算。整轮截止把单次预算
+        压低时（`research_orch._remaining_call_budget` 的 `min(客户端预算, 截止剩余)`），
+        这里就是那个被压低的值；未被压低时它就是客户端的 `total_budget_seconds`。
+        调用方据此判定"预算耗尽真正的约束是不是截止"，无需回看文案。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        budget_exhausted: bool = False,
+        effective_budget_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.budget_exhausted = budget_exhausted
+        self.effective_budget_seconds = effective_budget_seconds
 
 
 class LLMClient:
@@ -264,6 +288,8 @@ class LLMClient:
         状态码**连同脱敏后的上游响应片段**一并带上（VS23 补 NIT①，与 `_response_error` 同款：
         body 截断 300 字、api_key 一律替换为 `[已隐藏]`），不丢掉上游给出的真实原因。
         `budget_seconds` 是本次实际生效的预算（整轮截止可能把它压到剩余值）；缺省用客户端预算。
+        VS30：同时把"这是预算耗尽"与"当时生效的预算是多少"写进 **LLMError 的结构化字段**
+        （调用方据此判定"是不是被整轮截止砍断"，不得去匹配本条文案）。
         """
         effective_budget = self.total_budget_seconds if budget_seconds is None else budget_seconds
         detail = f"最后一次尝试返回 HTTP {response.status_code}。" if response is not None else ""
@@ -271,7 +297,9 @@ class LLMClient:
         return LLMError(
             f"LLM 调用总时长预算已用尽（本次 {effective_budget:g} 秒）：已发起 {attempts} 次尝试仍未成功，"
             f"停止重试。{detail}{snippet}请检查 API 地址、网络/代理连接及供应商服务状态，"
-            f"或调大 total_budget_seconds（当前 {self.total_budget_seconds:g} 秒）。"
+            f"或调大 total_budget_seconds（当前 {self.total_budget_seconds:g} 秒）。",
+            budget_exhausted=True,
+            effective_budget_seconds=effective_budget,
         )
 
     async def _post_chat_with_retry(
