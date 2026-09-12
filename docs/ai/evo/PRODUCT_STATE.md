@@ -201,6 +201,8 @@
 **另一处收益窄化（N3）**：三处 `DeleteFile` 调用点经逐条追踪**均位于"结局已是 `:backup_failed`"的路径上** ⇒ **不存在"把成功备份误报为失败"**；D4 原文严重性被高估，`try/catch` 仍保留但按"窄化后的收益"表述。
 **编排者实测并沉淀的承重细节**：遗留提示的 `-Filter` **尾星是承重的**——`'finquant-backup-*.partial*'` 能匹配 `.partial` **与 `-wal`/`-shm`/`-journal` 三个伴生件**，去掉尾星**只**匹配 `.partial`（伴生件静默累积，而 `git diff` 上只少一个字符）；7 份「有效备份」计数用 `'finquant-backup-*.db'` **不受放宽影响**。已入 `AGENTS.md`。
 
+**一个"否定结果"（留档以免重走）**：VS-18 实现者报告了一个它未能定位的怪象——"小体积合成 `.bat` 含中文时 cmd 解析失败（RC 9009/123），而真实 `start.bat` 与逐字夹具不复现"。编排者**假设**是 BOM 所致（PS 5.1 的 `Set-Content -Encoding UTF8` 会写 BOM，cmd 无法解析以 BOM 开头的首行 ⇒ 9009），并做了最小复现实验：`无 BOM` / `显式带 BOM` / `Set-Content -Encoding UTF8` 三种写法**全部正常**输出中文、`exit=0`（且本机 pwsh 的 `Set-Content -Encoding UTF8` **不写 BOM**）。⇒ **BOM 假设被证伪**；该怪象**至今未定位**，需要更具体的复现条件。**不影响 VS-18 的结论**（实现者已把探针改为 ASCII 文案，且其主证据走的是真实 `start.bat` 端到端）。**不要把它当成已知根因写进 `AGENTS.md`**。
+
 **在飞三卡（文件集互不重叠，故可并行；提交一律路径限定）**：
 - **VS-18**（`docs/QUICKSTART.md` + `start.bat`）让残缺件不可被误认为可用备份——实现中，已就 N1 口径纠偏两次，两条承重属性仍完好。
 - **VS-19**（`Dashboard.tsx`/`Chat.tsx`/`Discussion.tsx`/i18n/测试）让"失败"与"没有数据"可区分——实现中（i18n 已双写 zh/en）。
