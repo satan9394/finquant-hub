@@ -24,6 +24,10 @@ harness-engineering audit.py — 自动核查单项目 harness 的健康状态�
   仅「已启用但缺失/未跟踪/配错」才 NOT-OK。hooks 启用判定 = `.claude/settings.json`（项目级）或
   `.claude/settings.local.json`（用户级）含非空 `hooks` 配置；bootstrap 预装的 `record-error.py` 若未启用
   属 N-A（SKIP），启用后未入 git 才 NOT-OK。
+- **形态级防护（VS-37）**：代码/契约面出现「引述被更正的旧句」形态即 WARN（提示改指路式）；
+  **历史归档面（docs/ai/*、task/*、memory/*、notes/*）显式豁免**——档案保留旧说法属承重语义，
+  改写＝伪造记录；第三方引文（RFC/ISO/规范等）另有豁免。该 WARN 不影响顶层退出码
+  （与 PII 同：默认 WARN，需要阻断时由人升级为 NOT-OK，本卡刻意不自升）。
 
 只做「可编程核查」的项；其余人工判断项见 references/harness-audit.md。
 纯标准库，无第三方依赖；脚本内已处理 UTF-8 输出，Windows 控制台无需设 PYTHONIOENCODING。
@@ -66,6 +70,43 @@ GIT_TRACK_RELS = (".claude/hooks", ".github/workflows")  # settings.local.json �
 
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".cache", ".pytest_cache"}
 SCAN_SKIP_DIRS = SKIP_DIRS  # 隐私扫描跳过目录
+
+# --- VS-37：形态级防护 —— 代码/契约面不许"引述被更正的旧句" ----------------------
+# 背景：本仓曾为说明「旧说法不实」而在代码/契约面**把旧句逐字抄回**，于是字面 grep 旧句仍命中，
+# 后续审计会把「引述」误读成「代码仍在不实地声明」（VS-28 的 NIT-1；VS-33 已改为指路式）。
+# 本规则**锁形态、不锁某句话**：判据是「引述框架词 + 紧随的引文实体」，换一句旧文照样命中，
+# 也不会因为某个具体句子消失而失效。两段都满足才告警：
+#   ① 引述框架词：弱 = 原文/原句/原话/原表述/原说法/旧说法 + 系词「为/是」；
+#      强 = 「已删除的」「删除的」「旧」+ 原文（源码里写成 (?:已删除的|删除的|旧)原文 的分组式，
+#      不写整串字面量，否则本规则会命中自己的定义）。
+#   ② 紧随的**引文实体**：成对引号里至少 2 字，或冒号后紧跟非空白。
+#      没有引文实体就不是「引述」——"这份旧文本已删除"不告警；推荐写法
+#      「此处原有断言已删除，取回：git show <sha> -- <path>」也不告警（无框架词）。
+# 精度（实测得出，别放宽；三级收紧逐级验证，数字锚定基线提交 d44a850 的 git archive 抽取面）：
+#   ① **不能只匹配裸「原文」**——本仓裸「原文」几乎全是「原始文本」义（错误原文/事件原文/中文原文），
+#      实测基线作用面 **13 处，逐条核实 13/13 都是误报**（0 处是「引述」义）。
+#   ② 加系词「为/是」（原文、原句 + 系词）后基线归零；但**还必须要求紧随引文实体**：否则
+#      「旧说法 + 系词」这类**正常行文**照样命中——实测本文件第一版注释就被自己的规则命中 3 处，
+#      加上引文要求后归零。⇒ ①+② = 本规则，基线作用面命中 **0**。
+#   ③ 第三方引文豁免：框架词前 24 字符内出现 RFC/ISO/GB/PEP/规范/标准/第三方 等外部来源标记时跳过。
+# 作用面：源码（注释/docstring）+ 契约类文档。**历史归档面（docs/ai/*、task/*、memory/*、notes/*）
+#   显式豁免**——档案本来就该保留旧说法，改写＝伪造记录；reference/ 是只读第三方克隆，一并跳过。
+QUOTE_OLD_STRONG_RE = re.compile(r"(?:已删除的|删除的|旧)原文")
+QUOTE_OLD_WEAK_RE = re.compile(r"(?:原文|原句|原话|原表述|原说法|旧说法)(?:为|是)")
+_QUOTE_OLD_QCHARS = "\u201c\u201d\u2018\u2019\"'\u300c\u300d\u300e\u300f\u300a\u300b"
+QUOTE_OLD_SPAN_RE = re.compile(
+    r"(?:\s*[\uff08(]?\s*[" + _QUOTE_OLD_QCHARS + r"][^\n]{2,}?[" + _QUOTE_OLD_QCHARS + r"]|\s*[\uff1a:]\s*\S)"
+)
+QUOTE_OLD_RE = re.compile(
+    r"(?:%s|%s)%s" % (QUOTE_OLD_STRONG_RE.pattern, QUOTE_OLD_WEAK_RE.pattern, QUOTE_OLD_SPAN_RE.pattern)
+)
+QUOTE_OLD_EXTERN_RE = re.compile(r"(?:RFC\s*\d+|ISO\s*\d+|GB/?T?\s*\d+|PEP\s*\d+|规范|标准|第三方|上游|官方|外部)")
+QUOTE_OLD_CODE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".ps1", ".sh", ".sql"}
+QUOTE_OLD_CONTRACT_DOC_RE = re.compile(r"(?:CONTRACT|ARCHITECTURE|SCHEMA|TECH_STACK)", re.I)
+QUOTE_OLD_CONTRACT_DOC_NAMES = {"AGENTS.md", "CLAUDE.md"}
+# 历史归档面：**本来就该保留旧说法**（改写＝伪造记录），显式豁免——即使文件名像契约文档
+QUOTE_OLD_ARCHIVE_PREFIXES = ("docs/ai/", "task/", "memory/", "notes/")
+QUOTE_OLD_SCAN_SKIP_DIRS = SCAN_SKIP_DIRS | {"reference"}  # reference/ 是只读第三方克隆
 
 
 def find_instruction(root):
@@ -248,6 +289,50 @@ def load_profile(state_path):
         return None
 
 
+def _quote_old_scope(rel, base):
+    """VS-37 作用面判定：'in'=代码/契约面（告警面）；'archive'=历史归档面（豁免）；None=不扫。"""
+    r = rel.replace("\\", "/")
+    if any(r.startswith(p) for p in QUOTE_OLD_ARCHIVE_PREFIXES):
+        return "archive"
+    ext = os.path.splitext(base)[1].lower()
+    if ext in QUOTE_OLD_CODE_EXTS:
+        return "in"
+    if ext == ".md" and (base in QUOTE_OLD_CONTRACT_DOC_NAMES or QUOTE_OLD_CONTRACT_DOC_RE.search(base)):
+        return "in"
+    return None
+
+
+def scan_quote_old(root):
+    """VS-37：形态级扫描「引述被更正的旧句」。返回 (in_scope_hits, archive_hits)，均为 (rel, lineno, 片段)。
+
+    in_scope 才会告警；archive 只统计（证明豁免是承重的、不是空豁免）。
+    逐行判据 = QUOTE_OLD_RE 命中且框架词前 24 字符内无外部来源标记（正常引文豁免）。
+    """
+    in_scope, archive = [], []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in QUOTE_OLD_SCAN_SKIP_DIRS]
+        for fn in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, fn), root).replace(os.sep, "/")
+            where = _quote_old_scope(rel, fn)
+            if where is None or os.path.splitext(fn)[1].lower() not in TEXT_EXTS:
+                continue
+            p = os.path.join(dirpath, fn)
+            try:
+                if os.path.getsize(p) > 1_000_000:
+                    continue
+                with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                    for lineno, line in enumerate(fh, 1):
+                        m = QUOTE_OLD_RE.search(line)
+                        if not m:
+                            continue
+                        if QUOTE_OLD_EXTERN_RE.search(line[max(0, m.start() - 24):m.start()]):
+                            continue  # 正常引文（第三方文档/规范原文）不拦
+                        (in_scope if where == "in" else archive).append((rel, lineno, m.group().strip()[:60]))
+            except OSError:
+                pass
+    return in_scope, archive
+
+
 def audit(root):
     root = os.path.abspath(root)
     report = {"root": root, "label": os.path.basename(root) or root, "sections": []}
@@ -417,6 +502,29 @@ def audit(root):
     else:
         priv_items.append({"check": "样本扫描（手机/邮箱/密钥）", "status": "OK", "action": "-", "evidence": "未发现"})
     report["sections"].append({"name": "隐私", "items": priv_items})
+
+    # 形态级防护（VS-37）：代码/契约面不许"引述被更正的旧句"；历史归档面豁免
+    old_items = []
+    old_in, old_arch = scan_quote_old(root)
+    if old_in:
+        old_items.append({"check": "代码/契约面出现\"引述被更正的旧句\"形态（形态判据，不锁具体句子）",
+                          "status": "WARN",
+                          "action": "改为指路式：\"此处原有断言已删除，取回：git show <sha> -- <path>\"；"
+                                    "逐字旧文只留在 docs/ai/* 历史档案（档案不许改写）",
+                          "evidence": f"{len(old_in)} 处：" + "；".join(
+                              "%s:%d（%s）" % (r, n, s) for r, n, s in old_in[:5])})
+        for r, n, s in old_in[:8]:
+            old_items.append({"check": "引述旧句样例", "status": "WARN", "action": "人工核实并改指路式",
+                              "evidence": f"{r}:{n} → {s}"})
+    else:
+        old_items.append({"check": "代码/契约面出现\"引述被更正的旧句\"形态（形态判据，不锁具体句子）",
+                          "status": "OK", "action": "-",
+                          "evidence": "0 处（作用面：源码注释/docstring + 契约类文档）"})
+    old_items.append({"check": "历史归档面豁免（改写＝伪造记录，故不计入告警）", "status": "INFO", "action": "-",
+                      "evidence": f"{len(old_arch)} 处命中落在 docs/ai/*、task/* 等历史归档面——**豁免、不告警**"
+                                  f"（档案保留旧说法属承重语义，改写＝伪造记录）；该数非零且随档案增长属预期，不是缺陷；"
+                                  f"第三方引文（RFC/ISO/规范等）同样豁免"})
+    report["sections"].append({"name": "形态级防护（引述旧句）", "items": old_items})
 
     # 基础设施
     report["sections"].append({"name": "基础设施", "items": [
