@@ -162,3 +162,27 @@ dist/assets/ResearchWorkspace-dXj-JgJU.js        79.23 kB │ gzip:  22.30 kB
 - 关键链路事实（读码，未改后端）：`chat.py:64-78` 会话列表按 `user_id` 过滤、`chat.py:107-114` 消息接口先 `_get_session(id, user_id)`；`App.tsx:150-155` `LegacyResearchRedirect` 保留查询串；`ResearchWorkspace.tsx:65-85` 渲染 `Chat`/`Discussion` 于同一路由。
 - 未提交：`git status --porcelain` 中本卡文件均为 ` M`/`??`，**没有执行任何 commit**。
 - 临时文件：本次未产生临时文件（无写盘脚本、无中间产物）；`frontend/dist` 由 `bun run build` 生成，为仓库既有构建产物目录。
+
+---
+
+## 6. 交证后补充（22:0x–22:2x）
+
+### 6.1 追加的两例测试：切模式不得带走旧记录 id
+`frontend/tests/ResearchModeRouting.test.tsx` 新增 `LocationProbe` 与两例：
+`drops the fast-mode session deep link when switching depth`、`drops the review-mode room deep link when switching depth`。
+**修前必红**（临时摘掉 `next.delete('session')/delete('room')` 后实测）：
+
+```
+ FAIL  ... > drops the fast-mode session deep link when switching depth
+AssertionError: expected '/research?mode=deep&session=7' not to contain 'session'
+ FAIL  ... > drops the review-mode room deep link when switching depth
+AssertionError: expected '/research?mode=fast&room=42' not to contain 'room'
+ Tests  2 failed | 3 skipped (5)
+```
+恢复后单文件：`Test Files 1 passed (1) / Tests 5 passed (5)`。
+
+### 6.2 一次未定性的观察（**非本卡文件，未完成归因，交 Evaluator 裁定**）
+`tests/ResearchWorkspaceEvidence.test.tsx`（**我全程未改动该文件，也未改动它涉及的资金流向/龙虎榜卡片代码**）在 21:56 的批次里 14 例全绿；22:15、22:18 两次单独复跑均 **3 例失败**（`keeps historical selection after a failed date…`、`resets selection on a real symbol navigation…`、`keeps both cards visible with honest Empty fallbacks when fetchers fail`，失败形态为元素找不到，非 5s 超时）。两次复跑时 `git diff HEAD -- frontend/src frontend/tests` 均为空（src==HEAD），且当时 `tests/` 下正存在评估者的临时文件；我的改动只落在 `ResearchModeSurface.selectMode`（仅在点击模式单选时执行），与这三例的代码路径不相交。**我没有完成"回退 src 再复跑"的归因实验**（编排者已下达收尾停止指令），因此**不下结论**：既不说它是既有缺陷，也不说它是本次改动的回归。请 Evaluator 以 `1f95d4f^` 为对照裁定。
+
+### 6.3 收尾确认
+**收尾确认**：已停止、工作树无临时变异残留。`git status --short` 仅剩 ` M start.bat` 与 `?? docs/ai/evo/IMPLEMENT_RESULT_VS17.md`（均为 VS-17，与我无关）；`git grep -n -E 'TEMP-REPRO|TEMP_REPRO|MUTATED|TEMP-' -- frontend/src frontend/tests` **零命中**；`git diff --stat HEAD -- frontend/src frontend/tests` 为空（即 `frontend/src` 与 `frontend/tests` 的内容 == 已提交的 `1f95d4f`）。我遗留的后台 vitest 进程已终止；`bun run build`（PID 31004，启动于我做完全部改动之后）非我发起，**未触碰**。
