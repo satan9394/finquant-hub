@@ -940,6 +940,7 @@ const zh: Record<string, string> = {
   'research.deep.sources': 'Search primary sources / 检索一手来源',
   'research.deep.verify': 'Verify conclusions / 验证结论',
   'research.mode.fastPrompt': '快速分析 {ticker}，先说明问题与证据边界。',
+  'research.followup.received': '已接住你对 {symbol} 的追问：{question}。确认后即可发送（不会自动发送）。',
   'research.mode.reviewTopic': '审查 {ticker} 的当前投资判断、反证与未解决问题',
   'research.mode.backToWorkspace': '返回研究工作区',
   'research.review.consensus': 'Consensus / 共识',

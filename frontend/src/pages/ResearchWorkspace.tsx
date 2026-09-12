@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, Button, Card, Col, Collapse, DatePicker, Descriptions, Empty, Input, List, Row, Segmented,
   Skeleton, Space, Spin, Statistic, Table, Tag, Typography, message,
@@ -62,10 +62,31 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 
 const routedAgentModes = new Set<AgentMode>(['fast', 'analyst', 'deep', 'review']);
 
+/**
+ * VS-24：追问交接载荷（`ResearchWorkspace` 外的唯一消费点 → 模式面）。
+ *
+ * 有标的的 `?prompt=` 在被消费后**不再留在 URL 里**（留在 URL 会在刷新/返回时被重放），
+ * 而是经 router state 原样交给能作答的问答面（`?mode=fast`）。两条入口
+ * （`/analysis/:ticker`、`/research/:symbol`）走的是同一个消费点、同一个载荷。
+ */
+export type FollowupHandoff = { symbol: string; question: string };
+
+export function readFollowupHandoff(state: unknown): FollowupHandoff | null {
+  const handoff = (state as { followup?: Partial<FollowupHandoff> } | null | undefined)?.followup;
+  const symbol = typeof handoff?.symbol === 'string' ? handoff.symbol.trim() : '';
+  const question = typeof handoff?.question === 'string' ? handoff.question.trim() : '';
+  return symbol && question ? { symbol, question } : null;
+}
+
 function ResearchModeSurface({ mode, symbol }: { mode: Exclude<AgentMode, 'analyst'>; symbol?: string }) {
   const { t } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const subject = symbol ? decodeURIComponent(symbol).toUpperCase() : '';
+  // VS-24：追问被接住后在此处**可见回执**——用户按下发送后必须看到"问题真的到了"，
+  // 而不是"点了没反应"。载荷同时作为问答面的初始草稿（Chat 既有契约：URL/预填
+  // 只作为可编辑草稿，绝不自动发送；本卡不改该契约）。
+  const followup = readFollowupHandoff(location.state);
   const selectMode = (nextMode: AgentMode) => {
     const next = new URLSearchParams(searchParams);
     // VS16：切换模式即离开"某一条记录"，不得把旧记录的深链 id 带到新模式（fast 带 session / review 带 room）。
@@ -80,7 +101,17 @@ function ResearchModeSurface({ mode, symbol }: { mode: Exclude<AgentMode, 'analy
       <section className="research-mode-switcher">
         <AgentModeSelector value={mode} onChange={selectMode} />
       </section>
-      {mode === 'fast' ? <Chat initialPrompt={subject ? t('research.mode.fastPrompt', { ticker: subject }) : undefined} /> : null}
+      {followup ? (
+        <Alert
+          type="info"
+          showIcon
+          role="status"
+          data-testid="followup-received"
+          message={t('research.followup.received', { symbol: followup.symbol, question: followup.question })}
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
+      {mode === 'fast' ? <Chat initialPrompt={followup?.question || (subject ? t('research.mode.fastPrompt', { ticker: subject }) : undefined)} /> : null}
       {mode === 'deep' ? <Research initialTicker={subject || undefined} /> : null}
       {mode === 'review' ? <Discussion initialTopic={subject ? t('research.mode.reviewTopic', { ticker: subject }) : undefined} /> : null}
     </main>
@@ -186,7 +217,7 @@ function provenanceEvidence(
   ].filter(Boolean) as EvidenceItem[];
 }
 
-function ResearchWorkspaceCore() {
+function ResearchWorkspaceCore({ followupPrompt = '' }: { followupPrompt?: string } = {}) {
   const { lang, t } = useLanguage();
   const { symbol } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
@@ -196,9 +227,10 @@ function ResearchWorkspaceCore() {
   // Astra B6：底部/全局"继续研究"以 /research?prompt=… 进入默认研究页，此前
   // prompt 只留在 URL 不呈现，问题丢失。此处接住：预填搜索框（原问题可见），
   // 有 prompt 且无标的时自动搜索一次，让问题进入"已识别对象"流程而非被丢弃。
-  const urlPrompt = searchParams.get('prompt') ?? '';
+  // VS-24：消费点已上移到 `ResearchWorkspace`（挂载与查询串变化同源，两条入口共用），
+  // 本组件只接收一次性交接的追问文本。
+  const urlPrompt = followupPrompt.trim();
   const [query, setQuery] = useState(urlPrompt);
-  const [searchedUrlPrompt, setSearchedUrlPrompt] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Instrument[]>([]);
   const [savedWorkspaces, setSavedWorkspaces] = useState<WorkspaceType[]>([]);
@@ -232,15 +264,18 @@ function ResearchWorkspaceCore() {
   const [homeTimelineLoading, setHomeTimelineLoading] = useState(false);
   const [homeTimelineErrors, setHomeTimelineErrors] = useState<string[]>([]);
 
-  const runSearch = useCallback(async () => {
-    if (!query.trim()) {
+  // VS-24：显式词优先——追问交接进来的原问题必须按原样检索，不能读可能尚未同步的
+  // `query` state（同一 Route 只改查询串时不会重挂载，闭包里的 query 会是旧值）。
+  const runSearch = useCallback(async (explicitTerm?: string) => {
+    const term = (explicitTerm ?? query).trim();
+    if (!term) {
       message.warning(t('research.search.required'));
       return;
     }
     setSearching(true);
     setErrors([]);
     try {
-      const response = await searchInstruments(query.trim());
+      const response = await searchInstruments(term);
       setSearchResults(response.items);
       if (response.items.length === 0) setErrors([t('research.search.none')]);
     } catch (error: any) {
@@ -253,13 +288,15 @@ function ResearchWorkspaceCore() {
 
   // Astra B6：URL 携带 prompt 且无标的时自动搜索一次（原问题留在输入框可见，
   // 结果列表让用户选择对象继续），避免提问被静默丢弃在 URL。
+  // VS-24：改由外层唯一消费点交接（`followupPrompt`），并加 ref 守卫——同一个值
+  // 只检索一次（StrictMode 双调用 / effect 重入都不会重发）。
+  const searchedFollowupRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!currentSymbol && urlPrompt.trim() && !searchedUrlPrompt) {
-      setSearchedUrlPrompt(true);
-      void runSearch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSymbol, urlPrompt]);
+    if (!urlPrompt || searchedFollowupRef.current === urlPrompt) return;
+    searchedFollowupRef.current = urlPrompt;
+    setQuery(urlPrompt);
+    void runSearch(urlPrompt);
+  }, [runSearch, urlPrompt]);
 
   useEffect(() => {
     if (currentSymbol) return;
@@ -885,13 +922,82 @@ function ResearchWorkspaceCore() {
   );
 }
 
+/**
+ * VS-24：URL 追问（`?prompt=`）的**唯一消费点**。
+ *
+ * 缺陷（R5 A5-P1-1）：追问条把问题导航到 `/research/:symbol?prompt=…`，但
+ * `/research/:symbol` 只对应**一个** Route，同路径仅改查询串**不会重挂载**；
+ * 而消费 prompt 的代码此前只在挂载时读一次、且加了 `!currentSymbol` 条件
+ * ⇒ 标的研究页提交后界面零反馈，问题只躺在地址栏。`/analysis/:ticker` 那条
+ * 入口因 Route 变化会重挂载，于是"同一个按钮两条路径行为相反"。
+ *
+ * 本卡把消费上移到外层：`?prompt=` 出现即消费，**与是否重挂载无关**，
+ * 两条入口（`/analysis/:ticker`、`/research/:symbol`）走同一段代码，不写第二套。
+ *
+ * 规则（含错误场景裁决）：
+ * ① 空 / 纯空白 prompt（`?prompt=`）⇒ **忽略**（绝不发起空研究/空追问），只清理查询串；
+ * ② 有标的 ⇒ **追问优先于 `mode`**：把原问题交给能作答的问答面
+ *    （`/research/:symbol?mode=fast`），问题经 router state 原样携带；
+ *    因与 VS-16 同构，换面时一并剥掉 `session`/`room`（那是"某一条记录"的深链）；
+ * ③ 无标的 + 无 mode ⇒ 交给默认研究页的既有检索流程（Astra B6：预填 + 自动检索一次）；
+ * ④ 无标的 + 有 mode（fast/deep/review/thesis）⇒ **不动**：这些面自己拥有 prompt
+ *    （`Chat` 的 `?prompt=` 草稿契约是既有行为，本卡不碰）；deep/review/thesis 面
+ *    目前仍不消费自由文本，属本卡未覆盖的既有边界，已记入结果文件。
+ * ⑤ 无论 ①②③，消费后一律用 `replace` 把 `prompt` 从地址栏清掉 ⇒ 刷新/返回都不重放。
+ *    （`replace` 是关键：带 prompt 的那条历史记录被就地替换，返回栈里不再存在它。）
+ */
 export default function ResearchWorkspace() {
   const { symbol } = useParams<{ symbol: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const rawMode = searchParams.get('mode');
+  const rawPrompt = searchParams.get('prompt');
+  const question = (rawPrompt ?? '').trim();
+  const routedMode = Boolean(rawMode && routedAgentModes.has(rawMode as AgentMode) && rawMode !== 'analyst');
+  // 无标的路径的一次性交接（交给 Core 的检索流程）；state 而非 ref，才能驱动 Core 重渲染。
+  const [handoffQuestion, setHandoffQuestion] = useState('');
+  // 同一个原始 prompt 值只消费一次（StrictMode 双调用 / effect 重入 / 导航回响都不会重放）；
+  // 地址栏里 prompt 消失后立即复位，于是"同一问题再提交一次"仍会被当作新的一次追问。
+  const consumedPromptRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (rawPrompt === null) {
+      consumedPromptRef.current = null;
+      return;
+    }
+    if (consumedPromptRef.current === rawPrompt) return;
+    // ④ 模式面自己拥有 prompt（Chat 草稿契约）——不消费、不清理。
+    if (!symbol && routedMode) return;
+    consumedPromptRef.current = rawPrompt;
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('prompt');
+    const clearPrompt = () => setSearchParams(new URLSearchParams(next), { replace: true });
+
+    if (!question) {           // ① 空追问：忽略 + 清理
+      clearPrompt();
+      return;
+    }
+    if (!symbol) {             // ③ 无标的：默认研究页检索（B6）
+      setHandoffQuestion(question);
+      clearPrompt();
+      return;
+    }
+    // ② 有标的：追问优先于 mode —— 交给问答面，问题经 state 原样携带。
+    if (rawMode !== 'fast') {  // 与 VS-16 同构：换面即剥掉"某一条记录"的深链
+      next.delete('session');
+      next.delete('room');
+    }
+    next.set('mode', 'fast');
+    navigate(`/research/${encodeURIComponent(symbol)}?${next.toString()}`, {
+      replace: true,
+      state: { followup: { symbol: decodeURIComponent(symbol).toUpperCase(), question } },
+    });
+  }, [navigate, question, rawMode, rawPrompt, routedMode, searchParams, setSearchParams, symbol]);
+
   if (rawMode === 'thesis') return <ThesisModeSurface />;
   if (rawMode && routedAgentModes.has(rawMode as AgentMode) && rawMode !== 'analyst') {
     return <ResearchModeSurface mode={rawMode as Exclude<AgentMode, 'analyst'>} symbol={symbol} />;
   }
-  return <ResearchWorkspaceCore />;
+  return <ResearchWorkspaceCore followupPrompt={handoffQuestion} />;
 }

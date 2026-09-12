@@ -154,6 +154,34 @@ export function LegacyResearchRedirect({ mode }: { mode: 'fast' | 'deep' | 'revi
   return <Navigate to={`/research?${search.toString()}`} replace />;
 }
 
+/**
+ * VS-24：标的研究语境追问条的**规范去向**（唯一实现）。
+ *
+ * 追问条在 `/analysis/:ticker` 与 `/research/:symbol` 两条入口都渲染，两条入口
+ * 必须落到同一个 URL：`/research/<标的>?prompt=<原问题>`。之所以抽成函数而不是
+ * 各处手拼：本仓历次真缺陷多为"同一件事两条路径不同源"（一条改、另一条忘）。
+ */
+export function followupResearchPath(symbol: string, prompt: string): string {
+  return `/research/${encodeURIComponent(symbol)}?prompt=${encodeURIComponent(prompt)}`;
+}
+
+/**
+ * VS-24：追问条宿主——`/analysis/:ticker` 与 `/research/:symbol` 共用**同一个**
+ * 组件、**同一个**去向函数，不写第二套实现。
+ *
+ * 注意：这里只负责"把原问题原样带走"；问题如何被接住由 `ResearchWorkspace`
+ * 的唯一消费点决定（见该文件顶部说明）。
+ */
+export function FollowupComposer({ symbol }: { symbol: string }) {
+  const navigate = useNavigate();
+  return (
+    <CommandComposer
+      contextLabel={symbol}
+      onSubmit={(prompt) => navigate(followupResearchPath(symbol, prompt))}
+    />
+  );
+}
+
 export type SystemHealthStatus = 'checking' | 'ok' | 'unavailable';
 
 export function SystemStatusIndicator({ status, onOpen }: { status: SystemHealthStatus; onOpen: () => void }) {
@@ -237,6 +265,9 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
   // 研究语境的追问条：仅在当前对象语境（/research/:symbol、/analysis/:ticker）
   // 渲染，携带当前对象；提交把原问题导航到 /research/:symbol?prompt=…，
   // 首页只保留 hero/header 的单一全局提问弹窗（Step A）。
+  // VS-24：两条入口共用 FollowupComposer/followupResearchPath（同一个去向），
+  // 问题如何被接住由 ResearchWorkspace 的唯一消费点负责——"导航到同一 URL"
+  // 不等于"被接住"：同一 Route 只改查询串不会重挂载，这正是本卡修的核心缺陷。
   const objectMatch = location.pathname.match(/^\/(?:research|analysis)\/([^/]+)/);
   const followupSymbol = objectMatch && objectMatch[1] !== 'reports' ? decodeURIComponent(objectMatch[1]) : undefined;
 
@@ -343,10 +374,7 @@ function AppLayout({ isDark, onToggleTheme }: AppLayoutProps) {
       </Routes>
       </Suspense>
       {followupSymbol ? (
-        <CommandComposer
-          contextLabel={followupSymbol}
-          onSubmit={(prompt) => navigate(`/research/${encodeURIComponent(followupSymbol)}?prompt=${encodeURIComponent(prompt)}`)}
-        />
+        <FollowupComposer symbol={followupSymbol} />
       ) : null}
       </main>
       <AgentRail open={agentRailOpen} onClose={() => setAgentRailOpen(false)} />

@@ -940,6 +940,7 @@ const en: Record<string, string> = {
   'research.deep.sources': 'Search primary sources',
   'research.deep.verify': 'Verify conclusions',
   'research.mode.fastPrompt': 'Quickly analyze {ticker}, starting with the question and evidence boundaries.',
+  'research.followup.received': 'Your follow-up on {symbol} was received: {question}. Confirm to send (nothing is sent automatically).',
   'research.mode.reviewTopic': 'Review the current investment view, counter-evidence, and unresolved questions for {ticker}',
   'research.mode.backToWorkspace': 'Back to Research workspace',
   'research.review.consensus': 'Consensus',
