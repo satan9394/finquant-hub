@@ -701,3 +701,16 @@
 - Docs updated: docs/API_CONTRACT.md、docs/ROUTER_MAP.md、docs/ARCHITECTURE.md、docs/HANDOVER.md、docs/ai/UX_FIX_EVIDENCE_20260907.md。
 - Verification: 最终门禁进行中，完成后以 UX_FIX_EVIDENCE_20260907.md 的最终结果为准。
 - Risk: medium；本地开发凭据主密钥改为持久化文件，需连同数据库私下备份。无 schema/依赖/E2E 配置变更，无文件删除。未 commit/push，按三块拆分提交。
+
+## 2026-09-13 — 产品演进编排（VS-1..VS-14 + 三轮独立审计）
+
+- What changed:
+  - 后端：`services/research_jobs.py`（重试上限 + 24h 窗口只计 `failed` + 手动运行可绕过熔断）、`services/scheduler.py`、`routers/settings.py`；`services/research_orch.py`（`quality` 在源头并入 `report_data`、`node_failed` 改为非致命 `agent_failed`、降级判据由**字符串前缀哨兵**改为**读结构**覆盖工具失败 5 形态、新增空内容与 `finish_reason=="length"` 判据）；`services/llm_client.py`（瞬时故障重试 + **尊重上游 `Retry-After`**（整数与 HTTP-date，含 30s 单次上限）+ 退避抖动 + `keyword-only` 回传 `finish_reason`）；`routers/research.py`（`quality` 幂等合并，绝不把 `degraded` 反写成 `audited`）。
+  - 启动链：`start.bat`（备份改用 `sqlite3.Connection.backup()` 修复**只复制主库导致静默丢弃 WAL 中已提交事务**、Bun 探测改非致命、等服务端口就绪后再开浏览器（按截止时间 ≤90s）、失败信息改三段式）。
+  - 前端：`pages/Research.tsx`（新增 `agent_failed` 分支并抽出可测纯函数 `applyAgentEvent`）；`services/api.ts`（拒绝的 Error 保留 HTTP `status`）；`store/authStore.ts`（新增 `unavailable` 状态 + 可注入的有限重试，仅 401/403 判"需登录"）；`App.tsx`（AuthGate 在服务未就绪时渲染重试而非跳登录页）；`pages/Login.tsx`；`i18n/{zh,en}.ts`（+6 键，parity 一致）。
+  - 测试：`backend/tests/{test_llm_client,test_research_orch,test_chat_tools,test_memory}.py`；`frontend/tests/{AuthUnavailable,ResearchAgentFailed}.test.tsx`。
+  - 文档：`AGENTS.md`（新增"Agent 作业踩坑"八条）、`docs/QUICKSTART.md`、`docs/PRD.md`、`README.md`、`docs/ai/evo/*`（编排产物：产品状态、缺口图、审计报告、任务卡与验收结论）。
+- Why: 面向非技术用户的"第一次就能用起来"（本地模式登录死胡同、免 Bun 兜底可达、首启体验）；失败必须**可见且不丢成果**（降级语义、单个 Agent 失败不再毁掉整轮、五形态工具失败都要判降级）；数据安全（备份必须是一致完整快照）。
+- Docs updated: 上列；另 `docs/ai/evo/{PRODUCT_STATE,PRODUCT_GAP_MAP,PROJECT_BRIEF}.md`。
+- Verification: 后端聚焦 pytest **89 passed** + `ruff check .` 干净；前端 vitest 新增 **17+6 passed**、回归 **30+16 passed**；`bun run build`（含 `tsc -b`）**exit 0**。`start.bat` 侧由独立 Evaluator 以**合成 WAL 夹具**三路对照（三件套 202 / 旧只复制 `.db` 0 / 新实现逐字经 `cmd.exe` 实跑 202）并实测失败路径 `exit 3` 且残件经回收站清除。全部改动经 **19 次独立评估**，其中 **10 次抓到真实缺陷**，修复后复评通过。
+- Risk: medium。`start.bat` 备份段与 `llm_client` 重试属高风险区，均已独立评估。**未跑全量 pytest，亦未跑 `tests/test_api.py`**（本机沙箱下两者均会挂起，见 `AGENTS.md` 踩坑）。`start.bat` 的"产物过期判定脆弱"（A3 P1-2）已立卡 **VS-14**，尚未实施。
