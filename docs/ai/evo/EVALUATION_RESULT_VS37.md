@@ -1,5 +1,9 @@
 # EVALUATION_RESULT — VS-37：形态级防护（"引述旧原文"形态告警）
 
+> **本文件含两轮，勿混读**：
+> - **第 1 轮（§0~§7，原样保留）** = 对被验提交 `415efe9` 的判定：**REJECT**（D1/D2/D3）。
+> - **第 2 轮 = 复验轮**：对被验提交 **`075b528`（修复轮）** 的判定 —— **见文末「复验轮」段**，结论：**ACCEPT（含 3 条 NIT）**。
+
 > 独立验收（EVALUATOR）。**假设实现有错**；实现者自述只当待验断言。
 > 所有夹具/探针由评估者**自建**，未复用实现者的 `%TEMP%\vs37_fixture`。
 
@@ -308,3 +312,177 @@ TOTAL 40 cases, PASS=29 FAIL=11   （11 = 1 个我的标注错误 + D1×6 + D2×
 - 归档面豁免的**根锚定**实现正确（嵌套 `notes/` 不被误豁免）。
 - 结果文件 §8 的门禁输出**不是过期快照**（SHA256 独立复算一致）。
 - 仓库内零临时文件、零新依赖、未 commit。
+
+---
+
+# 复验轮（Round 2）— 被验提交 `075b528`
+
+> 上一轮（§0~§7，已原样保留）判 `415efe9` **REJECT**，理由是 **D1/D2/D3**。
+> 本轮**假设修复可能没修对、或修出新问题**：实现者自述只当**待验断言**，所有探针/夹具由评估者**自建**
+> （`%TEMP%\vs37rev\`，未复用 `vs37_fix_impl`；仓库内零夹具），基线脚本一律**按字节**取出并核对 git blob sha1。
+
+## V0. 判定
+
+**ACCEPT（含 3 条 NIT，均不影响交付面与退出码）** —— **D1/D2/D3 三处均真修好**，且**放宽作用面后没有冒出新告警**、
+**零回归成立**。三条 NIT：N1 仓库内残留 1 个本卡第一轮生成的 `.pyc`（未跟踪/被 gitignore/不在提交内，且 §R8 对它的
+"前几日留下的"描述与时间戳不符）；N2 归档面计数与结果文件所载 53 不同（**不是缺陷**：我独立复现了它的 56，
+6→61 的漂移是"结果文件自身落归档面"造成的，其 §R9-1 已如实披露）；N3 第三方豁免**对强框架词一并生效**，
+留下一条**很窄**的过宽路径（`依据 RFC 9457 已删除的原文："X"` 不告警）——需要真来源编号紧邻才可达，
+本仓 0 命中、不影响退出码。
+
+**锚点（显式，不用相对引用）**：被验提交 `075b528ac9415b65a20f00ad851b6f9dbe565211`（其父 `ba725bd`）；
+`415efe9` = `415efe9f2e340e9183445ec7fbc46ee29a737e1f`；`d44a850` = `d44a850cac9a2bcf0bd16bcd8e4e53651d1ee97e`。
+`scripts/audit.py` blob：`415efe9` = `5c858885d63b39b63f077fe6cce1eb879ad39e2b`（**独立复算一致**）、
+`d44a850` = `6927372b060f201145b87e18fdc07acd28f9af67`（**独立复算一致**）、`075b528` = `ff843d1d2429237e27094c146a2a4eb6d6a31e15`。
+取 blob 用 `subprocess.run(["git","cat-file","blob",...])` **二进制**写出（不走 `git show | Set-Content`，避免 LF→CRLF）。
+
+## V1. D1 —— **真修好**（自建 7 扩展名探针 + 真实文件"确实被打开"独立确认）
+
+闸门 `scan_quote_old`：`… not in (TEXT_EXTS | QUOTE_OLD_CODE_EXTS)`（`scripts/audit.py:358`）。
+自建夹具（`%TEMP%\vs37rev\fx`，每例 `原文为"两条都不静默"`），**同一夹具在"修复前脚本"与"修复后脚本"下各跑一遍**：
+
+```text
+EXP    PATH                                PRE(415efe9) HEAD(075b528)  VERDICT
+True   frontend/src/probe_e0.tsx           False        True          PASS
+True   frontend/src/probe_e1.jsx           False        True          PASS
+True   frontend/src/probe_e2.vue           False        True          PASS
+True   frontend/src/probe_e3.mjs           False        True          PASS
+True   frontend/src/probe_e4.cjs           False        True          PASS
+True   scripts/probe_e5.ps1                False        True          PASS
+True   backend/app/probe_e6.sql            False        True          PASS
+True   frontend/src/probe_e7.ts (对照)      True         True          PASS
+False  frontend/src/probe_e8.txt           False        False         PASS   ← .txt/.json 在 TEXT_EXTS 但不在作用面，仍不扫（未被顺手放宽）
+False  frontend/src/probe_e9.json          False        False         PASS
+7/7 转 True，且原有扩展名未受影响、作用面外扩展名未被卷进来。
+```
+
+**"不能只看文件被打开"——我按闸门逐层独立计数**（同一棵工作树、同一次 `os.walk`，只改闸门取值）：
+
+```text
+[PRE(415efe9)]  opened=1016  blocked=317  blocked_exts={'.ps1':12,'.tsx':267,'.mjs':35,'.sql':3}  frontend/src(*.tsx|*.jsx|*.vue) opened=0
+[POST(HEAD)]    opened=1333  blocked=0                                                                 frontend/src(*.tsx|*.jsx|*.vue) opened=110
+                Discussion.tsx opened? True      ← 真实文件，不依赖它的夹具
+```
+⇒ 与实现者自述的 1015→1332 相差 **+1（两侧同偏移，增量 317 完全一致）**，属计数口径的 ±1，不影响结论。
+**真实 `.tsx` 确实进入判定**（不止被打开）：我另建 `frontend/src/pages/backend/notes/x.ts` 等形态探针，均按预期命中/落在正确桶。
+
+## V2. D2 —— **真修好**（弱框架词不再认冒号；强框架对照不受影响）
+
+```text
+EXP    CASE(自建)                                              PRE     HEAD
+False  错误原文是：底层返回的超时信息。                            True    False   PASS ← 上一轮的误报，已堵
+False  该接口的响应原文是：{"ok":true}                            True    False   PASS
+False  事件原文是：底层抛出的异常。                                True    False   PASS
+False  错误原文是: 空（半角冒号）                                  True    False   PASS ← 边界：半角分支同样收掉
+False  错误原文是：（行尾、无引文实体）                            False   False   PASS
+True   已删除的原文：该（**强框架 + 冒号，卡里的正例**）            True    True    PASS
+True   旧原文：只有这一个端点 / 旧原文： 只有这一个端点             True    True    PASS
+True   原文为"两条都不静默" / 原话是'什么都不做'（弱框架+引号）      True    True    PASS
+```
+**代码层核对**：`QUOTE_OLD_RE = (?:STRONG SPAN_strong | WEAK QUOTE_SPAN)`；`QUOTE_OLD_SPAN_RE`（含 `[：:]\s*\S` 分支）
+只接在 `QUOTE_OLD_STRONG_RE` 之后，弱框架词接的是只认成对引号的 `QUOTE_OLD_QUOTE_SPAN_RE`。⇒ 与自述一致。
+
+## V3. D3 —— **真修好**（泛词豁免删除；真第三方引文与"紧邻来源编号"仍豁免）
+
+```text
+EXP    CASE                                                                    PRE     HEAD
+True   # …遵循既有规范。此处原文为"两条都不静默"已删除。（卡里原文）             False   True    PASS ← 上一轮 2/2 被吞
+True   # 按项目标准，原文为"两条都不静默"。（卡里原文）                          False   True    PASS
+True   规范 距 >24 字符（上一轮对照组）                                        False   True    PASS
+False  # 依据 RFC 9457 原文为"problem+json 是统一错误载体"。                     False   False   PASS ← 真引文仍豁免
+False  # 见 GB/T 35273 原文为"个人信息安全规范"。                                False   False   PASS
+False  # 参见 ISO 8601 原文为"YYYY-MM-DD" / # 依据 PEP 8 原文为"4 空格缩进"。      False   False   PASS
+False  RFC9457原文为 / RFC 9457 的原文为 / RFC 9457 第 4 节原文为 / RFC 9457 与 GB/T 35273 原文为   均 False  PASS ← 间隔 0/2/5 字符仍豁免
+False  # 此处原有断言已删除，取回：git show <sha> -- <path>（卡推荐的指路式）       False   False   PASS ← 未因收窄而被误伤
+```
+源码核对：`QUOTE_OLD_EXTERN_RE` 只剩 `RFC|ISO|GB/?T?|PEP` + 编号，六个泛词（`规范/标准/第三方/上游/官方/外部`）**确已从正则删除**；
+新增 `MAX_GAP=6` + 句读集合。⇒ 与自述一致。
+
+**"收紧是否反而把该豁免的真引文也放过"**（必做 5 前半）：**是，存在一条已知边界**——来源编号与框架词之间只要有**句读**
+或**间隔 >6 字符**就不再豁免，于是 `# 依据 RFC 9457，原文为"problem+json"。` 与
+`# 见 ISO 8601 中定义的校验规则，原文为"YYYY-MM-DD"。` 现在**会告警**（`OLD=False → NEW=True`，我实测 3/3）。
+判定：这**符合上一轮给出的建议原文**（"要求标记与框架词之间无句读"）与 `AGENTS.md:109` 明写的"**紧邻**"口径，
+且只是 **WARN、不影响退出码**，本仓 0 命中；实现者 §R9-4 亦自认阈值是经验值、未做敏感性实测。**不作为缺陷**，作为已知边界登记。
+
+## V4. 放宽作用面后**没有冒出新告警**；tier A 那 44 处我**独立读全**
+
+我自建 walk（不用它的 `dumpA.py`），在同一棵工作树上只改闸门取值：
+
+```text
+                        gate=TEXT_EXTS(交付)   gate=TEXT_EXTS|CODE_EXTS(修复后)
+tier A 裸「原文」        in=23 arc=341          in=67  arc=341      NEW=44  GONE=0
+tier B 弱框架+系词        in=0  arc=95           in=1   arc=95       ← 唯一命中 = frontend/src/pages/Discussion.tsx:205（独立复核一致）
+tier C 强框架词           in=0  arc=27           in=0   arc=27
+tier D 本规则(交付形态)   in=0  arc=65           in=0   arc=61
+```
+- **44 处逐条判定**（全文见本轮 `%TEMP%\vs37rev\tierA_new.txt`，我逐行读过）：**44/44 都是「原始文本」义**——
+  `错误原文`/`失败原文`/`底层（错误/原因）原文`/`出错原文`/`axios 原文`/`年报原文`，**0 处是「引述被更正的旧句」义**。
+  ⇒ 实现者"0 不是靠继续漏扫维持"的论据**成立**（若该 44 处含引述义，D1 修复就会把它变成新告警）。
+- **交付规则（tier D）的两侧闸门 in-scope 均为 0**：真实仓库上 `in_scope = 0`，与门禁一致。
+- **D3 的净作用面隔离**（同一棵树、同一份交付正则，**只替换豁免函数**）：旧豁免 9 行 → 新豁免 4 行，
+  **新暴露的 5 行全部落在 archive 桶**（`docs/ai/evo/EVALUATION_RESULT_VS37.md:185/187`、
+  `docs/ai/evo/IMPLEMENT_RESULT_VS37.md:114/115/807`，即两轮评估文字与探针表格自身的引文），**in-scope 新增 = 0**。
+
+## V5. 零回归（显式提交号；五元组 / 退出码 / 段数 / 基线 blob sha1）
+
+```text
+[A] 415efe9(blob 5c85888，已按字节取出并复算 sha1) vs 075b528：既有 24 项五元组 IDENTICAL=True
+    sections 9 → 9（本卡新增段在 415efe9 就已存在，段内 evidence 属本卡自带，不计入既有项）
+    NOT-OK 0 → 0
+[B] d44a850(blob 6927372，同上) vs 075b528：既有 24 项五元组 IDENTICAL=True
+    sections 8 → 9（新增 '形态级防护（引述旧句）'，插在 隐私 与 基础设施 之间）；NOT-OK 0 → 0
+门禁：python scripts/audit.py .  EXIT=0(38.3s)   --json EXIT=0(44.9s)   NOT-OK=0
+同内容连跑 4 次 --json：逐字节相同 = True（sha256 679c2027…，与本轮无关的 4 次运行互比）
+```
+**写入本评估文件之后再跑一遍**（因为本文件也在 `docs/ai/` 归档面，archive 计数会上升——这正是它 §R9-1 说的）：
+
+```text
+POST-EDIT: python scripts/audit.py . EXIT=0 ； --json EXIT=0 ； NOT-OK=0 ； items=26 ； in_scope 仍为 0 ； archive 61 → 69
+POST-EDIT 同内容 4 连跑 --json：逐字节相同 = True（sha256 041ed93c…）
+```
+⇒ **写入本文件不会引入任何 in-scope 命中、不改变退出码**；archive 只增不减的是**豁免面**，属预期。
+
+说明：`--json` 的 sha256 **不与**实现者 §R6 所载相同——因为该文件自身已增长（archive 53→61），
+这正是它 §R9-1 主动披露的点；我改用**同内容 4 连跑**这一有信息量的形式复核，成立。
+（我另独立复现了它 §R3 的 `56`：`新正则 + 旧闸门 + 旧豁免 = 56` **逐位命中**；`61` 与门禁实况一致。）
+
+## V6. 口径是否与世界一致（上一轮 D1 就是"声明 ≠ 有效"）
+
+- `scripts/audit.py`：`scan_quote_old` 处的注释明写"闸门必须是 `TEXT_EXTS ∪ QUOTE_OLD_CODE_EXTS`，否则 7 个已声明
+  扩展名永远进不到正则"（L356-358），docstring 的形态级防护段（L27-30）与 L96-102 的作用面描述均已同步。**与实现一致**。
+- `AGENTS.md:109`（blob `2dee6c45…`，改了 `+1/-1`）：作用面写成 `.py/.ts/.tsx/.js/.jsx/.mjs/.cjs/.vue/.ps1/.sh/.sql`
+  + `AGENTS.md`/`CLAUDE.md` + 契约类 `.md`；判据写成"成对引号里 ≥2 字；冒号后内容**只对强框架词算数**"；
+  豁免写成"框架词**紧邻** RFC/ISO/GB-T/PEP 来源编号"。**三处与代码逐条对得上**。
+- `IMPLEMENT_RESULT_VS37.md`：第一轮原文逐字保留 + `⚠️ 修复轮订正(D#)` 就地标注（§2.1/§2.2/§3.1/§6/§9-6/§10），
+  另有 §R7 七条口径订正清单。**"作用面含 `.tsx`"那句假话已被就地更正为事实口径**。
+- 自命中：`scripts/audit.py` / `AGENTS.md` / `CLAUDE.md` 三者在交付规则下均为 **0 命中**（我直接调 `QUOTE_OLD_RE` 逐行判，不读报告）。
+
+## V7. 边界与清理
+
+```text
+git diff --name-status 075b528^ 075b528 → M AGENTS.md / M docs/ai/evo/IMPLEMENT_RESULT_VS37.md / M scripts/audit.py
+git diff --name-only d44a850 075b528 -- backend/ task/   → 空
+git status --porcelain → 空（0 未跟踪）；git ls-files 无 vs37*/probe_*/*.pyc
+```
+⇒ 提交**只含** `scripts/audit.py` + `AGENTS.md` + 本卡结果文件；`backend/**`、`task/CHANGELOG.md`、`docs/ai/evo/*`
+既有档案**零改动**（vs `415efe9` 出现的 VS-36 文件来自 `37c3eef`/`ba725bd`，不在 `075b528` 的文件集内）。
+仓库内 `vs37*` 临时文件 = 0。
+
+**N1（唯一实体残留）**：`scripts/__pycache__/audit.cpython-313.pyc` 仍在（创建时间 **2026/9/12 10:55:13**，
+早于 `415efe9` 的提交时刻 10:57:32 ⇒ 是**本卡第一轮**用 3.13 加载 `scripts/audit.py` 时生成的）。
+它**未跟踪、被 `.gitignore` 覆盖、不在提交内、门禁不读它**，故不影响交付面；但：①必做 6 的"无 `.pyc` 残留"
+字面不成立；②`IMPLEMENT_RESULT_VS37.md` §R8/§R9 把它描述成"**前几日**留下的 `audit.cpython-313.pyc`"，
+**与时间戳不符**（同日、同卡的更早一轮）。建议：把它送回收站，并把该句改成"本卡第一轮生成、本轮送回收站"。
+（本轮我自己生成的字节码全部落在 `%TEMP%\vs37rev\__pycache__\`，未在仓库内产生任何新文件。）
+
+## V8. 仍未解决的边界（登记，不阻断）
+
+1. **N3 豁免对强框架词同样生效**：`# 依据 RFC 9457 已删除的原文："只有这一个端点"` 实测 `False`（不告警）。
+   要触发需要"真来源编号紧邻 + 强框架词"同时成立，本仓 0 命中、只影响 WARN，故不判缺陷；
+   若要彻底堵死，只需让 `_quote_old_extern_exempt` 在 `QUOTE_OLD_STRONG_RE` 命中位置生效时返回 `False`。
+2. **弱框架词不再认冒号的反面**：`原文是：某段被删掉的旧文`（若真存在）会漏一个告警——这是上一轮 D2 建议的直接代价，
+   实现者 §R9-2 已自认，我认同该交易（本仓"错误原文是：…"是高频合法行文）。
+3. **`tier A = 67` 是"裸 `原文`"档、不进门禁**：我认同（44/44 为"原始文本"义），但该数字会随前端代码增长，
+   **不得**据此收紧规则（收紧会打掉 `错误原文` 一类合法行文）。
+4. **归档面 INFO 计数是移动靶**（53 → 61）：计数随 `docs/ai/evo/*` 增长而上升，属预期；`in_scope` 与退出码不受影响。
+   若编排者希望门禁输出稳定，建议把该计数从 `evidence` 移到不含数字的说明，或改用"是否仅出现在归档面"的布尔口径。
