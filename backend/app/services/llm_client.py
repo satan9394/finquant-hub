@@ -7,6 +7,7 @@ import email.utils
 import json
 import math
 import random
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -31,6 +32,21 @@ _BACKOFF_BASE_SECONDS = 0.5  # 退避：0.5s → 1.0s
 # 3) 回落退避加抖动，避免并行 agent 因参数相同而同步重试形成脉冲。
 _RETRY_AFTER_MAX_SECONDS = 30.0   # 单次等待上限（秒）
 _BACKOFF_JITTER_RATIO = 0.25      # 回落退避抖动幅度：base × [0.75, 1.25]
+
+# VS21: 整次调用（首次尝试 + 全部重试）的总时长预算。
+# 此前只有两个**分项**上限——"单次尝试超时"（LLMClient.timeout，默认 120s）与"单次等待上限"
+# （_RETRY_AFTER_MAX_SECONDS，30s）——**没有任何聚合约束**，故最坏静默等待 = 3×120 + 2×30
+# = 420 秒（7 分钟）：用户在"深度研究"里长时间看不到任何反馈，分不清"还在努力"与"已经卡死"。
+# 取 180s = 1.5 × 单次尝试超时（120s）的依据：
+#   ① 180 > 120 + 30 ⇒ 即使首次尝试跑满超时，紧随其后的**一次完整 30s 上游等待**仍放得下，
+#      重试机制不会因预算而形同虚设；
+#   ② 由"只在 sleep 前检查"得到的可判定上界 = 180 + 120 = 300 秒（5 分钟），比改动前的 420 秒短 29%；
+#   ③ 常见瞬时故障（快速 429/5xx）几乎不消耗预算，仍能拿满 _MAX_ATTEMPTS 次尝试。
+_DEFAULT_TOTAL_BUDGET_SECONDS = 180.0
+# VS21: 判据"已用 ≥ 预算"的浮点容差。数学上相等时，二进制浮点减法会留下 ±1e-13 级残差
+# （实测：now 1000.3 - 1000.0 = 0.2999999999999545 ⇒ 剩余 4.5e-14 > 0）。不设容差就会出现
+# "还剩 1e-14 秒 → 睡一下 → 再发一次尝试"这种与语义相悖的抖动。1 微秒相对 180 秒预算可忽略。
+_BUDGET_EPSILON_SECONDS = 1e-6
 
 
 def _http_date_seconds(raw: str) -> float | None:
@@ -130,11 +146,16 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 4096,
         timeout: float = 120.0,
+        total_budget_seconds: float = _DEFAULT_TOTAL_BUDGET_SECONDS,
         context_budget: int = DEFAULT_CONTEXT_BUDGET,
         proxy_url: str | None = None,
     ):
         if context_budget < 256:
             raise ValueError("context_budget 不能小于 256")
+        # VS21: 预算必须为正有限数。0/负数不接受——否则"一次都不试"或"永不停止"两种歧义
+        # 都会静默发生；NaN 更会让 `remaining <= 0` 恒为 False（预算形同不存在）。
+        if not math.isfinite(total_budget_seconds) or total_budget_seconds <= 0:
+            raise ValueError("total_budget_seconds 必须是正有限数（单位：秒）")
         # Accept pasted chat endpoints as well as provider base URLs, for every call path.
         self.base_url = base_url.strip().rstrip("/").removesuffix("/chat/completions")
         self.api_key = api_key
@@ -142,6 +163,7 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self.total_budget_seconds = total_budget_seconds
         self.context_budget = context_budget
         self.proxy_url = proxy_url
 
@@ -189,6 +211,20 @@ class LLMClient:
         snippet = body.replace(self.api_key, "[已隐藏]") if self.api_key else body
         return LLMError(f"API 返回 {status}：{snippet[:300]}。{suggestion}")
 
+    def _budget_exhausted_error(self, attempts: int, response: httpx.Response | None) -> LLMError:
+        """VS21：总时长预算耗尽的收尾错误。
+
+        文案必须与"尝试次数用尽"（循环末尾那条）**可区分**——否则线上日志里"上游一路 429
+        把预算烧光"与"三次尝试都失败"看起来一模一样，无法诊断。预算耗尽时把最后一次的
+        状态码一并带上（若最后一次是状态码类失败），不丢掉上游给出的真实原因。
+        """
+        detail = f"最后一次尝试返回 HTTP {response.status_code}。" if response is not None else ""
+        return LLMError(
+            f"LLM 调用总时长预算已用尽（{self.total_budget_seconds:g} 秒）：已发起 {attempts} 次尝试仍未成功，"
+            f"停止重试。{detail}请检查 API 地址、网络/代理连接及供应商服务状态，"
+            f"或调大 total_budget_seconds（当前 {self.total_budget_seconds:g} 秒）。"
+        )
+
     async def _post_chat_with_retry(self, payload: JSONDict) -> httpx.Response:
         """POST /chat/completions，对瞬时故障做有限次指数退避重试（G-11）。
 
@@ -197,9 +233,21 @@ class LLMClient:
         重试耗尽后：网络类异常抛 LLMError；状态码类返回最后一次响应交调用方生成可行动错误。
         等待时长（VS10）：可重试响应带 Retry-After 时按上游指示等待（受 _RETRY_AFTER_MAX_SECONDS
         上限约束）；缺失/非法时回落带抖动的指数退避。总尝试次数不变，仍 ≤ _MAX_ATTEMPTS。
+
+        整次调用总时长预算（VS21，`self.total_budget_seconds`，默认 _DEFAULT_TOTAL_BUDGET_SECONDS）：
+        - 自**重试循环开始**计时；
+        - **每次 sleep 之前**检查：已用时长 ≥ 预算（含 _BUDGET_EPSILON_SECONDS 浮点容差）
+          ⇒ 立即停止重试，抛可行动的 LLMError（文案含"总时长预算已用尽"，与"尝试次数用尽"可区分）；
+        - 剩余预算 < 计划等待 ⇒ 把等待**截断到剩余预算**（不白扔剩余预算，也不越过它）；
+        - **不截断进行中的那次尝试**：单次尝试的 `timeout` 语义完全不变；
+        - 故可判定上界为 **整次调用墙钟 ≤ 预算 + 单次尝试超时**（因为只在 sleep 前检查，
+          最后一次尝试最多在其开始后再消耗一个完整超时；默认值下为 ≤ 300 秒）。
+        - 预算是**构造参数**，测试可注入假时钟/小预算而不必真等；首次尝试**永远会执行**，
+          预算只在"要不要再来一次"时生效。
         """
         url = f"{self.base_url}/chat/completions"
         last_exc: Exception | None = None
+        started_at = time.monotonic()  # VS21：预算自循环开始计时
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             response: httpx.Response | None = None
             try:
@@ -215,9 +263,18 @@ class LLMClient:
                 if attempt == _MAX_ATTEMPTS:
                     return response
             if attempt < _MAX_ATTEMPTS:
-                await asyncio.sleep(_retry_delay_seconds(attempt, response))
+                remaining = self.total_budget_seconds - (time.monotonic() - started_at)  # VS21
+                if remaining <= _BUDGET_EPSILON_SECONDS:
+                    # 已用 ≥ 预算：既不再等待，也不发起下一次尝试。首次尝试的真实结果/异常
+                    # 已在上面 return/抛出，绝不会因为"没预算了"把成功误判成失败。
+                    budget_error = self._budget_exhausted_error(attempt, response)
+                    if last_exc is not None:
+                        raise budget_error from last_exc
+                    raise budget_error
+                await asyncio.sleep(min(_retry_delay_seconds(attempt, response), remaining))
         raise LLMError(
-            "网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。"
+            f"网络错误或超时，已用尽 {_MAX_ATTEMPTS} 次尝试（尝试次数用尽）："
+            "请检查 API 地址、网络/代理连接及供应商服务状态后重试。"
         ) from last_exc
 
     async def list_models(self) -> list[str]:

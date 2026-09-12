@@ -473,3 +473,235 @@ async def test_retry_after_honoured_per_response_when_statuses_mix(monkeypatch, 
         await client.chat([])  # 最后一次不再等待，返回响应交调用方报状态码
     assert len(calls) == 3
     assert recorded_sleeps == [2.0, 6.0]
+
+
+# ==================== VS21: 整次调用总时长预算 ====================
+
+_FAKE_CLOCK_START = 1000.0
+
+
+@pytest.fixture
+def budget_clock(monkeypatch):
+    """VS21 假时钟 + 睡眠记录器：预算语义与上界可判定，且**绝不真实等待**。
+
+    与既有 `recorded_sleeps` 同款接缝：只替换 llm_client 模块内的 `time` / `asyncio`
+    引用（不动全局模块，pytest-asyncio 不受影响）。handler 每次推进 `state["now"]`
+    模拟"一次尝试的真实耗时"，`sleep` 也推进它 ⇒ `state["now"] - _FAKE_CLOCK_START`
+    就是整次调用的假墙钟 = 尝试耗时 + 等待时长之和，可直接用来断言上界。
+    """
+    state = {"now": _FAKE_CLOCK_START, "sleeps": []}
+
+    async def fake_sleep(seconds: float) -> None:
+        state["sleeps"].append(seconds)
+        state["now"] += seconds
+
+    def fake_monotonic() -> float:
+        return float(state["now"])
+
+    monkeypatch.setattr(llm_client, "time", SimpleNamespace(monotonic=fake_monotonic))
+    monkeypatch.setattr(llm_client, "asyncio", SimpleNamespace(sleep=fake_sleep))
+    return state
+
+
+def _elapsed(clock) -> float:
+    return clock["now"] - _FAKE_CLOCK_START
+
+
+@pytest.mark.asyncio
+async def test_vs21_budget_exhaustion_stops_retries_and_truncates_wait(monkeypatch, budget_clock):
+    """①预算耗尽即停 + ③等待被截断。
+
+    每次尝试耗 6s、预算 10s、上游 `Retry-After: 30`：
+    第一次尝试后剩 4s（< 30s）⇒ 等待截断为 4s；第二次尝试后已用 16s ≥ 10s ⇒ 立即停止，
+    不再发起第三次尝试（尝试次数未用尽，是被预算停下的）。
+    """
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        budget_clock["now"] += 6.0  # 模拟一次尝试的真实耗时
+        return httpx.Response(429, text="rate limited", headers={"Retry-After": "30"})
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=10.0)
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat([])
+
+    assert len(calls) == 2, "预算耗尽后不得再发起尝试"
+    assert len(calls) < llm_client._MAX_ATTEMPTS, "不是被 _MAX_ATTEMPTS 停下的，必须是被预算停下的"
+    assert budget_clock["sleeps"] == [4.0], "剩余 4s < 计划等待 30s ⇒ 必须截断到 4s，而不是等 30s"
+    assert _elapsed(budget_clock) == 16.0
+    assert _elapsed(budget_clock) <= client.total_budget_seconds + client.timeout
+
+    message = str(excinfo.value)
+    assert "总时长预算已用尽" in message
+    assert "尝试次数用尽" not in message
+    assert "429" in message, "最后一次的上游状态码不得被预算文案吞掉"
+
+
+@pytest.mark.asyncio
+async def test_vs21_wall_clock_within_budget_plus_single_attempt_timeout(monkeypatch, budget_clock):
+    """②上界：默认预算下，每次尝试都跑满单次超时（120s）且上游要求 30s 等待。
+
+    改动前的最坏路径 = 3×120 + 2×30 = 420s。现在：120s → 等 30s → 120s（已用 270s ≥ 180s）
+    ⇒ 停止。断言假墙钟 ≤ 预算 + 单次尝试超时，且 Retry-After 的 30s 单次上限（VS10）仍生效。
+    """
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        budget_clock["now"] += 120.0  # 一次尝试正好用满 timeout
+        return httpx.Response(503, text="unavailable", headers={"Retry-After": "99999"})
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model")  # 用默认预算
+    assert client.total_budget_seconds == llm_client._DEFAULT_TOTAL_BUDGET_SECONDS
+    assert llm_client._DEFAULT_TOTAL_BUDGET_SECONDS > 120.0 + llm_client._RETRY_AFTER_MAX_SECONDS
+
+    with pytest.raises(LLMError, match="总时长预算已用尽"):
+        await client.chat([])
+
+    assert budget_clock["sleeps"] == [30.0], "Retry-After: 99999 仍被 30s 单次上限截断；第二次尝试后预算已尽 ⇒ 不再等待"
+    assert len(calls) == 2, "改动前这里是 3 次 / 420s"
+    assert _elapsed(budget_clock) == 270.0
+    assert _elapsed(budget_clock) <= client.total_budget_seconds + client.timeout
+    assert client.total_budget_seconds + client.timeout == 300.0
+
+
+@pytest.mark.asyncio
+async def test_vs21_wait_truncated_exactly_at_budget_boundary(monkeypatch, budget_clock):
+    """③剩余预算 < 计划等待 ⇒ 实际等待 == 剩余预算；随后"已用 ≥ 预算"（边界相等）即停。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, text="rate limited", headers={"Retry-After": "30"})
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=5.0)
+    with pytest.raises(LLMError, match="总时长预算已用尽"):
+        await client.chat([])
+
+    assert budget_clock["sleeps"] == [5.0]
+    assert budget_clock["sleeps"][0] < llm_client._RETRY_AFTER_MAX_SECONDS, "未被截断就会是 30s"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_vs21_backoff_path_wait_is_also_truncated(monkeypatch, budget_clock):
+    """③同源：截断不只作用于 Retry-After 路径——缺失 Retry-After 时的回落退避同样受剩余预算约束。
+
+    （两条等待来源必须同源，否则"改了 Retry-After 那条、漏了退避那条"会留下半截预算。）
+    """
+    monkeypatch.setattr(llm_client, "_BACKOFF_BASE_SECONDS", 1.0)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(503, text="unavailable")  # 无 Retry-After ⇒ 回落抖动退避 [0.75, 1.25]
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=0.3)
+    with pytest.raises(LLMError, match="总时长预算已用尽"):
+        await client.chat([])
+
+    assert budget_clock["sleeps"] == [0.3], "回落退避（≥0.75s）必须被截断到剩余 0.3s"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_vs21_first_attempt_success_is_never_overridden_by_budget(monkeypatch, budget_clock):
+    """边界：首次尝试就远超预算，但它成功了 ⇒ 必须返回真实结果，不得误判为"预算失败"。"""
+    def handler(request):
+        budget_clock["now"] += 10_000.0  # 首次尝试耗时远超 1s 预算
+        return _ok_response()
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm_client, "record_llm_usage", lambda model, usage: None)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=1.0)
+    assert await client.chat([]) == ("ok", 3)
+    assert budget_clock["sleeps"] == []
+
+
+@pytest.mark.asyncio
+async def test_vs21_non_retryable_4xx_still_returns_first_response_under_tiny_budget(monkeypatch, budget_clock):
+    """边界：预算再小，非可重试 4xx 仍**只发一次**并原样交调用方报真实状态码（VS-4 语义未削弱）。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        budget_clock["now"] += 10_000.0  # 首次尝试即用光预算
+        return httpx.Response(401, text="no key")
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=1.0)
+    with pytest.raises(LLMError, match="401") as excinfo:
+        await client.chat([])
+
+    assert len(calls) == 1
+    assert "总时长预算" not in str(excinfo.value), "首次尝试的真实状态码不得被预算文案替换"
+
+
+@pytest.mark.asyncio
+async def test_vs21_budget_exhaustion_keeps_real_cause_for_network_errors(monkeypatch, budget_clock):
+    """网络类失败耗尽预算 ⇒ 抛预算文案的 LLMError，但**真实原因仍挂在 __cause__ 上**（不丢证据）。"""
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        budget_clock["now"] += 40.0
+        raise httpx.ConnectError("offline", request=request)
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=50.0)
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat([])
+
+    assert len(calls) == 2
+    assert "总时长预算已用尽" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectError), "被包装的原始网络异常不得丢失"
+
+
+@pytest.mark.asyncio
+async def test_vs21_two_exhaustion_kinds_are_distinguishable(monkeypatch, budget_clock):
+    """④"尝试次数用尽"与"总时长预算用尽"文案必须可区分（否则线上日志无法诊断）。"""
+    def handler(request):
+        budget_clock["now"] += 1.0
+        raise httpx.ConnectError("offline", request=request)
+
+    _install_transport(monkeypatch, handler)
+
+    # (a) 预算充裕的默认客户端 ⇒ 三次尝试失败后报"尝试次数用尽"
+    with pytest.raises(LLMError) as attempts_excinfo:
+        await LLMClient("https://llm.test", "key", "model").chat([])
+    # (b) 预算只够一次尝试 ⇒ 报"总时长预算用尽"
+    with pytest.raises(LLMError) as budget_excinfo:
+        await LLMClient("https://llm.test", "key", "model", total_budget_seconds=1.0).chat([])
+
+    attempts_message = str(attempts_excinfo.value)
+    budget_message = str(budget_excinfo.value)
+    assert "尝试次数用尽" in attempts_message
+    assert "总时长预算" not in attempts_message
+    assert "总时长预算已用尽" in budget_message
+    assert "尝试次数用尽" not in budget_message
+    assert attempts_message != budget_message
+
+
+@pytest.mark.parametrize("budget", [0.0, -1.0, 0, -0.5, float("nan"), float("inf")])
+def test_vs21_non_positive_or_non_finite_budget_is_rejected(budget):
+    """边界：预算为 0/负数（及 NaN/Inf）⇒ **拒绝该值**，而不是"一次都不试"或"预算形同不存在"。
+
+    择一说明：拒绝（ValueError）与既有 `context_budget < 256` 的构造期校验同款，启动即暴露
+    配置错误；正数预算（哪怕极小）则保证"首次尝试一定执行"。
+    """
+    with pytest.raises(ValueError, match="total_budget_seconds"):
+        LLMClient("https://llm.test", "key", "model", total_budget_seconds=budget)
+
+
+def test_vs21_default_budget_is_injectable_and_documented():
+    """⑥预算是构造参数：默认值可读、可注入，且上界公式（预算 + 单次尝试超时）可自证。"""
+    default_client = LLMClient("https://llm.test", "key", "model")
+    assert default_client.total_budget_seconds == llm_client._DEFAULT_TOTAL_BUDGET_SECONDS
+    injected = LLMClient("https://llm.test", "key", "model", timeout=7.0, total_budget_seconds=3.0)
+    assert (injected.total_budget_seconds, injected.timeout) == (3.0, 7.0)
+    assert default_client.timeout == 120.0, "单次尝试超时语义不变（不得被预算改动）"
