@@ -26,7 +26,7 @@ harness-engineering audit.py — 自动核查单项目 harness 的健康状态�
   属 N-A（SKIP），启用后未入 git 才 NOT-OK。
 - **形态级防护（VS-37）**：代码/契约面出现「引述被更正的旧句」形态即 WARN（提示改指路式）；
   **历史归档面（docs/ai/*、task/*、memory/*、notes/*）显式豁免**——档案保留旧说法属承重语义，
-  改写＝伪造记录；第三方引文（RFC/ISO/规范等）另有豁免。该 WARN 不影响顶层退出码
+  改写＝伪造记录；第三方引文（RFC/ISO/GB-T/PEP 等来源编号**紧邻**框架词时）另有豁免。该 WARN 不影响顶层退出码
   （与 PII 同：默认 WARN，需要阻断时由人升级为 NOT-OK，本卡刻意不自升）。
 
 只做「可编程核查」的项；其余人工判断项见 references/harness-audit.md。
@@ -79,7 +79,8 @@ SCAN_SKIP_DIRS = SKIP_DIRS  # 隐私扫描跳过目录
 #   ① 引述框架词：弱 = 原文/原句/原话/原表述/原说法/旧说法 + 系词「为/是」；
 #      强 = 「已删除的」「删除的」「旧」+ 原文（源码里写成 (?:已删除的|删除的|旧)原文 的分组式，
 #      不写整串字面量，否则本规则会命中自己的定义）。
-#   ② 紧随的**引文实体**：成对引号里至少 2 字，或冒号后紧跟非空白。
+#   ② 紧随的**引文实体**：成对引号里至少 2 字；**冒号后紧跟非空白只对强框架词算数**
+#      （弱框架词认冒号会误报——VS-37 修复轮 D2，见下方常量处注释）。
 #      没有引文实体就不是「引述」——"这份旧文本已删除"不告警；推荐写法
 #      「此处原有断言已删除，取回：git show <sha> -- <path>」也不告警（无框架词）。
 # 精度（实测得出，别放宽；三级收紧逐级验证，数字锚定基线提交 d44a850 的 git archive 抽取面）：
@@ -88,19 +89,39 @@ SCAN_SKIP_DIRS = SKIP_DIRS  # 隐私扫描跳过目录
 #   ② 加系词「为/是」（原文、原句 + 系词）后基线归零；但**还必须要求紧随引文实体**：否则
 #      「旧说法 + 系词」这类**正常行文**照样命中——实测本文件第一版注释就被自己的规则命中 3 处，
 #      加上引文要求后归零。⇒ ①+② = 本规则，基线作用面命中 **0**。
-#   ③ 第三方引文豁免：框架词前 24 字符内出现 RFC/ISO/GB/PEP/规范/标准/第三方 等外部来源标记时跳过。
-# 作用面：源码（注释/docstring）+ 契约类文档。**历史归档面（docs/ai/*、task/*、memory/*、notes/*）
+#   ③ 第三方引文豁免：只认**紧邻框架词**（间隔 ≤6 字符且中间无句读）的来源编号
+#      RFC/ISO/GB-T/PEP。`规范`/`标准`/`官方`/`外部`/`上游`/`第三方` 这类泛词**不再豁免**——
+#      它们只是中文技术行文的高频词，不足以证明引文实体来自第三方；旧版按「前 24 字符内出现
+#      泛词即整行豁免」会静默吞掉真告警（VS-37 修复轮 D3 实测 3/3 漏报）。
+# 作用面（`_quote_old_scope`）：`QUOTE_OLD_CODE_EXTS` 声明的源码扩展名 + `AGENTS.md`/`CLAUDE.md`
+#   + 文件名含 CONTRACT/ARCHITECTURE/SCHEMA/TECH_STACK 的 `.md`。扩展名闸门取
+#   `TEXT_EXTS | QUOTE_OLD_CODE_EXTS`——若只取 `TEXT_EXTS`，声明面里
+#   `.tsx .jsx .vue .mjs .cjs .ps1 .sql` 这 7 个永远进不到正则（VS-37 修复轮 D1：
+#   `frontend/src` 下 110 个 `.tsx/.jsx/.vue` 一个都没被扫过，「作用面含 .tsx」曾是假话）。
+# **历史归档面（docs/ai/*、task/*、memory/*、notes/*）
 #   显式豁免**——档案本来就该保留旧说法，改写＝伪造记录；reference/ 是只读第三方克隆，一并跳过。
 QUOTE_OLD_STRONG_RE = re.compile(r"(?:已删除的|删除的|旧)原文")
 QUOTE_OLD_WEAK_RE = re.compile(r"(?:原文|原句|原话|原表述|原说法|旧说法)(?:为|是)")
 _QUOTE_OLD_QCHARS = "\u201c\u201d\u2018\u2019\"'\u300c\u300d\u300e\u300f\u300a\u300b"
-QUOTE_OLD_SPAN_RE = re.compile(
-    r"(?:\s*[\uff08(]?\s*[" + _QUOTE_OLD_QCHARS + r"][^\n]{2,}?[" + _QUOTE_OLD_QCHARS + r"]|\s*[\uff1a:]\s*\S)"
+# 引文实体之一：成对引号里 ≥2 字（可前置全/半角括号与空白）。
+QUOTE_OLD_QUOTE_SPAN_RE = re.compile(
+    r"\s*[\uff08(]?\s*[" + _QUOTE_OLD_QCHARS + r"][^\n]{2,}?[" + _QUOTE_OLD_QCHARS + r"]"
 )
+# 引文实体之二：冒号后紧跟非空白——**只对强框架词开放**（VS-37 修复轮 D2）。
+# 理由：本仓「错误原文」「事件原文」这类词后面接冒号，正是「原始文本」义的最自然写法；
+# 弱框架词一旦认冒号，一个词改写就能让本该排除的那一族命中（实测 4/4 误报）。
+# ⚠️ 这段说明本身也不能写出被禁形态（本文件在作用面内）——故此处用文字描述而非举例。
+QUOTE_OLD_SPAN_RE = re.compile(r"(?:%s|\s*[\uff1a:]\s*\S)" % QUOTE_OLD_QUOTE_SPAN_RE.pattern)
 QUOTE_OLD_RE = re.compile(
-    r"(?:%s|%s)%s" % (QUOTE_OLD_STRONG_RE.pattern, QUOTE_OLD_WEAK_RE.pattern, QUOTE_OLD_SPAN_RE.pattern)
+    r"(?:%s%s|%s%s)" % (QUOTE_OLD_STRONG_RE.pattern, QUOTE_OLD_SPAN_RE.pattern,
+                        QUOTE_OLD_WEAK_RE.pattern, QUOTE_OLD_QUOTE_SPAN_RE.pattern)
 )
-QUOTE_OLD_EXTERN_RE = re.compile(r"(?:RFC\s*\d+|ISO\s*\d+|GB/?T?\s*\d+|PEP\s*\d+|规范|标准|第三方|上游|官方|外部)")
+# 第三方引文豁免（VS-37 修复轮 D3）：只认来源编号（RFC/ISO/GB-T/PEP），且必须**紧邻**框架词。
+# 删掉 `规范`/`标准`/`第三方`/`上游`/`官方`/`外部`——按泛词整行豁免时，一句
+# 「遵循既有规范。此处…」就能把真告警静默吞掉（实测 3/3 漏报）。
+QUOTE_OLD_EXTERN_RE = re.compile(r"(?:RFC\s*\d+|ISO\s*\d+|GB/?T?\s*[\d.]+|PEP\s*\d+)")
+QUOTE_OLD_EXTERN_MAX_GAP = 6                      # 来源编号与框架词之间最多 6 字符
+QUOTE_OLD_EXTERN_BREAKS = "\u3002\uff01\uff1f\uff1b;\uff0c,\u3001\n"  # 出现句读即不算紧邻
 QUOTE_OLD_CODE_EXTS = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".ps1", ".sh", ".sql"}
 QUOTE_OLD_CONTRACT_DOC_RE = re.compile(r"(?:CONTRACT|ARCHITECTURE|SCHEMA|TECH_STACK)", re.I)
 QUOTE_OLD_CONTRACT_DOC_NAMES = {"AGENTS.md", "CLAUDE.md"}
@@ -302,11 +323,29 @@ def _quote_old_scope(rel, base):
     return None
 
 
+def _quote_old_extern_exempt(line, start):
+    """VS-37 修复轮 D3：第三方引文豁免——只有**紧邻框架词**的来源编号才算。
+
+    判据：框架词前 24 字符窗口内存在 RFC/ISO/GB-T/PEP 编号，且该编号与框架词之间
+    间隔 ≤QUOTE_OLD_EXTERN_MAX_GAP 且不含句读（。！？；，、）。旧版按
+    「窗口内出现 规范/标准/官方/外部/上游/第三方 等泛词」整行豁免，会把真告警静默吞掉。
+    """
+    window = line[max(0, start - 24):start]
+    for em in QUOTE_OLD_EXTERN_RE.finditer(window):
+        gap = window[em.end():]
+        if len(gap) > QUOTE_OLD_EXTERN_MAX_GAP:
+            continue
+        if any(c in gap for c in QUOTE_OLD_EXTERN_BREAKS):
+            continue
+        return True
+    return False
+
+
 def scan_quote_old(root):
     """VS-37：形态级扫描「引述被更正的旧句」。返回 (in_scope_hits, archive_hits)，均为 (rel, lineno, 片段)。
 
     in_scope 才会告警；archive 只统计（证明豁免是承重的、不是空豁免）。
-    逐行判据 = QUOTE_OLD_RE 命中且框架词前 24 字符内无外部来源标记（正常引文豁免）。
+    逐行判据 = QUOTE_OLD_RE 命中，且不是「紧邻来源编号的正常引文」（第三方外文原文豁免）。
     """
     in_scope, archive = [], []
     for dirpath, dirnames, filenames in os.walk(root):
@@ -314,7 +353,9 @@ def scan_quote_old(root):
         for fn in filenames:
             rel = os.path.relpath(os.path.join(dirpath, fn), root).replace(os.sep, "/")
             where = _quote_old_scope(rel, fn)
-            if where is None or os.path.splitext(fn)[1].lower() not in TEXT_EXTS:
+            # VS-37 修复轮 D1：闸门必须是 TEXT_EXTS ∪ QUOTE_OLD_CODE_EXTS，否则
+            # .tsx/.jsx/.vue/.mjs/.cjs/.ps1/.sql 这 7 个已声明扩展名永远进不到正则。
+            if where is None or os.path.splitext(fn)[1].lower() not in (TEXT_EXTS | QUOTE_OLD_CODE_EXTS):
                 continue
             p = os.path.join(dirpath, fn)
             try:
@@ -325,7 +366,7 @@ def scan_quote_old(root):
                         m = QUOTE_OLD_RE.search(line)
                         if not m:
                             continue
-                        if QUOTE_OLD_EXTERN_RE.search(line[max(0, m.start() - 24):m.start()]):
+                        if _quote_old_extern_exempt(line, m.start()):
                             continue  # 正常引文（第三方文档/规范原文）不拦
                         (in_scope if where == "in" else archive).append((rel, lineno, m.group().strip()[:60]))
             except OSError:
@@ -519,11 +560,12 @@ def audit(root):
     else:
         old_items.append({"check": "代码/契约面出现\"引述被更正的旧句\"形态（形态判据，不锁具体句子）",
                           "status": "OK", "action": "-",
-                          "evidence": "0 处（作用面：源码注释/docstring + 契约类文档）"})
+                          "evidence": "0 处（作用面：源码扩展名 .py/.ts/.tsx/.js/.jsx/.mjs/.cjs/.vue/.ps1/.sh/.sql "
+                                      "的注释与 docstring + AGENTS.md/CLAUDE.md + 契约类 .md）"})
     old_items.append({"check": "历史归档面豁免（改写＝伪造记录，故不计入告警）", "status": "INFO", "action": "-",
                       "evidence": f"{len(old_arch)} 处命中落在 docs/ai/*、task/* 等历史归档面——**豁免、不告警**"
                                   f"（档案保留旧说法属承重语义，改写＝伪造记录）；该数非零且随档案增长属预期，不是缺陷；"
-                                  f"第三方引文（RFC/ISO/规范等）同样豁免"})
+                                  f"正常引文（框架词紧邻 RFC/ISO/GB-T/PEP 来源编号）同样豁免"})
     report["sections"].append({"name": "形态级防护（引述旧句）", "items": old_items})
 
     # 基础设施
