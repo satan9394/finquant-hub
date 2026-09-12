@@ -60,8 +60,22 @@ if errorlevel 2 (
     echo [错误] 无法检查前端产物时间，请确认 frontend\package.json 存在且可读。
     goto fail
 )
-if errorlevel 1 goto build_frontend
-echo [准备] 复用已有 frontend\dist。
+if errorlevel 1 goto stale_frontend
+goto reuse_frontend
+
+:stale_frontend
+rem VS-14：产物**存在**但判为偏旧。有 Bun 就重建；**没有 Bun 时不再硬退出**——
+rem 打包/解压可能让 package.json 的时间晚于 index.html（用户不可控），此时把用户
+rem 挡在门外（要求他先装一个没听说过的工具）比"用稍旧的界面启动"糟糕得多。
+if defined FQ_BUN_MISSING goto stale_frontend_nobun
+goto build_frontend
+
+:stale_frontend_nobun
+echo [提示] 前端产物可能偏旧（frontend\package.json 比 frontend\dist\index.html 新），但本机未安装 Bun。
+echo         将直接使用现有产物启动；若界面与预期不符，请安装 Bun 后重新运行本脚本。
+
+:reuse_frontend
+for %%I in ("frontend\dist\index.html") do echo [准备] 复用已有 frontend\dist（构建时间：%%~tI）。
 goto environment
 
 :build_frontend
