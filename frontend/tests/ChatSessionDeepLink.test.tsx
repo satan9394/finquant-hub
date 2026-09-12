@@ -80,7 +80,7 @@ describe('Chat ?session= deep link (VS16)', () => {
     expect(apiClient.get).not.toHaveBeenCalledWith('/chat/sessions/42/messages');
   });
 
-  it('falls back quietly when the requested session does not exist', async () => {
+  it('falls back without selecting or querying a missing session', async () => {
     renderChat('/research?mode=fast&session=999');
 
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/chat/sessions'));
@@ -126,5 +126,72 @@ describe('Chat ?session= deep link (VS16)', () => {
     expect(await screen.findByDisplayValue('核验贵州茅台风险')).toBeTruthy();
     expect(screen.getByText(/URL 预填不会自动发送/)).toBeTruthy();
     expect(useChatStore.getState().currentSessionId).toBeNull();
+  });
+});
+
+// ==================== VS19：深链落空必须说出来，且只说一次 ====================
+// 修前：?session=<不在列表> 不选中、不提示、不报错 → 用户看到空白默认视图，体感等同"点了没反应"。
+describe('Chat ?session= deep link fallback notice (VS19)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.setItem('finquant_lang', 'zh');
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() });
+    useChatStore.setState({ sessions: [], currentSessionId: null, messages: {}, streamingContent: '', isStreaming: false });
+    mockApi();
+  });
+
+  afterEach(() => {
+    act(() => message.destroy());
+    vi.restoreAllMocks();
+    useChatStore.setState({ sessions: [], currentSessionId: null, messages: {}, streamingContent: '', isStreaming: false });
+  });
+
+  it('warns exactly once for a session missing from the list, even after the list changes again', async () => {
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    renderChat('/research?mode=fast&session=999');
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    expect(warn).toHaveBeenCalledWith('该会话已不存在，已显示当前会话列表');
+
+    // 列表再变一次（刷新/新建会话都会产生新数组）→ 不得二次提示。
+    // 删掉一次性守卫后此断言会红（第二次提示），所以它真的在守"只提示一次"。
+    act(() => { useChatStore.getState().setSessions([...useChatStore.getState().sessions]); });
+    await waitFor(() => expect(useChatStore.getState().sessions).toHaveLength(2));
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // VS16 语义不变：不抢焦点、不为非法 id 发请求。
+    expect(useChatStore.getState().currentSessionId).toBeNull();
+    expect(apiClient.get).not.toHaveBeenCalledWith('/chat/sessions/999/messages');
+    expect(screen.getByText('请选择或创建一个会话')).toBeTruthy();
+  });
+
+  it('never warns about a deep link that resolves to an existing session', async () => {
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    renderChat('/research?mode=fast&session=43');
+
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/chat/sessions/43/messages'));
+    expect(await screen.findByText('只回放属于 43 的历史消息')).toBeTruthy();
+
+    act(() => { useChatStore.getState().setSessions([...useChatStore.getState().sessions]); });
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(useChatStore.getState().currentSessionId).toBe(43);
+    expect(await screen.findByText('只回放属于 43 的历史消息')).toBeTruthy();
+  });
+
+  it('reports a list read failure instead of claiming the session does not exist', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url) => {
+      if (url === '/chat/sessions') return Promise.reject(new Error('network down')) as never;
+      if (url === '/agents') return Promise.resolve({ data: { items: [] } }) as never;
+      return Promise.resolve({ data: { items: [] } }) as never;
+    });
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    renderChat('/research?mode=fast&session=43');
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    // 系统故障不得被说成"数据不存在"（错误归因）。
+    expect(warn).toHaveBeenCalledWith('会话列表读取失败，未能打开指定会话');
+    expect(warn).not.toHaveBeenCalledWith('该会话已不存在，已显示当前会话列表');
+    expect(apiClient.get).not.toHaveBeenCalledWith('/chat/sessions/43/messages');
   });
 });

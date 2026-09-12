@@ -1117,6 +1117,7 @@ const en: Record<string, string> = {
   'today.viewAll': 'View all',
   'today.noConversations': 'No conversations',
   'today.noDiscussions': 'No discussions',
+  'today.statsFailed': 'Could not load recent records',
   'today.conversation': 'Conversation #{id}',
   'today.state.done': 'Done',
   'today.state.failed': 'Failed · retry available',
@@ -1846,6 +1847,11 @@ const en: Record<string, string> = {
   'chat.messageCount': '{count} messages',
   'chat.empty': 'No sessions',
   'chat.selectSession': 'Select or create a session',
+  // VS19: one-shot notice when a ?session=<id> deep link cannot be honoured. The two
+  // failures stay distinct: missing = the list loaded and does not contain the id;
+  // unavailable = the list request itself failed (never report that as "does not exist").
+  'chat.deepLinkMissing': 'That session no longer exists. Showing your current session list.',
+  'chat.deepLinkUnavailable': 'Could not read your session list, so the linked session was not opened.',
   'chat.inputPlaceholder': 'Enter a message… (Shift+Enter for a new line)',
   'chat.stop': 'Stop',
   'chat.runBacktest': 'Open Strategy Lab',
@@ -1868,6 +1874,9 @@ const en: Record<string, string> = {
   'discussion.status.running': 'In progress',
   'discussion.empty': 'No discussions',
   'discussion.selectRoom': 'Select or create a discussion room',
+  // VS19: one-shot notice when a ?room=<id> deep link cannot be honoured (same split as chat.deepLink*).
+  'discussion.deepLinkMissing': 'That discussion no longer exists. Showing your current discussion list.',
+  'discussion.deepLinkUnavailable': 'Could not read your discussion list, so the linked discussion was not opened.',
   'discussion.loading': 'Loading discussion details…',
   'discussion.quota': 'Model quota: starting runs multiple model calls based on the selected roles and rounds. Opening a room does not run it.',
   'discussion.stop': 'Stop discussion',

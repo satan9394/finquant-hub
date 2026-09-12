@@ -287,3 +287,55 @@ describe('Dashboard recent-record deep links (VS16)', () => {
     },
   );
 });
+
+// ==================== VS19：失败不得伪装成"没有数据" ====================
+
+describe('Dashboard stats failure is never dressed up as emptiness (VS19)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('shows an explicit error with retry in both recent-record cards when stats fail', async () => {
+    mockDashboardApis(() => Promise.reject(new Error('stats upstream unavailable')));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    // 两张卡片位置各有一处与"决策收件箱"同款的 Alert：失败文案 + 具体错误 + 可点的重试。
+    expect(await screen.findAllByText('近期记录读取失败')).toHaveLength(2);
+    expect(screen.getAllByText('stats upstream unavailable')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /重\s*试/ })).toHaveLength(2);
+    // 空态文案只代表"确实没有数据"：请求失败时一个字都不许出现。
+    expect(screen.queryByText('暂无会话')).toBeNull();
+    expect(screen.queryByText('暂无讨论')).toBeNull();
+  });
+
+  it('still shows the honest empty state when stats succeed without any record', async () => {
+    mockDashboardApis(() => Promise.resolve({ data: statsFixture }));
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    expect(await screen.findByText('暂无会话')).toBeTruthy();
+    expect(screen.getByText('暂无讨论')).toBeTruthy();
+    expect(screen.queryByText('近期记录读取失败')).toBeNull();
+    expect(screen.queryByRole('button', { name: /重\s*试/ })).toBeNull();
+  });
+
+  it('refetches stats from the card retry and recovers the records once it succeeds', async () => {
+    let attempts = 0;
+    mockDashboardApis(() => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new Error('boom'));
+      return Promise.resolve({ data: recordStats });
+    });
+    render(<MemoryRouter><Dashboard /></MemoryRouter>);
+
+    expect(await screen.findAllByText('近期记录读取失败')).toHaveLength(2);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /重\s*试/ })[0]);
+
+    expect(await screen.findByRole('link', { name: /关于 600519 的追问/ })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /上周那篇 600519 的讨论/ })).toBeTruthy();
+    expect(screen.queryByText('近期记录读取失败')).toBeNull();
+    expect(screen.queryByText('boom')).toBeNull();
+    expect(attempts).toBe(2);
+  });
+});

@@ -53,21 +53,42 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // VS16：深链只应用一次。缺了它，`rooms` 一变（例如新建讨论走 addRoom 产生新数组）就会出现
   // "抢回焦点"：用户手选了 room 43，却被他从 URL 点进来的旧 room 42 拽回去。
   const appliedRoomRef = useRef<number | null>(null);
+  // VS19：与 Chat 同构——"列表已成功返回"与"列表请求失败"必须分开，
+  // 否则会把系统故障错误归因成"这条讨论不存在"。
+  const [roomsResolved, setRoomsResolved] = useState(false);
+  const [roomsFailed, setRoomsFailed] = useState(false);
+  // VS19：深链落空提示的一次性守卫（记住"已提示过的 id"），防止列表每次变化都重复打扰。
+  const notifiedRoomRef = useRef<number | null>(null);
 
   // 加载房间列表 + 角色
   useEffect(() => {
-    apiClient.get('/discussion/rooms').then((res) => setRooms(res.data.items ?? [])).catch(() => {});
+    let cancelled = false;
+    apiClient.get('/discussion/rooms')
+      .then((res) => { if (!cancelled) { setRooms(res.data.items ?? []); setRoomsResolved(true); } })
+      .catch(() => { if (!cancelled) setRoomsFailed(true); /* 列表不可得 → 深链回落，保持既有选择 */ });
     apiClient.get('/agents').then((res) => setAgents(res.data.items ?? [])).catch(() => {});
+    return () => { cancelled = true; };
   }, [setRooms]);
 
   // VS16：?room=<id> —— 仅当该 id 出现在**当前用户自己的房间列表**里才选中（后端 /discussion/rooms 已按 user_id 过滤）。
   // 非法 / 不存在 / 非本人 → 不选中、不为它发任何请求，页面留在该功能区默认视图。
+  // VS19：回落不再静默（体感等同 R3 修复前的"点了落到空白界面"），改为一次性 message.warning；
+  // 同时严格区分"列表不含该 id"（→ 已不存在）与"列表请求自身失败"（→ 读取失败，不得说成不存在）。
   useEffect(() => {
     if (requestedRoomId === null || appliedRoomRef.current === requestedRoomId) return;
-    if (!rooms.some((room) => room.id === requestedRoomId)) return;  // 列表未回来或该 room 不存在 → 继续等待/回落
+    const notifyOnce = (key: string) => {
+      if (notifiedRoomRef.current === requestedRoomId) return;
+      notifiedRoomRef.current = requestedRoomId;
+      message.warning(t(key));
+    };
+    if (!roomsResolved) {
+      if (roomsFailed) notifyOnce('discussion.deepLinkUnavailable');
+      return;
+    }
+    if (!rooms.some((room) => room.id === requestedRoomId)) { notifyOnce('discussion.deepLinkMissing'); return; }
     appliedRoomRef.current = requestedRoomId;
     setCurrentRoomId(requestedRoomId);
-  }, [requestedRoomId, rooms, setCurrentRoomId]);
+  }, [requestedRoomId, rooms, roomsResolved, roomsFailed, setCurrentRoomId, t]);
 
   useEffect(() => {
     if (!starterTopic || agents.length < 3) return;

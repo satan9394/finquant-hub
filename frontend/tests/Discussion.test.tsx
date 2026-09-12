@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { message } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -106,7 +107,7 @@ describe('Discussion ?room= deep link (VS16 regression)', () => {
     expect(await screen.findByTestId('investment-committee')).toBeTruthy();
   });
 
-  it('falls back quietly when the requested room does not exist', async () => {
+  it('falls back without selecting or querying a missing room', async () => {
     render(<MemoryRouter initialEntries={['/research?mode=review&room=999']}><Discussion /></MemoryRouter>);
 
     await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith('/discussion/rooms'));
@@ -158,5 +159,75 @@ describe('Discussion ?room= deep link (VS16 regression)', () => {
 
     const topicInput = await screen.findByRole('textbox', { name: '讨论主题' });
     expect((topicInput as HTMLTextAreaElement).value).toBe('600519 的现金流');
+  });
+});
+
+// ==================== VS19：深链落空必须说出来，且只说一次 ====================
+// 修前：?room=<不在列表> 不选中、不提示、不报错 → 用户看到空白默认视图，体感等同"点了没反应"。
+describe('Discussion ?room= deep link fallback notice (VS19)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.setItem('finquant_lang', 'zh');
+    useDiscussionStore.setState({ rooms: [], currentRoomId: null, messages: {}, streamingContent: '', isStreaming: false });
+    vi.mocked(apiClient.get).mockImplementation((url) => {
+      if (url === '/discussion/rooms') return Promise.resolve({ data: { items: [room] } }) as never;
+      if (url === '/agents') return Promise.resolve({ data: { items: [] } }) as never;
+      if (url === `/discussion/rooms/${room.id}`) return Promise.resolve({ data: { room, messages: [] } }) as never;
+      return Promise.resolve({ data: {} }) as never;
+    });
+  });
+
+  afterEach(() => {
+    act(() => message.destroy());
+    vi.restoreAllMocks();
+    useDiscussionStore.setState({ rooms: [], currentRoomId: null, messages: {}, streamingContent: '', isStreaming: false });
+  });
+
+  it('warns exactly once for a room missing from the list, even after the list changes again', async () => {
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    render(<MemoryRouter initialEntries={['/research?mode=review&room=999']}><Discussion /></MemoryRouter>);
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    expect(warn).toHaveBeenCalledWith('该讨论已不存在，已显示当前讨论列表');
+
+    // 列表再变一次（刷新/新建讨论都会产生新数组）→ 不得二次提示。
+    // 删掉一次性守卫后此断言会红（第二次提示），所以它真的在守"只提示一次"。
+    act(() => { useDiscussionStore.getState().setRooms([...useDiscussionStore.getState().rooms]); });
+    await waitFor(() => expect(useDiscussionStore.getState().rooms).toHaveLength(1));
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // VS16 语义不变：不抢焦点、不为非法 id 发请求。
+    expect(useDiscussionStore.getState().currentRoomId).toBeNull();
+    expect(apiClient.get).not.toHaveBeenCalledWith('/discussion/rooms/999');
+    expect(screen.getByText('请选择或创建一个讨论房间')).toBeTruthy();
+  });
+
+  it('never warns about a deep link that resolves to an existing room', async () => {
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    render(<MemoryRouter initialEntries={['/research?mode=review&room=42']}><Discussion /></MemoryRouter>);
+
+    await waitFor(() => expect(useDiscussionStore.getState().currentRoomId).toBe(42));
+    expect(await screen.findByTestId('investment-committee')).toBeTruthy();
+
+    act(() => { useDiscussionStore.getState().setRooms([...useDiscussionStore.getState().rooms]); });
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(useDiscussionStore.getState().currentRoomId).toBe(42);
+  });
+
+  it('reports a list read failure instead of claiming the room does not exist', async () => {
+    vi.mocked(apiClient.get).mockImplementation((url) => {
+      if (url === '/discussion/rooms') return Promise.reject(new Error('network down')) as never;
+      if (url === '/agents') return Promise.resolve({ data: { items: [] } }) as never;
+      return Promise.resolve({ data: {} }) as never;
+    });
+    const warn = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never);
+    render(<MemoryRouter initialEntries={['/research?mode=review&room=42']}><Discussion /></MemoryRouter>);
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+    // 系统故障不得被说成"数据不存在"（错误归因）。
+    expect(warn).toHaveBeenCalledWith('讨论列表读取失败，未能打开指定讨论');
+    expect(warn).not.toHaveBeenCalledWith('该讨论已不存在，已显示当前讨论列表');
+    expect(apiClient.get).not.toHaveBeenCalledWith('/discussion/rooms/42');
   });
 });

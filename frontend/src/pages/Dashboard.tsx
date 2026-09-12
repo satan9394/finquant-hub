@@ -48,6 +48,10 @@ export default function Dashboard() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  // VS19：stats 的失败态与"空"必须分开。statsFailed=true 唯一代表"/dashboard/stats 请求失败"，
+  // 只有它决定"暂无会话/暂无讨论"能否出现。
+  const [statsFailed, setStatsFailed] = useState(false);
+  const [statsError, setStatsError] = useState('');
   const [productProgress, setProductProgress] = useState(readProductProgress);
   const [decisionItems, setDecisionItems] = useState<DecisionInboxItem[]>([]);
   const [decisionLoading, setDecisionLoading] = useState(true);
@@ -59,7 +63,20 @@ export default function Dashboard() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState('');
 
-  const loadStats = useCallback(async () => { try { setStats((await apiClient.get('/dashboard/stats')).data); } catch { /* non-critical context */ } }, []);
+  // VS19：原先这里是 `catch { /* non-critical context */ }`——请求失败被完全吞掉，下面两张"最近记录"
+  // 卡片于是渲染出"暂无会话/暂无讨论"，与"确实没有数据"在界面上不可区分（同页决策收件箱/市场区块都有
+  // Alert 错误态，静默属遗漏而非约定）。现在失败即进入显式错误态，并保留重试入口。
+  const loadStats = useCallback(async () => {
+    setStatsFailed(false);
+    setStatsError('');
+    try { setStats((await apiClient.get('/dashboard/stats')).data); }
+    catch (error: unknown) {
+      // 唯一判据是"请求是否成功"：失败就不保留过期快照当作当前事实，只显示错误态 + 重试。
+      setStats(null);
+      setStatsError(error instanceof Error ? error.message : '');
+      setStatsFailed(true);
+    }
+  }, []);
   const loadDecisionInbox = useCallback(async () => { setDecisionLoading(true); setDecisionError(''); try { setDecisionItems((await apiClient.get('/dashboard/decision-inbox')).data.items as DecisionInboxItem[]); } catch (error: unknown) { setDecisionItems([]); setDecisionError(error instanceof Error ? error.message : t('today.error.decision')); } finally { setDecisionLoading(false); } }, [t]);
   const loadMarket = useCallback(async () => { setMarketLoading(true); setMarketError(''); try { setMarketPulse(await fetchMarketPulse(12, 8, 12)); } catch (error: unknown) { setMarketError(error instanceof Error ? error.message : t('today.error.market')); } finally { setMarketLoading(false); } }, [t]);
   const loadNews = useCallback(async () => { setNewsLoading(true); setNewsError(''); try { setLatestNews((await apiClient.get<LatestNewsResponse>('/dashboard/news', { params: { max_results: 6 } })).data); } catch (error: unknown) { setNewsError(error instanceof Error ? error.message : t('today.error.news')); } finally { setNewsLoading(false); } }, [t]);
@@ -77,6 +94,9 @@ export default function Dashboard() {
   const researchRuns = (stats?.recent_rooms ?? []).slice(0, 5).map((room) => ({ id: room.id, title: room.topic, state: room.current_phase, progress: null, updatedAt: null }));
   const attentionCount = decisionItems.length;
   const majorChangeCount = decisionItems.filter((item) => item.priority === 'high').length;
+  // VS19：两张"最近记录"卡片共用的错误态——与同页"决策收件箱"（DecisionInboxPanel）同款 Alert：
+  // 明确的失败文案 + 具体错误 + 可点的重试。仅当 stats 请求成功时才会走到列表与空态。
+  const statsAlert = <Alert type="error" showIcon message={t('today.statsFailed')} description={statsError} action={<Button onClick={() => void loadStats()}>{t('today.retry')}</Button>} />;
 
   return <main className="workbench-page">
     <Title level={4} className="workbench-page__title">{t('today.title')}</Title>
@@ -92,6 +112,7 @@ export default function Dashboard() {
     <section className="task-launchpad" aria-labelledby="task-launchpad-title"><div className="task-launchpad__header"><div><Text className="task-launchpad__eyebrow">{t('today.launch.eyebrow')}</Text><h2 id="task-launchpad-title">{t('today.launch.title')}</h2></div><Text type="secondary">{t('today.launch.description')}</Text></div><div className="task-launchpad__progress" aria-label={t('today.progress', { done: completedProgress })}><div className="task-launchpad__progress-heading"><Text strong>{t('today.progress', { done: completedProgress })}</Text><Button type="link" size="small" onClick={() => setProductHelpDismissed(!productProgress.helpDismissed)}>{t(productProgress.helpDismissed ? 'today.showHint' : 'today.hideHint')}</Button></div><Progress percent={Math.round((completedProgress / 3) * 100)} showInfo={false} size="small" /><div className="task-launchpad__steps">{progressSteps.map((step) => <span className={step.done ? 'is-done' : ''} key={step.key}>{t(step.done ? 'today.done' : 'today.pending')} · {t(`today.progress.${step.key}`)}</span>)}</div>{!productProgress.helpDismissed ? <Text className="task-launchpad__hint">{t('today.hint')}</Text> : null}</div><div className="task-launchpad__grid">{coreTasks.map((task) => <article className="task-launchpad__card" key={task.key}><span className="task-launchpad__icon" aria-hidden="true">{task.icon}</span><div className="task-launchpad__copy"><Text type="secondary">{t(`today.task.${task.key}.area`)}</Text><h3>{t(`today.task.${task.key}.question`)}</h3><p>{t(`today.task.${task.key}.result`)}</p><Text className="task-launchpad__example">{t('today.example', { example: t(`today.task.${task.key}.example`) })}</Text></div><div className="task-launchpad__actions"><Button type="primary" onClick={task.run}>{t(`today.task.${task.key}.action`)}</Button><Button aria-label={t('today.tryExampleAria', { task: t(`today.task.${task.key}.area`) })} onClick={task.runExample}>{t('today.tryExample')}</Button></div></article>)}</div></section>
     <section className="workbench-context-grid" aria-label={t('today.recentContext')}>
       <Card title={t('today.conversations')} size="small" extra={<Button type="link" onClick={() => navigate('/chat')}>{t('today.viewAll')}</Button>}>
+        {statsFailed ? statsAlert : (
         <List
           size="small"
           dataSource={stats?.recent_conversations?.slice(0, 5) ?? []}
@@ -106,8 +127,10 @@ export default function Dashboard() {
           )}
           locale={{ emptyText: t('today.noConversations') }}
         />
+        )}
       </Card>
       <Card title={t('today.discussions')} size="small" extra={<Button type="link" onClick={() => navigate('/discussion')}>{t('today.viewAll')}</Button>}>
+        {statsFailed ? statsAlert : (
         <List
           size="small"
           dataSource={stats?.recent_rooms?.slice(0, 5) ?? []}
@@ -122,6 +145,7 @@ export default function Dashboard() {
           )}
           locale={{ emptyText: t('today.noDiscussions') }}
         />
+        )}
       </Card>
     </section>
     <div className="workbench-footer-actions"><Space wrap><Button icon={<PlusOutlined />} onClick={() => navigate('/chat')}>{t('today.startChat')}</Button><Button icon={<TeamOutlined />} onClick={() => navigate('/discussion')}>{t('today.createDiscussion')}</Button><Button icon={<RobotOutlined />} onClick={() => navigate('/models')}>{t('today.manageModels')}</Button><Button icon={<MessageOutlined />} onClick={() => { void loadStats(); void loadMarket(); void loadNews(); }}>{t('today.refresh')}</Button><Button icon={<ReloadOutlined />} onClick={() => navigate('/research')}>{t('today.continueResearch')}</Button></Space></div>

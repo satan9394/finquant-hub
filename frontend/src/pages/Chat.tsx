@@ -77,7 +77,12 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   // VS16：会话列表是否已成功返回。深链只有在"拿到当前用户自己的会话列表"之后才允许生效，
   // 否则无法区分"id 不存在/非本人"与"列表还没回来"。
   const [sessionsResolved, setSessionsResolved] = useState(false);
+  // VS19：列表请求"自身失败"是与"列表不含该 id"不同的失败，必须分开归因。
+  const [sessionsFailed, setSessionsFailed] = useState(false);
   const appliedSessionRef = useRef<number | null>(null);
+  // VS19：深链落空提示的一次性守卫，与 appliedSessionRef 同构（记住"已提示过的 id"）。
+  // 没有它，列表每次变化都会再提示一次 → 重演 R3 式的"反复打扰"。
+  const notifiedSessionRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -86,7 +91,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
     let cancelled = false;
     apiClient.get('/chat/sessions')
       .then((res) => { if (!cancelled) { setSessions(res.data.items); setSessionsResolved(true); } })
-      .catch(() => { /* 列表不可得 → 深链回落，保持既有选择，不臆造会话 */ });
+      .catch(() => { if (!cancelled) setSessionsFailed(true); /* 列表不可得 → 深链回落，保持既有选择，不臆造会话 */ });
     apiClient.get('/agents').then((res) => {
       setAgents(res.data.items);
       if (res.data.items.length > 0) setSelectedRole(res.data.items[0].role_key);
@@ -102,12 +107,27 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   // （后端 /chat/sessions 已按 user_id 过滤）。非法 / 不存在 / 已删除 / 非本人 → 优雅回落：
   // 不改变既有选择、不为该 id 发任何请求，页面留在该功能区默认视图。
   // appliedSessionRef 保证只应用一次：用户随后在左栏点其它会话不会被强行拉回深链的那一条。
+  // VS19：回落不再静默（否则体感等同 R3 修复前的"点了落到空白界面"），改为一次性 message.warning。
+  // 两种失败严格区分，不得混为一谈：
+  //   ① 列表已成功返回但不含该 id → "已不存在"（数据确实没有）；
+  //   ② 列表请求自身失败       → "列表读取失败"（系统故障，绝不能说成数据不存在）。
+  // 结构与本页 Discussion 的 ?room= 完全同构：只有**真正选中**才写 appliedSessionRef；
+  // 落空（含 ① 与 ②）由 notifiedSessionRef 单独记账，保证同一个 id 只提示一次。
   useEffect(() => {
-    if (requestedSessionId === null || !sessionsResolved) return;
-    if (appliedSessionRef.current === requestedSessionId) return;
+    if (requestedSessionId === null || appliedSessionRef.current === requestedSessionId) return;
+    const notifyOnce = (key: string) => {
+      if (notifiedSessionRef.current === requestedSessionId) return;
+      notifiedSessionRef.current = requestedSessionId;
+      message.warning(t(key));
+    };
+    if (!sessionsResolved) {
+      if (sessionsFailed) notifyOnce('chat.deepLinkUnavailable');
+      return;
+    }
+    if (!sessions.some((session) => session.id === requestedSessionId)) { notifyOnce('chat.deepLinkMissing'); return; }
     appliedSessionRef.current = requestedSessionId;
-    if (sessions.some((session) => session.id === requestedSessionId)) setCurrentSessionId(requestedSessionId);
-  }, [requestedSessionId, sessions, sessionsResolved, setCurrentSessionId]);
+    setCurrentSessionId(requestedSessionId);
+  }, [requestedSessionId, sessions, sessionsResolved, sessionsFailed, setCurrentSessionId, t]);
 
   // 加载当前会话消息
   useEffect(() => {

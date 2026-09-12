@@ -1117,6 +1117,7 @@ const zh: Record<string, string> = {
   'today.viewAll': '查看全部',
   'today.noConversations': '暂无会话',
   'today.noDiscussions': '暂无讨论',
+  'today.statsFailed': '近期记录读取失败',
   'today.conversation': '会话 #{id}',
   'today.state.done': '已完成',
   'today.state.failed': '失败，可重试',
@@ -1846,6 +1847,10 @@ const zh: Record<string, string> = {
   'chat.messageCount': '{count} 条消息',
   'chat.empty': '暂无会话',
   'chat.selectSession': '请选择或创建一个会话',
+  // VS19：深链（?session=<id>）落空时的一次性提示。两种失败必须分清——
+  // missing=列表已成功返回但不含该 id（"已不存在"）；unavailable=列表请求本身失败（不得说成"已不存在"）。
+  'chat.deepLinkMissing': '该会话已不存在，已显示当前会话列表',
+  'chat.deepLinkUnavailable': '会话列表读取失败，未能打开指定会话',
   'chat.inputPlaceholder': '输入消息…（Shift+Enter 换行）',
   'chat.stop': '停止',
   'chat.runBacktest': '打开策略实验室',
@@ -1868,6 +1873,9 @@ const zh: Record<string, string> = {
   'discussion.status.running': '进行中',
   'discussion.empty': '暂无讨论',
   'discussion.selectRoom': '请选择或创建一个讨论房间',
+  // VS19：深链（?room=<id>）落空时的一次性提示，语义同 chat.deepLink*。
+  'discussion.deepLinkMissing': '该讨论已不存在，已显示当前讨论列表',
+  'discussion.deepLinkUnavailable': '讨论列表读取失败，未能打开指定讨论',
   'discussion.loading': '正在加载讨论详情…',
   'discussion.quota': '模型额度：开始后按所选角色和轮次多次调用模型；仅打开房间不会运行。',
   'discussion.stop': '停止讨论',
