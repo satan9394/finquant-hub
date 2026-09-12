@@ -15,6 +15,7 @@ import TodayNeedAttention from '../components/TodayNeedAttention';
 import TodayUniverse from '../components/TodayUniverse';
 import TodayMarketPulse from '../components/TodayMarketPulse';
 import ResearchRuns from '../components/ResearchRuns';
+import LoadFailureAlert from '../components/LoadFailureAlert';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text, Title } = Typography;
@@ -96,7 +97,9 @@ export default function Dashboard() {
   const majorChangeCount = decisionItems.filter((item) => item.priority === 'high').length;
   // VS19：两张"最近记录"卡片共用的错误态——与同页"决策收件箱"（DecisionInboxPanel）同款 Alert：
   // 明确的失败文案 + 具体错误 + 可点的重试。仅当 stats 请求成功时才会走到列表与空态。
-  const statsAlert = <Alert type="error" showIcon message={t('today.statsFailed')} description={statsError} action={<Button onClick={() => void loadStats()}>{t('today.retry')}</Button>} />;
+  // VS22：改由共用组件 LoadFailureAlert 渲染（左栏列表与"研究运行"区块用同一个），
+  // 保证"同一页面对同一个失败只有一种待遇"这条口径不可能再被各写一遍写歪。
+  const statsAlert = <LoadFailureAlert message={t('today.statsFailed')} error={statsError} onRetry={() => void loadStats()} />;
 
   return <main className="workbench-page">
     <Title level={4} className="workbench-page__title">{t('today.title')}</Title>
@@ -108,7 +111,9 @@ export default function Dashboard() {
     </TodayNeedAttention>
     <TodayUniverse onOpen={navigate} />
     <TodayMarketPulse><section className="workbench-brief-grid" aria-label={t('today.briefAria')}><MarketBrief data={marketPulse} loading={marketLoading} error={marketError} /><LatestNews data={latestNews} loading={newsLoading} error={newsError} /></section></TodayMarketPulse>
-    <ResearchRuns runs={researchRuns} />
+    {/* VS22：`statsFailed` 为真时本区块同样显式报错（同一失败、同一形态、同一个重试入口），
+        不再像修前那样退化成空列表——那会让"读取失败"和"确实没有研究运行"不可区分。 */}
+    <ResearchRuns runs={researchRuns} error={statsFailed ? statsError : null} onRetry={() => void loadStats()} />
     <section className="task-launchpad" aria-labelledby="task-launchpad-title"><div className="task-launchpad__header"><div><Text className="task-launchpad__eyebrow">{t('today.launch.eyebrow')}</Text><h2 id="task-launchpad-title">{t('today.launch.title')}</h2></div><Text type="secondary">{t('today.launch.description')}</Text></div><div className="task-launchpad__progress" aria-label={t('today.progress', { done: completedProgress })}><div className="task-launchpad__progress-heading"><Text strong>{t('today.progress', { done: completedProgress })}</Text><Button type="link" size="small" onClick={() => setProductHelpDismissed(!productProgress.helpDismissed)}>{t(productProgress.helpDismissed ? 'today.showHint' : 'today.hideHint')}</Button></div><Progress percent={Math.round((completedProgress / 3) * 100)} showInfo={false} size="small" /><div className="task-launchpad__steps">{progressSteps.map((step) => <span className={step.done ? 'is-done' : ''} key={step.key}>{t(step.done ? 'today.done' : 'today.pending')} · {t(`today.progress.${step.key}`)}</span>)}</div>{!productProgress.helpDismissed ? <Text className="task-launchpad__hint">{t('today.hint')}</Text> : null}</div><div className="task-launchpad__grid">{coreTasks.map((task) => <article className="task-launchpad__card" key={task.key}><span className="task-launchpad__icon" aria-hidden="true">{task.icon}</span><div className="task-launchpad__copy"><Text type="secondary">{t(`today.task.${task.key}.area`)}</Text><h3>{t(`today.task.${task.key}.question`)}</h3><p>{t(`today.task.${task.key}.result`)}</p><Text className="task-launchpad__example">{t('today.example', { example: t(`today.task.${task.key}.example`) })}</Text></div><div className="task-launchpad__actions"><Button type="primary" onClick={task.run}>{t(`today.task.${task.key}.action`)}</Button><Button aria-label={t('today.tryExampleAria', { task: t(`today.task.${task.key}.area`) })} onClick={task.runExample}>{t('today.tryExample')}</Button></div></article>)}</div></section>
     <section className="workbench-context-grid" aria-label={t('today.recentContext')}>
       <Card title={t('today.conversations')} size="small" extra={<Button type="link" onClick={() => navigate('/chat')}>{t('today.viewAll')}</Button>}>

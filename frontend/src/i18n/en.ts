@@ -1118,6 +1118,8 @@ const en: Record<string, string> = {
   'today.noConversations': 'No conversations',
   'today.noDiscussions': 'No discussions',
   'today.statsFailed': 'Could not load recent records',
+  // VS22: same stats failure as the two cards above — the research-runs block must say so too.
+  'today.researchRunsFailed': 'Could not load research runs',
   'today.conversation': 'Conversation #{id}',
   'today.state.done': 'Done',
   'today.state.failed': 'Failed · retry available',
@@ -1709,6 +1711,8 @@ const en: Record<string, string> = {
   'research.swarm.outputBoundary': 'Agent output is MODEL_OUTPUT. Independently verify it against the real market data, sources, and as-of time shown on the page.',
   'common.currentObject': 'Current object: ',
   'common.dataStatus': 'Data status: {status}',
+  // VS22: retry label for the shared LoadFailureAlert (one source for left rails and dashboard blocks).
+  'common.retry': 'Retry',
   'resultLayer.summary.title': 'Summary',
   'resultLayer.summary.description': 'Start with the conclusion, primary risks, and next step.',
   'resultLayer.evidence.title': 'Evidence',
@@ -1846,6 +1850,9 @@ const en: Record<string, string> = {
   'chat.sessionTitle': 'Session #{id}',
   'chat.messageCount': '{count} messages',
   'chat.empty': 'No sessions',
+  // VS22: error state for a *failed* left-rail list read. Mutually exclusive with chat.empty —
+  // "No sessions" may only appear once the request succeeded and the list is genuinely empty.
+  'chat.listFailed': 'Could not load your sessions',
   'chat.selectSession': 'Select or create a session',
   // VS19: one-shot notice when a ?session=<id> deep link cannot be honoured. The two
   // failures stay distinct: missing = the list loaded and does not contain the id;
@@ -1873,6 +1880,8 @@ const en: Record<string, string> = {
   'discussion.status.failed': 'Failed; retry available',
   'discussion.status.running': 'In progress',
   'discussion.empty': 'No discussions',
+  // VS22: error state for a *failed* left-rail list read (same split as chat.listFailed).
+  'discussion.listFailed': 'Could not load your discussions',
   'discussion.selectRoom': 'Select or create a discussion room',
   // VS19: one-shot notice when a ?room=<id> deep link cannot be honoured (same split as chat.deepLink*).
   'discussion.deepLinkMissing': 'That discussion no longer exists. Showing your current discussion list.',

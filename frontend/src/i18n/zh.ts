@@ -1118,6 +1118,8 @@ const zh: Record<string, string> = {
   'today.noConversations': '暂无会话',
   'today.noDiscussions': '暂无讨论',
   'today.statsFailed': '近期记录读取失败',
+  // VS22：与上方两张卡片同一个 stats 失败，"研究运行"区块也必须说出来（同一种错误态、同一个重试）。
+  'today.researchRunsFailed': '研究运行记录读取失败',
   'today.conversation': '会话 #{id}',
   'today.state.done': '已完成',
   'today.state.failed': '失败，可重试',
@@ -1709,6 +1711,8 @@ const zh: Record<string, string> = {
   'research.swarm.outputBoundary': 'Agent 输出属于 MODEL_OUTPUT；请结合页面中的真实行情、来源与截止时间独立核验。',
   'common.currentObject': '当前对象：',
   'common.dataStatus': '数据状态：{status}',
+  // VS22：共用错误态组件 LoadFailureAlert 的重试文案（左栏列表与首页区块共用同一处来源）。
+  'common.retry': '重试',
   'resultLayer.summary.title': '摘要',
   'resultLayer.summary.description': '先看结论、主要风险和下一步。',
   'resultLayer.evidence.title': '证据',
@@ -1846,6 +1850,9 @@ const zh: Record<string, string> = {
   'chat.sessionTitle': '会话 #{id}',
   'chat.messageCount': '{count} 条消息',
   'chat.empty': '暂无会话',
+  // VS22：左栏列表**读取失败**时的错误态文案。与 chat.empty 是互斥的两件事：
+  // 只有请求成功且列表为空才允许出现"暂无会话"。
+  'chat.listFailed': '会话列表读取失败',
   'chat.selectSession': '请选择或创建一个会话',
   // VS19：深链（?session=<id>）落空时的一次性提示。两种失败必须分清——
   // missing=列表已成功返回但不含该 id（"已不存在"）；unavailable=列表请求本身失败（不得说成"已不存在"）。
@@ -1872,6 +1879,8 @@ const zh: Record<string, string> = {
   'discussion.status.failed': '失败，可重试',
   'discussion.status.running': '进行中',
   'discussion.empty': '暂无讨论',
+  // VS22：左栏列表**读取失败**时的错误态文案，与 discussion.empty 互斥（语义同 chat.listFailed）。
+  'discussion.listFailed': '讨论列表读取失败',
   'discussion.selectRoom': '请选择或创建一个讨论房间',
   // VS19：深链（?room=<id>）落空时的一次性提示，语义同 chat.deepLink*。
   'discussion.deepLinkMissing': '该讨论已不存在，已显示当前讨论列表',

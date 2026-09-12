@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -302,8 +302,11 @@ describe('Dashboard stats failure is never dressed up as emptiness (VS19)', () =
 
     // 两张卡片位置各有一处与"决策收件箱"同款的 Alert：失败文案 + 具体错误 + 可点的重试。
     expect(await screen.findAllByText('近期记录读取失败')).toHaveLength(2);
-    expect(screen.getAllByText('stats upstream unavailable')).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /重\s*试/ })).toHaveLength(2);
+    // VS22：同一次 stats 失败现在也让"研究运行"区块显式报错（同一形态、同一个重试入口），
+    // 所以下面两条断言**限定在两张卡片所在区域内**：VS19 的原意"两张卡片位置各有一处"原样保留。
+    const recentCards = within(document.querySelector('.workbench-context-grid') as HTMLElement);
+    expect(recentCards.getAllByText('stats upstream unavailable')).toHaveLength(2);
+    expect(recentCards.getAllByRole('button', { name: /重\s*试/ })).toHaveLength(2);
     // 空态文案只代表"确实没有数据"：请求失败时一个字都不许出现。
     expect(screen.queryByText('暂无会话')).toBeNull();
     expect(screen.queryByText('暂无讨论')).toBeNull();
@@ -330,7 +333,9 @@ describe('Dashboard stats failure is never dressed up as emptiness (VS19)', () =
 
     expect(await screen.findAllByText('近期记录读取失败')).toHaveLength(2);
 
-    fireEvent.click(screen.getAllByRole('button', { name: /重\s*试/ })[0]);
+    // VS22：只点"卡片区域"里的重试（"研究运行"区块也各有一个重试，点了同样会回到 stats）。
+    const recentCards = within(document.querySelector('.workbench-context-grid') as HTMLElement);
+    fireEvent.click(recentCards.getAllByRole('button', { name: /重\s*试/ })[0]);
 
     expect(await screen.findByRole('link', { name: /关于 600519 的追问/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /上周那篇 600519 的讨论/ })).toBeTruthy();

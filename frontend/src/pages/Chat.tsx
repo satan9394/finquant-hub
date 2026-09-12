@@ -13,6 +13,7 @@ import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
+import LoadFailureAlert from '../components/LoadFailureAlert';
 import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -79,6 +80,10 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [sessionsResolved, setSessionsResolved] = useState(false);
   // VS19：列表请求"自身失败"是与"列表不含该 id"不同的失败，必须分开归因。
   const [sessionsFailed, setSessionsFailed] = useState(false);
+  // VS22：失败的具体原因。左栏错误态要把底层错误原样带出，而不是只说"失败了"。
+  const [sessionsError, setSessionsError] = useState('');
+  // VS22：列表请求的序号，用于丢弃过期响应（重试可能晚于前一次请求返回）。
+  const sessionsRequestRef = useRef(0);
   const appliedSessionRef = useRef<number | null>(null);
   // VS19：深链落空提示的一次性守卫，与 appliedSessionRef 同构（记住"已提示过的 id"）。
   // 没有它，列表每次变化都会再提示一次 → 重演 R3 式的"反复打扰"。
@@ -87,17 +92,39 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const abortRef = useRef<AbortController | null>(null);
 
   // 加载会话列表 + 角色列表
+  // VS22：会话列表的读取抽成可重复调用的 loadSessions —— 左栏错误态上的"重试"必须**真的**重新发起
+  // 这条请求（而不是只把提示关掉）。失败态与"确实没有会话"由此彻底分开：只有请求成功且列表为空，
+  // 才轮到左栏的"暂无会话"。
+  const loadSessions = useCallback(async () => {
+    const requestId = ++sessionsRequestRef.current;
+    try {
+      const res = await apiClient.get('/chat/sessions');
+      // 过期响应直接丢弃：不得让先发的慢请求覆盖后发的重试结果。
+      if (sessionsRequestRef.current !== requestId) return;
+      setSessions(res.data.items);
+      setSessionsResolved(true);
+      setSessionsFailed(false);
+      setSessionsError('');
+    } catch (error: unknown) {
+      if (sessionsRequestRef.current !== requestId) return;
+      // 列表不可得 → 深链回落，保持既有选择，不臆造会话。
+      // 刻意**不**在重试发起时清掉失败态：那样重试期间会闪回"暂无会话"，正是本卡要消灭的假象。
+      setSessionsFailed(true);
+      setSessionsError(error instanceof Error ? error.message : '');
+    }
+  }, [setSessions]);
+
+  useEffect(() => { void loadSessions(); }, [loadSessions]);
+
   useEffect(() => {
     let cancelled = false;
-    apiClient.get('/chat/sessions')
-      .then((res) => { if (!cancelled) { setSessions(res.data.items); setSessionsResolved(true); } })
-      .catch(() => { if (!cancelled) setSessionsFailed(true); /* 列表不可得 → 深链回落，保持既有选择，不臆造会话 */ });
     apiClient.get('/agents').then((res) => {
+      if (cancelled) return;
       setAgents(res.data.items);
       if (res.data.items.length > 0) setSelectedRole(res.data.items[0].role_key);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [setSessions]);
+  }, []);
 
   useEffect(() => {
     if (starterPrompt) setInputValue(starterPrompt);
@@ -289,6 +316,16 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
             {t('chat.newSession')}
           </Button>
         </div>
+        {/* VS22：列表请求失败 ⇒ 原位给出与首页同款的错误态（失败文案 + 具体错误 + 可点重试）。
+            只有请求成功且为空时，才轮到 List 的"暂无会话"——空态只代表"确实没有数据"。 */}
+        {sessionsFailed ? (
+          <div style={{ padding: 12 }}>
+            <LoadFailureAlert message={t('chat.listFailed')} error={sessionsError} onRetry={() => void loadSessions()} />
+          </div>
+        ) : null}
+        {/* "读取失败且本地没有任何会话"时整块不渲染列表，避免它顺手写出"暂无会话"；
+            但失败之后本地新建的会话是**真实存在**的，必须照常可见。 */}
+        {sessionsFailed && sessions.length === 0 ? null : (
         <List
           size="small"
           dataSource={sessions}
@@ -318,6 +355,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
           )}
           locale={{ emptyText: <Empty description={t('chat.empty')} /> }}
         />
+        )}
       </Sider>
 
       {/* 右栏：消息流 */}

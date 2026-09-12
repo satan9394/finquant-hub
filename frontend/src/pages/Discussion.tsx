@@ -11,6 +11,7 @@ import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import InvestmentCommittee from '../components/InvestmentCommittee';
+import LoadFailureAlert from '../components/LoadFailureAlert';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -57,18 +58,42 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // 否则会把系统故障错误归因成"这条讨论不存在"。
   const [roomsResolved, setRoomsResolved] = useState(false);
   const [roomsFailed, setRoomsFailed] = useState(false);
+  // VS22：失败的具体原因。左栏错误态要把底层错误原样带出，而不是只说"失败了"。
+  const [roomsError, setRoomsError] = useState('');
+  // VS22：列表请求的序号，用于丢弃过期响应（重试可能晚于前一次请求返回）。
+  const roomsRequestRef = useRef(0);
   // VS19：深链落空提示的一次性守卫（记住"已提示过的 id"），防止列表每次变化都重复打扰。
   const notifiedRoomRef = useRef<number | null>(null);
 
   // 加载房间列表 + 角色
+  // VS22：与 Chat 同构——房间列表的读取抽成可重复调用的 loadRooms，左栏错误态上的"重试"才会
+  // **真的**重新发起这条请求。失败态与"确实没有讨论"由此彻底分开。
+  const loadRooms = useCallback(async () => {
+    const requestId = ++roomsRequestRef.current;
+    try {
+      const res = await apiClient.get('/discussion/rooms');
+      // 过期响应直接丢弃：不得让先发的慢请求覆盖后发的重试结果。
+      if (roomsRequestRef.current !== requestId) return;
+      setRooms(res.data.items ?? []);
+      setRoomsResolved(true);
+      setRoomsFailed(false);
+      setRoomsError('');
+    } catch (error: unknown) {
+      if (roomsRequestRef.current !== requestId) return;
+      // 列表不可得 → 深链回落，保持既有选择。
+      // 刻意**不**在重试发起时清掉失败态：那样重试期间会闪回"暂无讨论"，正是本卡要消灭的假象。
+      setRoomsFailed(true);
+      setRoomsError(error instanceof Error ? error.message : '');
+    }
+  }, [setRooms]);
+
+  useEffect(() => { void loadRooms(); }, [loadRooms]);
+
   useEffect(() => {
     let cancelled = false;
-    apiClient.get('/discussion/rooms')
-      .then((res) => { if (!cancelled) { setRooms(res.data.items ?? []); setRoomsResolved(true); } })
-      .catch(() => { if (!cancelled) setRoomsFailed(true); /* 列表不可得 → 深链回落，保持既有选择 */ });
-    apiClient.get('/agents').then((res) => setAgents(res.data.items ?? [])).catch(() => {});
+    apiClient.get('/agents').then((res) => { if (!cancelled) setAgents(res.data.items ?? []); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [setRooms]);
+  }, []);
 
   // VS16：?room=<id> —— 仅当该 id 出现在**当前用户自己的房间列表**里才选中（后端 /discussion/rooms 已按 user_id 过滤）。
   // 非法 / 不存在 / 非本人 → 不选中、不为它发任何请求，页面留在该功能区默认视图。
@@ -228,6 +253,16 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
             {t('discussion.create')}
           </Button>
         </div>
+        {/* VS22：列表请求失败 ⇒ 原位给出与首页、Chat 左栏同款的错误态（失败文案 + 具体错误 + 可点重试）。
+            只有请求成功且为空时，才轮到 List 的"暂无讨论"——空态只代表"确实没有数据"。 */}
+        {roomsFailed ? (
+          <div style={{ padding: 12 }}>
+            <LoadFailureAlert message={t('discussion.listFailed')} error={roomsError} onRetry={() => void loadRooms()} />
+          </div>
+        ) : null}
+        {/* "读取失败且本地没有任何房间"时整块不渲染列表，避免它顺手写出"暂无讨论"；
+            但失败之后本地新建的房间是**真实存在**的，必须照常可见。 */}
+        {roomsFailed && rooms.length === 0 ? null : (
         <List
           size="small"
           dataSource={rooms}
@@ -255,6 +290,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
           )}
           locale={{ emptyText: <Empty description={t('discussion.empty')} /> }}
         />
+        )}
       </Sider>
 
       {/* 内容区 */}
