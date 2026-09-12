@@ -1869,6 +1869,14 @@ const en: Record<string, string> = {
   'discussion.loadFailed': 'Could not load discussion details',
   'discussion.topicRequired': 'Enter a discussion topic',
   'discussion.rolesRequired': 'Select at least 3 roles',
+  // VS25: every option in the role dropdown comes from GET /agents. A failed read must not be silent —
+  // otherwise the user is only ever told "select at least 3 roles" and can never satisfy it.
+  'discussion.rolesLoadFailed': 'Could not load roles',
+  // VS25: what Create says instead of rolesRequired while that read is failing (name the cause, do not blame the user).
+  'discussion.rolesUnavailableHint': 'The role list failed to load, so no role can be selected. Select Retry to load the roles again.',
+  // VS25: the read succeeded but fewer than 3 roles exist — say so plainly instead of a prompt that cannot be met.
+  'discussion.rolesInsufficient': 'Only {count} roles are available, so at least 3 cannot be selected',
+  'discussion.rolesNone': 'No roles are available, so at least 3 cannot be selected',
   'discussion.created': 'Discussion room created',
   'discussion.alreadyDone': 'This discussion is already complete',
   'discussion.requestFailed': 'Discussion request failed',
@@ -2096,6 +2104,10 @@ const en: Record<string, string> = {
   'deep.agent.reason.toolLoopExhausted': 'tool-call rounds exhausted',
   'deep.agent.reason.emptyContent': 'the model returned no content',
   'deep.agent.reason.outputTruncated': 'output truncated by the length limit',
+  // VS27: whole-run deadline (research_orch deadline_*), user-visible "ended early" copy.
+  'deep.agent.reason.deadlineExceeded': 'exceeded the total research time limit; analysis ended early (completed parts kept)',
+  'deep.agent.reason.deadlineBeforeStart': 'exceeded the total research time limit; analysis never started',
+  'deep.report.truncatedByDeadline': '⏱ This research run ended early because it exceeded the total time limit: completed steps are kept, unfinished ones are listed in "Step status" above.',
   'deep.request.failed': 'Research request failed',
   'deep.stream.missing': 'The research service did not return an event stream',
   'deep.stream.interruptedStage': 'Research stream interrupted unexpectedly',

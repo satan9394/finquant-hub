@@ -3,7 +3,7 @@
  * ============================================================ */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Layout, List, Button, Modal, Input, Select, InputNumber, Typography, message, Empty, Tag, Spin,
+  Layout, List, Button, Modal, Input, Select, InputNumber, Typography, message, Empty, Tag, Spin, Alert,
 } from 'antd';
 import { PlusOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import apiClient from '../services/api';
@@ -64,6 +64,16 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   const roomsRequestRef = useRef(0);
   // VS19：深链落空提示的一次性守卫（记住"已提示过的 id"），防止列表每次变化都重复打扰。
   const notifiedRoomRef = useRef<number | null>(null);
+  // VS25：角色下拉的**全部**选项都来自 GET /agents。修前这条请求 `.catch(() => {})` 静默吞错，
+  // 于是"下拉是空的"与"请求失败了"在界面上长得一模一样，用户被 "请至少选择 3 个角色" 挡回来时
+  // 只会以为自己选得不够 —— 一个按提示也做不成的死胡同。
+  // 现在与左栏列表同构：**成功**（resolved）与**失败**（failed）分开，失败必须说出来且可重试。
+  const [agentsResolved, setAgentsResolved] = useState(false);
+  const [agentsFailed, setAgentsFailed] = useState(false);
+  // 失败的具体原因（把底层错误原样带出，不吞掉）。
+  const [agentsError, setAgentsError] = useState('');
+  // 请求序号：重试可能晚于前一次请求返回，过期响应必须丢弃。
+  const agentsRequestRef = useRef(0);
 
   // 加载房间列表 + 角色
   // VS22：与 Chat 同构——房间列表的读取抽成可重复调用的 loadRooms，左栏错误态上的"重试"才会
@@ -89,11 +99,33 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
 
   useEffect(() => { void loadRooms(); }, [loadRooms]);
 
-  useEffect(() => {
-    let cancelled = false;
-    apiClient.get('/agents').then((res) => { if (!cancelled) setAgents(res.data.items ?? []); }).catch(() => {});
-    return () => { cancelled = true; };
+  // VS25：角色列表读取抽成可重复调用的 loadAgents —— 错误态上的"重试"因此**真的**会重新发起该请求。
+  // 刻意**不**在重试发起时清掉失败态：否则重试期间下拉会闪回"空且无解释"的样子，正是本卡要消灭的假象。
+  const loadAgents = useCallback(async () => {
+    const requestId = ++agentsRequestRef.current;
+    try {
+      const res = await apiClient.get('/agents');
+      // 过期响应直接丢弃：不得让先发的慢请求覆盖后发的重试结果。
+      if (agentsRequestRef.current !== requestId) return;
+      setAgents(res.data.items ?? []);
+      setAgentsResolved(true);
+      setAgentsFailed(false);
+      setAgentsError('');
+    } catch (error: unknown) {
+      if (agentsRequestRef.current !== requestId) return;
+      setAgentsFailed(true);
+      setAgentsError(error instanceof Error ? error.message : '');
+    }
   }, []);
+
+  useEffect(() => { void loadAgents(); }, [loadAgents]);
+
+  // VS25：请求**成功**但可用角色本身不足 3 个 —— 这不是故障，所以不给"重试"，
+  // 但必须如实说明（"当前仅 N 个角色可用"），不能让用户对着一个做不到的提示反复试。
+  const rolesInsufficient = agentsResolved && !agentsFailed && agents.length < 3;
+  const rolesInsufficientText = agents.length === 0
+    ? t('discussion.rolesNone')
+    : t('discussion.rolesInsufficient', { count: agents.length });
 
   // VS16：?room=<id> —— 仅当该 id 出现在**当前用户自己的房间列表**里才选中（后端 /discussion/rooms 已按 user_id 过滤）。
   // 非法 / 不存在 / 非本人 → 不选中、不为它发任何请求，页面留在该功能区默认视图。
@@ -139,7 +171,18 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // 创建房间
   const handleCreate = async () => {
     if (!topic.trim()) { message.warning(t('discussion.topicRequired')); return; }
-    if (selectedRoles.length < 3) { message.warning(t('discussion.rolesRequired')); return; }
+    // VS25：角色不够时**不得**一律甩"请至少选择 3 个角色"——那是把系统故障说成用户没选够。
+    // 三种成因各说各的：读取失败（→ 去重试）、可用角色本身不足（→ 如实说只有几个）、确实没选够。
+    if (selectedRoles.length < 3) {
+      message.warning(
+        agentsFailed
+          ? t('discussion.rolesUnavailableHint')
+          : rolesInsufficient
+            ? rolesInsufficientText
+            : t('discussion.rolesRequired'),
+      );
+      return;
+    }
     setCreating(true);
     try {
       const res = await apiClient.post('/discussion/rooms', {
@@ -252,6 +295,18 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
           <Button aria-label={t('discussion.create')} type="primary" block icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             {t('discussion.create')}
           </Button>
+          {/* VS25：角色列表读取失败 ⇒ 这里（不需要任何点击就看得见）先说清"是读取失败"，而不是
+              让人打开对话框对着一个空下拉猜。对话框里另有一份同样形态的错误态，因为 antd 的
+              遮罩会挡住这里，"重试"必须在那边的原位也能点到。 */}
+          {agentsFailed ? (
+            <div style={{ marginTop: 12 }}>
+              <LoadFailureAlert
+                message={t('discussion.rolesLoadFailed')}
+                error={agentsError}
+                onRetry={() => void loadAgents()}
+              />
+            </div>
+          ) : null}
         </div>
         {/* VS22：列表请求失败 ⇒ 原位给出与首页、Chat 左栏同款的错误态（失败文案 + 具体错误 + 可点重试）。
             只有请求成功且为空时，才轮到 List 的"暂无讨论"——空态只代表"确实没有数据"。 */}
@@ -370,6 +425,26 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
           </div>
           <div>
             <Text strong>{t('discussion.modal.roles')}</Text>
+            {/* VS25：下拉选项全部来自 GET /agents —— 它失败时**原位**（就在下拉上方）给出
+                失败文案 + 具体原因 + 可点重试；重试真的重新发起，成功后本块消失、下拉恢复可选。 */}
+            {agentsFailed ? (
+              <div style={{ marginTop: 8 }}>
+                <LoadFailureAlert
+                  message={t('discussion.rolesLoadFailed')}
+                  error={agentsError}
+                  onRetry={() => void loadAgents()}
+                />
+              </div>
+            ) : null}
+            {/* VS25：成功但角色本身不足 3 个 —— 不是故障，如实说明，不给"重试"（重试也变不出角色）。 */}
+            {rolesInsufficient ? (
+              <Alert
+                style={{ marginTop: 8 }}
+                type="warning"
+                showIcon
+                message={rolesInsufficientText}
+              />
+            ) : null}
             <Select
               aria-label={t('discussion.modal.roles')}
               mode="multiple"

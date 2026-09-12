@@ -1868,6 +1868,14 @@ const zh: Record<string, string> = {
   'discussion.loadFailed': '加载讨论详情失败',
   'discussion.topicRequired': '请输入讨论主题',
   'discussion.rolesRequired': '至少选择 3 个角色',
+  // VS25：角色下拉的全部选项来自 GET /agents。它失败时不得静默 —— 否则用户只会被
+  // "至少选择 3 个角色" 挡回来，按提示也做不成，且永远不知道是读取失败。
+  'discussion.rolesLoadFailed': '角色列表读取失败',
+  // VS25：失败时点"创建"给出的说法（**替代** rolesRequired，把成因说清楚，而不是怪用户没选够）。
+  'discussion.rolesUnavailableHint': '角色列表读取失败，无法选择角色；请先点“重试”重新加载角色',
+  // VS25：请求成功但可用角色本身不足 3 个 —— 如实说明，别让人对着做不到的提示反复试。
+  'discussion.rolesInsufficient': '当前仅 {count} 个角色可用，无法选择至少 3 个角色',
+  'discussion.rolesNone': '当前没有可用的角色，无法选择至少 3 个角色',
   'discussion.created': '讨论房间已创建',
   'discussion.alreadyDone': '讨论已完成',
   'discussion.requestFailed': '讨论请求失败',
@@ -2095,6 +2103,10 @@ const zh: Record<string, string> = {
   'deep.agent.reason.toolLoopExhausted': '工具调用轮次耗尽',
   'deep.agent.reason.emptyContent': '模型未返回内容',
   'deep.agent.reason.outputTruncated': '输出被长度限制截断',
+  // VS27: 整轮截止（research_orch 的 deadline_*），用户可见的"提前结束"文案。
+  'deep.agent.reason.deadlineExceeded': '超过研究总时长上限，分析被提前结束（已完成的部分已保留）',
+  'deep.agent.reason.deadlineBeforeStart': '超过研究总时长上限，未开始分析',
+  'deep.report.truncatedByDeadline': '⏱ 本次研究因超过总时长上限提前结束：已完成的环节成果仍然保留，未完成的环节见上方"环节状态"。',
   'deep.request.failed': '研究请求失败',
   'deep.stream.missing': '研究服务未返回事件流',
   'deep.stream.interruptedStage': '研究流意外中断',
