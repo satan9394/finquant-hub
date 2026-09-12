@@ -72,6 +72,19 @@ frontend/src/
 - **SSE proxy**: Vite proxy must set `compress: false` + `timeout: 0` to prevent SSE buffering. See `frontend/vite.config.ts`.
 - **SQLite DB path**: `backend/data/finquant.db`. Schema migrations are hand-written (no migration framework).
 
+### Agent 作业踩坑（跨会话沉淀；踩过一次就不要重来）
+
+- **读 UTF-8 文件不要用裸 `Get-Content`**：PowerShell 5.1 默认按 ANSI 解码，会**损坏 UTF-8 无 BOM 文件里的中文**（`start.bat` 首当其冲，症状是乱码与引号不配对）。用 `[System.IO.File]::ReadAllLines($p, [System.Text.UTF8Encoding]::new($false))`。**改动或复刻失败时，先怀疑自己的读取/引号/编辑，再怀疑代码**——曾因自己的读取问题误判"载荷执行失败"，差点去"修好"一份正确的实现；也曾因编辑时选错替换范围而**删掉整段记录**。
+- **不要跑全量 pytest，也不要跑 `tests/test_api.py`**：本机沙箱下会**挂起**（`httpx.InvalidURL: Invalid port: ':1]'`，源于代理环境变量）。前置 `$env:no_proxy='localhost,127.0.0.1,::1'`，并**只跑聚焦的测试文件**。
+- **不要为了迁就测试替身而在生产代码里放宽错误处理**：宽泛的 `except TypeError` / `except Exception` 包住 `await` 会**吞掉真实错误**，并让**同一次调用被重发**（白付一次 API 费用）。如确需兼容，用 `inspect.signature` 判断或只捕获确属签名不匹配的情形，并在注释里写明为何不能用宽捕获。
+- **失败/降级判据不要用字符串前缀哨兵**：读结构化信号。注意**成功结果同样可能是 JSON**（以 `{` 开头）——不可据此判失败，必须解析后看 `success` 一类字段。
+- **同一件事的两条路径必须同源**：交互 vs 调度、实时 SSE vs 历史回放、脚本 vs 文档、UI vs CLI。历次真缺陷多为"改了一处、忘了另一处"。
+- **文档承诺必须与实现一致**：出现过"文档说滚动保留 7 份、实现只提示不删"、"README 承诺预置产物免 Bun、脚本却硬退出"、"PRD 描述了并不存在的加密迁移"。**改行为时同步改文案。**
+- **宁可说"未知"也不要说成"成功"**：不确定就标 `degraded` / "未验证"；绝不把失败渲染成成功，也绝不把局部失败说成整轮失败。
+- **数据一致性改动要当心 SQLite WAL**：只复制 `finquant.db` 会**静默丢弃 `-wal` 中已提交的事务**；用 `sqlite3.Connection.backup()`（全仓既有约定）。且**真实 `backend\data` 的 WAL 已被 checkpoint**，想验证 WAL 行为必须**自造场景**（保持连接不关闭 + `wal_autocheckpoint=0`）。
+
+详见 `memory/`：`MAIN_SESSION_TOKEN_DISCIPLINE.md`、`SUBAGENT_TIMEOUT_DISCIPLINE.md`、`VERIFICATION_BLIND_SPOT.md`。
+
 ## Doc sync rule
 
 After any code change that adds/changes an API endpoint, router, or table:
