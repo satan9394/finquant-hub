@@ -735,3 +735,171 @@ async def test_three_tuple_return_is_still_supported(isolated_registry):
 
     assert content == "旧契约结论"
     assert reasons == []
+
+
+# ------------------------------------------------------------------
+# VS20: Agent 结局必须**结构化**落库（回放侧据此判失败/降级，不再靠字符串前缀哨兵）
+# ------------------------------------------------------------------
+
+
+async def _run_with_lead_error(monkeypatch):
+    from app.services.llm_client import LLMError
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "report_lead":
+            raise LLMError("主编模型不可用")
+        return f"{role['role_key']} 的分析", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+    return [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+
+@pytest.mark.asyncio
+async def test_lead_failure_is_structurally_recorded_as_failed(monkeypatch):
+    """VS20 主验收：主编 LLMError ⇒ agent_results[report_lead] 必须显式 status=failed。
+
+    修复前该条目只有空 content，回放侧任何基于内容的判据（含 `【分析失败】` 哨兵）都会
+    把它读成"完成"——与实时路径矛盾。本用例直接钉住结构化字段。
+    """
+    events = await _run_with_lead_error(monkeypatch)
+
+    done = events[-1][1]
+    lead = done["agent_results"]["report_lead"]
+    assert lead["content"] == "", "主编失败时 content 仍为空串（历史形态不变）"
+    assert lead["status"] == "failed", "主编失败必须显式结构化标记，不能只靠空内容"
+    assert lead["error"] == "主编模型不可用"
+    # 其余 Agent 不受影响
+    assert {key: value["status"] for key, value in done["agent_results"].items() if key != "report_lead"} == {
+        "business_analyst": "completed",
+        "financial_analyst": "completed",
+        "industry_researcher": "completed",
+        "risk_assessor": "completed",
+    }
+    assert done["quality"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_lead_failure_does_not_emit_completed_after_failed(monkeypatch):
+    """VS20 实测缺陷：主编失败后还会补发 agent_completed，把前端 failed 卡片翻回 completed。
+
+    实时与回放必须同源：既然回放要显示 failed，实时就不能在同一轮里发出"完成"信号。
+    """
+    events = await _run_with_lead_error(monkeypatch)
+
+    terminal = [name for name, data in events if data.get("role_key") == "report_lead" and name in {"agent_completed", "agent_failed"}]
+    assert terminal == ["agent_failed"], f"主编失败后不得再发完成信号：{terminal}"
+
+
+@pytest.mark.asyncio
+async def test_agent_llm_error_is_structurally_recorded_as_failed(monkeypatch):
+    """VS20：单 Agent 异常（既有哨兵能命中的那条路径）同样要有结构化状态。"""
+    from app.services.llm_client import LLMError
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "financial_analyst":
+            raise LLMError("上游模型暂不可用")
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    assert done["agent_results"]["financial_analyst"]["status"] == "failed"
+    assert done["agent_results"]["financial_analyst"]["error"] == "上游模型暂不可用"
+    assert done["agent_results"]["business_analyst"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_degraded_reasons_are_structured_in_results_and_emitted(monkeypatch):
+    """VS20：工具异常/循环耗尽的降级原因此前只喂给 runner，现须结构化落库 + 随事件下发。"""
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, *, degraded_reasons=None, **kwargs):
+        if role["role_key"] == "report_lead":
+            return "主编结论", []
+        if degraded_reasons is not None:
+            degraded_reasons.append("tool_failed")
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    risk = done["agent_results"]["risk_assessor"]
+    assert risk["status"] == "degraded"
+    assert risk["degraded_reasons"] == ["tool_failed"]
+    # 原因必须同时随实时事件下发（界面要知道"哪个 Agent、为什么"）
+    completed = [data for name, data in events if name == "agent_completed" and data.get("role_key") == "risk_assessor"]
+    assert completed == [{
+        "role_key": "risk_assessor",
+        "name": completed[0]["name"],
+        "length": 2,
+        "status": "degraded",
+        "degraded_reasons": ["tool_failed"],
+    }]
+
+
+@pytest.mark.asyncio
+async def test_lead_unparseable_prose_records_degraded_without_reason(monkeypatch):
+    """VS20：确有降级但**没有**可记录原因时，只写 status=degraded，不得编造原因码。
+
+    界面据此如实显示"原因未记录"，而不是用报告级"可能不完整"含糊过去。
+    """
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "report_lead":
+            return "抱歉，我无法完成本次审核。", []
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    lead = events[-1][1]["agent_results"]["report_lead"]
+    assert lead["status"] == "degraded"
+    assert "degraded_reasons" not in lead, "原因未记录时不得凭空生成原因码"
+    assert "error" not in lead
+
+
+@pytest.mark.asyncio
+async def test_happy_path_agent_results_carry_completed_status(monkeypatch):
+    """VS20 零回归：无失败的完整研究 → 每个 Agent 都是结构化 completed，无降级原因。"""
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        return object(), {"id": model_id}
+
+    async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
+        if role["role_key"] == "report_lead":
+            return '{"executive_summary": "摘要"}', []
+        return "ok", []
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+    monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    done = events[-1][1]
+    assert done["quality"] == "audited"
+    for key, result in done["agent_results"].items():
+        assert result["status"] == "completed", key
+        assert "degraded_reasons" not in result, key
+        assert "error" not in result, key
+    # 每个 Agent 仍发出一条完成事件（含结构化状态），事件数不变
+    assert [name for name, _data in events].count("agent_completed") == 5

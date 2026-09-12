@@ -40,10 +40,36 @@ type StoredReport = {
   status: 'running' | 'completed' | 'failed'; created_at: string; updated_at?: string | null;
 };
 
+/**
+ * VS20：落库的单个 Agent 结局。`status` 是**结构化主判据**；
+ * `content` 里的 `【分析失败】` 前缀只是历史兜底（主编失败时 content 为空串，哨兵必然落空）。
+ */
+export type StoredAgentResult = {
+  content?: string;
+  name?: string;
+  status?: string;
+  error?: string;
+  degraded_reasons?: string[];
+};
+
+/** VS20：落库的 SSE 事件行（GET /api/research/{id} 会带上 payload）。 */
+export type StoredAgentEvent = {
+  event_type?: string;
+  agent_role_key?: string | null;
+  payload?: {
+    role_key?: string;
+    agent?: string;
+    error?: string;
+    message?: string;
+    degraded_reasons?: string[];
+  } | null;
+  created_at?: string;
+};
+
 type StoredReportDetail = StoredReport & {
   report_data: Record<string, unknown>;
-  agent_results?: Record<string, { content?: string }>;
-  events?: { event_type: string; created_at: string }[];
+  agent_results?: Record<string, StoredAgentResult>;
+  events?: StoredAgentEvent[];
 };
 
 type HistoryGroup = {
@@ -59,6 +85,9 @@ type ResearchStreamData = {
   report?: Record<string, unknown>;
   // G-03: done_payload 顶层携带 quality（audited/degraded），不在 report 内部。
   quality?: string;
+  // VS20: Agent 结局的结构化状态；done 事件携带的正是落库的那份（实时/回放同源）。
+  agent_results?: Record<string, StoredAgentResult>;
+  degraded_reasons?: string[];
   error?: string;
   message?: string;
 };
@@ -101,6 +130,192 @@ export function applyAgentEvent(
 export function resolveReportQuality(data: { quality?: unknown; report?: Record<string, unknown> | null }): 'audited' | 'degraded' {
   const raw = data.quality ?? data.report?.quality;
   return raw === 'degraded' ? 'degraded' : 'audited';
+}
+
+// ==================== VS20：Agent 结局的结构化判据 ====================
+
+/** 历史兜底哨兵：仅用于**没有**结构化状态的旧报告（不得作为主判据）。 */
+const FAILURE_SENTINEL = '【分析失败】';
+const AGENT_FAILED = 'failed';
+const AGENT_DEGRADED = 'degraded';
+const AGENT_COMPLETED = 'completed';
+
+/** 单个 Agent 在回放时的结局。 */
+export type AgentReplayOutcome = {
+  /** 卡片状态；'unknown' = 无任何证据（既无结构化状态、也无事件/哨兵），不得当成"完成"。 */
+  status: 'completed' | 'failed' | 'unknown';
+  /** 产出仍在，但过程有残缺（工具失败 / 循环耗尽 / 截断 / 主编无法解析）。 */
+  degraded: boolean;
+  /** 自由文本原因摘要（如 error 文本、哨兵后的文本）；未记录时为 undefined。 */
+  reason?: string;
+  /** 结构化原因码（后端 agent_reasons / degraded_reasons）。 */
+  degradedReasons?: string[];
+};
+
+/** 后端 degraded_reasons → i18n 键。未知码原样显示（如实，不编造）。 */
+const DEGRADED_REASON_KEYS: Record<string, string> = {
+  tool_failed: 'deep.agent.reason.toolFailed',
+  tool_loop_exhausted: 'deep.agent.reason.toolLoopExhausted',
+  empty_content: 'deep.agent.reason.emptyContent',
+  output_truncated: 'deep.agent.reason.outputTruncated',
+};
+
+/**
+ * VS20：把原因文本压成**一行可读摘要**。
+ * 异常堆栈（Traceback / File "..." 行）不得直接塞给用户，故丢弃这些行并截断。
+ */
+export function summarizeReason(raw: unknown, maxLength = 120): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const readable = lines.find((line) => !/^Traceback\b/.test(line) && !/^File\s+"/.test(line));
+  if (!readable) return undefined;
+  const compact = readable.replace(/\s+/g, ' ').trim();
+  if (!compact) return undefined;
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+}
+
+function asReasonCodes(raw: unknown): string[] {
+  return Array.isArray(raw)
+    ? raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+/** 结局 → 展示用原因；返回 undefined 表示**确实没有记录**（界面须显示"原因未记录"）。 */
+export function describeOutcomeReason(outcome: AgentReplayOutcome, t: Translate): string | undefined {
+  if (outcome.reason) return outcome.reason;
+  if (outcome.degradedReasons?.length) {
+    return outcome.degradedReasons
+      .map((code) => (DEGRADED_REASON_KEYS[code] ? t(DEGRADED_REASON_KEYS[code]) : code))
+      .join('、');
+  }
+  return undefined;
+}
+
+type AgentEventSignal = { failed?: string; degradedReasons?: string[] };
+
+/** 从落库事件中提取每个 Agent 的失败/降级信号（历史报告的兜底来源）。 */
+function collectAgentEventSignals(events?: StoredAgentEvent[] | null): Record<string, AgentEventSignal> {
+  const signals: Record<string, AgentEventSignal> = {};
+  for (const event of events ?? []) {
+    const payload = event?.payload ?? undefined;
+    const key = payload?.role_key ?? payload?.agent ?? event?.agent_role_key ?? undefined;
+    if (typeof key !== 'string' || !key) continue;
+    const signal = (signals[key] ??= {});
+    if (event?.event_type === 'agent_failed' && signal.failed === undefined) {
+      // 失败是终态：同一 key 之后即便还有 agent_completed（旧实现会多发一条），也不得翻回完成。
+      signal.failed = summarizeReason(payload?.error ?? payload?.message) ?? '';
+    } else if (event?.event_type === 'agent_completed') {
+      const reasons = asReasonCodes(payload?.degraded_reasons);
+      if (reasons.length) signal.degradedReasons = reasons;
+    }
+  }
+  return signals;
+}
+
+function buildOutcome(
+  status: AgentReplayOutcome['status'],
+  degraded: boolean,
+  reason?: string,
+  degradedReasons?: string[],
+): AgentReplayOutcome {
+  const outcome: AgentReplayOutcome = { status, degraded };
+  if (reason) outcome.reason = reason;
+  if (degradedReasons?.length) outcome.degradedReasons = degradedReasons;
+  return outcome;
+}
+
+function deriveAgentOutcome(result: StoredAgentResult | undefined, signal: AgentEventSignal | undefined): AgentReplayOutcome {
+  const structured = typeof result?.status === 'string' ? result.status : undefined;
+
+  // ① 结构化状态是**主判据**：即便 content 仍带历史哨兵，也以它为准
+  //    （否则"两个条件或起来"会让哨兵继续当主判据）。
+  if (structured === AGENT_FAILED) {
+    return buildOutcome('failed', false, summarizeReason(result?.error) ?? signal?.failed);
+  }
+  if (structured === AGENT_DEGRADED) {
+    const codes = asReasonCodes(result?.degraded_reasons);
+    return buildOutcome(
+      'completed',
+      true,
+      summarizeReason(result?.error),
+      codes.length ? codes : signal?.degradedReasons,
+    );
+  }
+  if (structured === AGENT_COMPLETED) {
+    return buildOutcome('completed', false);
+  }
+
+  // ② 无结构化状态（本次改动前落库的历史报告）→ 事件 → 内容哨兵，逐级兜底。
+  if (signal?.failed !== undefined) {
+    return buildOutcome('failed', false, signal.failed || undefined);
+  }
+  if (signal?.degradedReasons?.length) {
+    return buildOutcome('completed', true, undefined, signal.degradedReasons);
+  }
+  const content = result?.content;
+  if (typeof content === 'string' && content.startsWith(FAILURE_SENTINEL)) {
+    return buildOutcome('failed', false, summarizeReason(content.slice(FAILURE_SENTINEL.length)));
+  }
+  if (typeof content === 'string' && content.trim()) {
+    return buildOutcome('completed', false);
+  }
+
+  // ③ 无任何证据：不得默认成"完成"（错误场景 2）。
+  return buildOutcome('unknown', false);
+}
+
+/** 回放判据入口：结构化优先，事件/哨兵仅作历史兜底。 */
+export function deriveAgentOutcomes(
+  results?: Record<string, StoredAgentResult> | null,
+  events?: StoredAgentEvent[] | null,
+): Record<string, AgentReplayOutcome> {
+  const signals = collectAgentEventSignals(events);
+  const outcomes: Record<string, AgentReplayOutcome> = {};
+  for (const key of AGENT_KEYS) {
+    outcomes[key] = deriveAgentOutcome(results?.[key], signals[key]);
+  }
+  return outcomes;
+}
+
+/** 界面上的"环节异常/降级"提示条目。 */
+export type AgentNotice = {
+  key: string;
+  kind: 'failed' | 'degraded' | 'unknown';
+  reason?: string;
+};
+
+function outcomeToNotice(key: string, outcome: AgentReplayOutcome, t: Translate): AgentNotice | null {
+  if (outcome.status === 'completed' && !outcome.degraded) return null;
+  const kind: AgentNotice['kind'] =
+    outcome.status === 'failed' ? 'failed' : outcome.status === 'unknown' ? 'unknown' : 'degraded';
+  return { key, kind, reason: describeOutcomeReason(outcome, t) };
+}
+
+/**
+ * VS20：由结构化结局生成提示列表——**实时 done 路径与回放路径共用同一函数**，
+ * 两者读的是同一份 agent_results，因此口径天然一致。
+ */
+export function noticesFromOutcomes(
+  outcomes: Record<string, AgentReplayOutcome>,
+  t: Translate,
+): AgentNotice[] {
+  return AGENT_KEYS
+    .map((key) => outcomeToNotice(key, outcomes[key], t))
+    .filter((notice): notice is AgentNotice => notice !== null);
+}
+
+/** 实时路径：把单条 SSE 事件累积成提示（失败是终态，不被后续事件覆盖）。 */
+function upsertNotice(
+  notices: AgentNotice[],
+  key: string | undefined,
+  kind: AgentNotice['kind'],
+  reason?: string,
+): AgentNotice[] {
+  if (!key || !AGENT_KEYS.includes(key)) return notices;
+  const existing = notices.find((notice) => notice.key === key);
+  if (existing?.kind === 'failed') return notices;
+  const next: AgentNotice = { key, kind, ...(reason ? { reason } : {}) };
+  return existing ? notices.map((notice) => (notice.key === key ? next : notice)) : [...notices, next];
 }
 
 export function reportToMarkdown(report: Record<string, unknown>, t: Translate): string {
@@ -190,6 +405,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
   const [done, setDone] = useState(false);
   // G-03: 报告质量（audited/degraded）——任一环节失败时屏上诚实提示"内容可能不完整"。
   const [reportQuality, setReportQuality] = useState<'audited' | 'degraded' | null>(null);
+  // VS20: "哪个 Agent 失败/被降级、为什么"——实时与回放共用同一批提示条目。
+  const [agentNotices, setAgentNotices] = useState<AgentNotice[]>([]);
   const [history, setHistory] = useState<HistoryGroup[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
@@ -222,18 +439,28 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     try {
       const response = await apiClient.get(`/research/${id}`);
       const report = response.data as StoredReportDetail;
-      const resultMap = report.agent_results ?? {};
       setSelectedReportId(id);
       setTicker(report.ticker);
       setReportTitle(t('deep.report.title', { name: (report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker }));
       setReportContent(reportToMarkdown(report.report_data, t));
       setReportQuality(report.report_data.quality === 'degraded' ? 'degraded' : 'audited');
       setDone(report.status === 'completed');
-      setAgents(AGENT_KEYS.map((key) => ({
-        name: t(AGENT_LABELS[key]?.nameKey ?? key),
-        role: t(AGENT_LABELS[key]?.roleKey ?? key),
-        status: resultMap[key]?.content?.startsWith('【分析失败】') ? 'failed' as AgentStatus : 'completed' as AgentStatus,
-      })));
+      // VS20: 回放判据改为**读结构化信号**（agent_results[key].status / error /
+      // degraded_reasons），事件与 `【分析失败】` 哨兵仅作历史报告兜底——
+      // 主编失败时 content 是空串，哨兵必然落空，重开会误显示"完成"。
+      const outcomes = deriveAgentOutcomes(report.agent_results, report.events);
+      setAgents(AGENT_KEYS.map((key) => {
+        const outcome = outcomes[key];
+        const reason = outcome.status === 'failed' ? describeOutcomeReason(outcome, t) : undefined;
+        return {
+          name: t(AGENT_LABELS[key]?.nameKey ?? key),
+          role: t(AGENT_LABELS[key]?.roleKey ?? key),
+          // 无证据（unknown）不得默认成"完成"，落到 pending（未运行/未知）。
+          status: (outcome.status === 'failed' ? 'failed' : outcome.status === 'completed' ? 'completed' : 'pending') as AgentStatus,
+          ...(reason ? { progress: reason } : {}),
+        };
+      }));
+      setAgentNotices(noticesFromOutcomes(outcomes, t));
     } catch (error: any) {
       message.error(error.message || t('deep.report.loadFailed'));
     }
@@ -287,6 +514,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     setReportTitle('');
     setReportQuality(null);
     setSelectedReportId(null);
+    setAgentNotices([]);
     resetAgents();
 
     abortRef.current = new AbortController();
@@ -323,6 +551,14 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
           }
           case 'agent_completed': {
             setAgents((prev) => applyAgentEvent(prev, 'agent_completed', agentKey));
+            // VS20: 工具异常/循环耗尽导致的降级原因随该事件下发（此前只喂给模型，
+            // 界面只知道报告级"可能不完整"，不知道是哪个 Agent、为什么）。
+            // 只有**确有降级原因**时才登记——正常完成的事件不得生成"原因未记录"条目。
+            const degradedReasons = data.degraded_reasons ?? [];
+            if (degradedReasons.length) {
+              const degradedReason = describeOutcomeReason({ status: 'completed', degraded: true, degradedReasons }, t);
+              setAgentNotices((prev) => upsertNotice(prev, agentKey, 'degraded', degradedReason));
+            }
             break;
           }
           // VS13: 后端在"单个 Agent 失败但整轮继续"时发的是非致命的 agent_failed
@@ -333,6 +569,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
           case 'agent_failed': {
             const failMessage = data.error ?? data.message ?? t('deep.request.failed');
             setAgents((prev) => applyAgentEvent(prev, 'agent_failed', agentKey, failMessage));
+            // VS20: 失败原因（可读摘要）进入提示列表，与回放侧同一展示。
+            setAgentNotices((prev) => upsertNotice(prev, agentKey, 'failed', summarizeReason(failMessage)));
             break;
           }
           case 'report_progress': {
@@ -349,6 +587,12 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
             setReportContent(accContent || t('deep.report.empty'));
             setReportQuality(quality);
             setDone(true);
+            // VS20: ①实时最终态与回放同源——done 携带的 agent_results 就是落库内容，
+            // 用它重算提示列表，保证重开这份报告看到的东西与此刻一致。
+            // 无 agent_results（如历史/其他管线）时保留事件累积出来的提示，不清空。
+            if (data.agent_results && Object.keys(data.agent_results).length > 0) {
+              setAgentNotices(noticesFromOutcomes(deriveAgentOutcomes(data.agent_results, null), t));
+            }
             streamCompleted = true;
             setRunning(false);
             void loadHistory();
@@ -483,6 +727,28 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
               message={t('deep.report.qualityDegraded')}
               role="status"
               style={{ marginBottom: 12 }}
+            />
+          ) : null}
+          {/* VS20: "哪个 Agent 失败/被降级 + 原因摘要"。实时与回放同源；原因确未记录时
+              如实显示"原因未记录"，不用"可能不完整"含糊过去，也不编造原因。 */}
+          {agentNotices.length > 0 ? (
+            <Alert
+              type="warning"
+              role="status"
+              message={t('deep.agent.noticeTitle')}
+              style={{ marginBottom: 12 }}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {agentNotices.map((notice) => (
+                    <li key={notice.key}>
+                      {t(`deep.agent.notice.${notice.kind}`, {
+                        name: t(AGENT_LABELS[notice.key]?.nameKey ?? notice.key),
+                        reason: notice.reason ?? t('deep.agent.reasonUnrecorded'),
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              }
             />
           ) : null}
           <ResultLayer

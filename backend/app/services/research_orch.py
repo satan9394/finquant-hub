@@ -135,6 +135,38 @@ def _mark_agent_degraded(degraded_reasons: list[str] | None, reason: str) -> Non
     degraded_reasons.append(reason)
 
 
+# VS20: agent_results 条目的**结构化状态**——回放侧（前端重新打开历史报告）据此判定
+# "哪个 Agent 失败/被降级"，不再用 content 的字符串前缀哨兵做判据。
+# 哨兵对主编失败必然落空：主编异常时 content 被置为空串（见下方 run_research），
+# 于是重开显示"完成"，与实时路径矛盾。
+AGENT_STATUS_COMPLETED = "completed"
+AGENT_STATUS_DEGRADED = "degraded"
+AGENT_STATUS_FAILED = "failed"
+
+
+def _agent_result(
+    *,
+    name: str,
+    content: str,
+    tool_log: list[JSONDict],
+    status: str,
+    error: str | None = None,
+    degraded_reasons: list[str] | None = None,
+) -> JSONDict:
+    """构造 agent_results 的单条目，把状态与原因**结构化**地随报告持久化。
+
+    VS20：`status` 是回放侧的主判据（completed/degraded/failed）；`error` 与
+    `degraded_reasons` 是"为什么"的来源（供界面显示原因摘要，缺失时界面如实显示
+    "原因未记录"，不得编造）。三者与实时 SSE 事件同源，保证实时/回放口径一致。
+    """
+    result: JSONDict = {"name": name, "content": content, "tool_log": tool_log, "status": status}
+    if error:
+        result["error"] = error
+    if degraded_reasons:
+        result["degraded_reasons"] = list(degraded_reasons)
+    return result
+
+
 def _unpack_tool_response(
     response: tuple[Any, ...],
 ) -> tuple[str, list[JSONDict], str | None]:
@@ -310,6 +342,9 @@ async def run_research(
 
     registry = ToolRegistry()
     agent_results: dict[str, JSONDict] = {}
+    # VS20: 每个 Agent 的结构化结局（status/error/degraded_reasons）。DAGNode.run 的返回值
+    # 是既有的 4 元组契约（swarm/其他消费方共用），故不改元组形状，用旁挂字典传递状态。
+    agent_outcomes: dict[str, JSONDict] = {}
     sections = get_memo_sections()
     total_sections = len(sections)
     # BACKLOG-G-03: 任一 agent / 主编环节失败时，报告必须诚实标记降级，
@@ -319,8 +354,9 @@ async def run_research(
     def make_node(role: JSONDict) -> DAGNode:
         async def run_agent(context: DAGContext) -> tuple[str, str, str, list[JSONDict]]:
             nonlocal degraded
+            role_key = role["role_key"]
             context.emit("agent_started", {
-                "role_key": role["role_key"],
+                "role_key": role_key,
                 "name": role["name"],
                 "avatar": role.get("avatar", ""),
             })
@@ -342,8 +378,12 @@ async def run_research(
                 # 注意用 agent_failed 而非 error：error 会被 router 视作致命失败（fail+break），
                 # 报告将整体 failed 而非 degraded-completed——与 G-03 目标不符。
                 degraded = True
-                context.emit("agent_failed", {"role_key": role["role_key"], "error": str(exc)})
-                return role["role_key"], f"【分析失败】{exc}", role["name"], []
+                context.emit("agent_failed", {"role_key": role_key, "error": str(exc)})
+                agent_outcomes[role_key] = {
+                    "status": AGENT_STATUS_FAILED,
+                    "error": str(exc),
+                }
+                return role_key, f"【分析失败】{exc}", role["name"], []
 
             # VS7 P1b: 工具异常 / 工具循环耗尽 → 该 agent 的分析不完整，报告降级。
             if agent_reasons:
@@ -351,16 +391,24 @@ async def run_research(
 
             for tool_call in tool_log:
                 context.emit("tool_call", {
-                    "role_key": role["role_key"],
+                    "role_key": role_key,
                     "tool_name": tool_call["name"],
                     "arguments": tool_call["arguments"],
                 })
+            # VS20: 降级原因随事件一起推送（此前只喂给 runner，界面无从得知"哪个 Agent、
+            # 为什么"），并与持久化的 agent_results[key].degraded_reasons 同源。
             context.emit("agent_completed", {
-                "role_key": role["role_key"],
+                "role_key": role_key,
                 "name": role["name"],
                 "length": len(content),
+                "status": AGENT_STATUS_DEGRADED if agent_reasons else AGENT_STATUS_COMPLETED,
+                **({"degraded_reasons": list(agent_reasons)} if agent_reasons else {}),
             })
-            return role["role_key"], content, role["name"], tool_log
+            agent_outcomes[role_key] = {
+                "status": AGENT_STATUS_DEGRADED if agent_reasons else AGENT_STATUS_COMPLETED,
+                "degraded_reasons": list(agent_reasons),
+            }
+            return role_key, content, role["name"], tool_log
 
         return DAGNode(key=role["role_key"], run=run_agent)
 
@@ -371,7 +419,15 @@ async def run_research(
             yield event.kind, event.data
         elif event.kind == "node_completed":
             role_key, content, name, tool_log = event.result
-            agent_results[role_key] = {"content": content, "name": name, "tool_log": tool_log}
+            outcome = agent_outcomes.get(role_key, {"status": AGENT_STATUS_COMPLETED})
+            agent_results[role_key] = _agent_result(
+                name=name,
+                content=content,
+                tool_log=tool_log,
+                status=outcome["status"],
+                error=outcome.get("error"),
+                degraded_reasons=outcome.get("degraded_reasons"),
+            )
         elif event.kind == "node_failed":
             role = roles_by_key[event.node_key]
             error = str(event.error)
@@ -385,11 +441,13 @@ async def run_research(
                 "role_key": event.node_key,
                 "error": f"研究 Agent 异常：{error}",
             }
-            agent_results[event.node_key] = {
-                "content": f"【分析失败】{error}",
-                "name": role["name"],
-                "tool_log": [],
-            }
+            agent_results[event.node_key] = _agent_result(
+                name=role["name"],
+                content=f"【分析失败】{error}",
+                tool_log=[],
+                status=AGENT_STATUS_FAILED,
+                error=f"研究 Agent 异常：{error}",
+            )
 
     lead_context = "\n\n".join(
         f"【{result['name']}】\n{result['content']}"
@@ -401,6 +459,7 @@ async def run_research(
         "avatar": REPORT_LEAD_ROLE["avatar"],
     }
     lead_reasons: list[str] = []
+    lead_error: str | None = None
     try:
         lead_content, lead_tool_log = await _call_agent(
             client,
@@ -417,13 +476,17 @@ async def run_research(
     except LLMError as exc:
         lead_content, lead_tool_log = "", []
         degraded = True
+        # 异常对象在 except 块外不可见（Python 会清除 exc），因此显式留存原因文本，
+        # 供结构化结局使用。
+        lead_error = str(exc)
         yield "agent_failed", {"role_key": "report_lead", "error": str(exc)}
     # VS7 P1a（修正）: 口径必须与 report_builder **逐字一致**。
     # report_builder.py:296,368 的判据是 `lead = parse_lead_review(lead_content)` 后
     # 的 **解析结果** 真值（"audited" if lead else "degraded"），而不是原始字符串非空：
     # lead 返回"非空但无法解析的散文"时 parse_lead_review 返回 {}，report_builder 判
     # degraded 而"仅判字符串非空"会判 audited —— 矛盾依旧。故此处复用同一解析函数。
-    if lead_reasons or not parse_lead_review(lead_content):
+    lead_parsed = parse_lead_review(lead_content)
+    if lead_reasons or not lead_parsed:
         degraded = True
     for tool_call in lead_tool_log:
         yield "tool_call", {
@@ -431,16 +494,37 @@ async def run_research(
             "tool_name": tool_call["name"],
             "arguments": tool_call["arguments"],
         }
-    agent_results["report_lead"] = {
-        "content": lead_content,
-        "name": REPORT_LEAD_ROLE["name"],
-        "tool_log": lead_tool_log,
-    }
-    yield "agent_completed", {
-        "role_key": "report_lead",
-        "name": REPORT_LEAD_ROLE["name"],
-        "length": len(lead_content),
-    }
+    # VS20: 主编的结构化结局。此前主编失败时只写空 content，任何基于内容的判据都会把
+    # 它读成"完成"；现在显式写 status=failed + error。
+    if lead_error is not None:
+        lead_status, lead_degraded_reasons = AGENT_STATUS_FAILED, []
+    elif lead_reasons:
+        lead_status, lead_degraded_reasons = AGENT_STATUS_DEGRADED, list(lead_reasons)
+    elif not lead_parsed:
+        # 内容为空或无法解析 → 确实降级，但**没有**可记录的结构化原因，
+        # 界面须如实显示"原因未记录"，不得编造。
+        lead_status, lead_degraded_reasons = AGENT_STATUS_DEGRADED, []
+    else:
+        lead_status, lead_degraded_reasons = AGENT_STATUS_COMPLETED, []
+    agent_results["report_lead"] = _agent_result(
+        name=REPORT_LEAD_ROLE["name"],
+        content=lead_content,
+        tool_log=lead_tool_log,
+        status=lead_status,
+        error=lead_error,
+        degraded_reasons=lead_degraded_reasons,
+    )
+    # VS20: 主编失败后**不得**再发 agent_completed——它是"完成"信号，会把前端刚被
+    # agent_failed 置为 failed 的主编卡片翻回 completed，直接造成实时路径自相矛盾
+    # （实测：主编 LLMError 的事件序列是 agent_failed → agent_completed）。
+    if lead_error is None:
+        yield "agent_completed", {
+            "role_key": "report_lead",
+            "name": REPORT_LEAD_ROLE["name"],
+            "length": len(lead_content),
+            "status": lead_status,
+            **({"degraded_reasons": lead_degraded_reasons} if lead_degraded_reasons else {}),
+        }
 
     # 生成结构化报告（模拟进度）
     yield "report_progress", {"section": 0, "total": total_sections, "name": "开始整合备忘录"}
@@ -468,10 +552,11 @@ async def run_research(
         "quality": quality,
         # Tool logs retain the data-source trail (including news URLs) for
         # later report review instead of discarding research provenance.
-        "agent_results": {
-            k: {"name": v["name"], "content": v["content"], "tool_log": v["tool_log"]}
-            for k, v in agent_results.items()
-        },
+        # VS20: 结构化状态（status/error/degraded_reasons）必须原样随 done 事件下发——
+        # 它正是 router 落库进 research_reports.agent_results 的内容，回放侧据此判定
+        # "哪个 Agent 失败/被降级、为什么"。此前这里重建条目时只挑 name/content/tool_log，
+        # 会把新字段丢掉，导致实时与落库口径再次分叉。
+        "agent_results": {k: dict(v) for k, v in agent_results.items()},
     }
     await finalize_memory_rollout(rollout, response=report_data)
     yield "done", done_payload
