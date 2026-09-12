@@ -1,7 +1,12 @@
 # IMPLEMENT_RESULT — Vertical Slice 27：研究编排整轮等待有上界 + 截断信号有真实消费方
 
-> 实现者：IMPLEMENTER（子 agent）。工作目录 `E:\Code_file\Projects\finquant-hub`。**未 commit**。
+> 实现者：IMPLEMENTER（子 agent）。工作目录 `E:\Code_file\Projects\finquant-hub`。**我本人未执行任何 commit**。
 > 任务卡：`docs/ai/evo/IMPLEMENTATION_BRIEF_VS27.md`。
+>
+> **提交状态（核查于收尾时）**：编排者在我收尾期间把本卡实现提交为 **`b56f6e8`**（VS-27，含 `research_orch.py`/`llm_client.py`/`Research.tsx`/两个新测试文件/本文件当时的版本）。
+> 之后我又对**本文件**做了少量修订（行号引用校正 + 变异基线证据，`+12/-3`）——这部分**尚未提交**，在工作树里。
+> 五个代码/测试文件的工作区内容与 `b56f6e8` **逐字一致**（`git diff` 为空）。`frontend/src/i18n/{zh,en}.ts` 的 3 个键已更早在 `96fb632`（VS-25）里由编排者一并提交（见 §1 末注）。
+> 收尾时另有**编排者自己**发起的 pytest 进程在跑（PID 15264/26372，跑 `test_research_deadline_vs27.py test_research_orch.py test_llm_client.py`）——那是验收动作，**我没有动它**；我自己起的进程已全部结束，无孤儿。
 
 ## 0. 结论速览
 
@@ -198,7 +203,15 @@ frontend> bun run test tests/ResearchDeadlineSignal.test.tsx tests/ResearchRepla
 
 变异内容：把副本 `app/services/research_orch.py` 里**两处** `if _deadline_reached(deadline_at): … return last_content, tool_calls_log` 整块删除（脚本输出 `removed blocks: 2`，事后 `Select-String '_deadline_reached'` 只剩函数定义那一行）⇒ 语义 = "去掉截止判断"。
 
-变异前（同一副本，未变异）：`14 passed`（当时代码只有 14 条用例）/ 变异后：
+变异前（**同一副本**，未变异）：
+
+```
+$env:PYTHONPATH=$env:TEMP\vs27_mut; python -m pytest tests/test_research_deadline_vs27.py -q -o addopts="" -p no:cacheprovider --no-header
+................                                                                                                                                                             [100%]
+16 passed in 10.38s
+```
+
+变异后：
 
 ```
 $env:PYTHONPATH=$env:TEMP\vs27_mut; python -m pytest tests/test_research_deadline_vs27.py -q -o addopts="" -p no:cacheprovider --no-header -rf
@@ -207,7 +220,7 @@ FAILED tests/test_research_deadline_vs27.py::test_vs27_agent_truncation_keeps_pa
 FAILED tests/test_research_deadline_vs27.py::test_vs27_agent_deadline_spent_before_first_call_issues_no_call - AssertionError: 截止已到就不得发起任何调用
 FAILED tests/test_research_deadline_vs27.py::test_vs27_run_research_truncation_keeps_partial_results_and_persists_signal - AssertionError: business_analyst
 FAILED tests/test_research_deadline_vs27.py::test_vs27_default_deadline_bounds_the_run_without_being_passed - AssertionError: 默认截止必须真的生效，而不是只写在常量里
-5 failed, 11 passed in 7.77s
+5 failed, 11 passed in 7.49s
 ```
 
 ⇒ **至少一条新用例变红**：实际 5 条变红（覆盖上界、部分结果、首轮前已过、整轮同源、默认值生效），另外 11 条（零回归类）保持绿 ⇒ 变异是**定向**的，不是"全红"。
@@ -237,6 +250,7 @@ FAILED tests/test_research_deadline_vs27.py::test_vs27_default_deadline_bounds_t
 |---|---|
 | 聚焦 pytest（142 passed） | `%TEMP%\vs27_evidence\focused_pytest.txt` |
 | ruff | `%TEMP%\vs27_evidence\ruff.txt` |
-| 变异运行原始输出 | `%TEMP%\vs27_evidence\mutated.txt` |
+| 变异前基线 | `%TEMP%\vs27_evidence\mutation_baseline.txt`（16 passed） |
+| 变异运行原始输出 | `%TEMP%\vs27_evidence\mutated.txt`（5 failed / 11 passed） |
 | 前端两条路径断言 | `%TEMP%\vs27_evidence\frontend.txt` + `frontend/tests/ResearchDeadlineSignal.test.tsx` |
 | 上界/边界/零回归用例 | `backend/tests/test_research_deadline_vs27.py`（16 条） |
