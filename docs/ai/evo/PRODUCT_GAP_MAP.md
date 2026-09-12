@@ -163,5 +163,11 @@
   4. **⏸ VS-20（回放/实时同源）**：结构化优先 + 哨兵仅作历史兼容兜底 + 原因可见或如实"原因未记录"。**待 VS-19 落地后派**（i18n 文件冲突）。
   5. **VS-21 已 ACCEPT**（`f4240e7`，验收 `aece293`）。其验收提 4 条不阻断 NIT，按性质分派：**①预算耗尽路径只带状态码、丢掉上游 body**（`_budget_exhausted_error:221` vs `_response_error:212` 带 `body[:300]`）⇒ 同一个 429 可能被误读成"预算太小"而非"账户没钱"，**属错误信息层面的错误归因**，**列为 NOW 小型项**（补 `response.text[:300]`，沿用脱敏）；**②上界公式依赖"单次尝试 ≤ timeout"，而 httpx `timeout=` 是逐 I/O 语义、滴流式上游理论上可突破** ⇒ **并入 deadline 卡**（与裁决 (c) 同源）；③`total_budget_seconds` 插在签名中段（仓内调用点均为 ≤3 位置参数 + 关键字，无破坏；**仓外** 4 位置参数会静默错位）⇒ 记 LATER，若将来发布 SDK 需处理；④预算 <1µs 被接受但等效永不重试 ⇒ LATER（可加下限或文档说明）。
 - **NEXT**：**整轮研究的聚合等待上界（deadline）**——VS-21 只给了"**单次调用**预算"（默认 180s），而 `chat_with_tools_loop` **每轮独立起算**迭代，故"每次调用最多等 3 分钟"**不等于**"用户最多等 3 分钟"；需要一张 deadline 卡：把运行级截止时间向下传到每次调用（并定义**触发时做什么**：部分结果 / 明确降级 / 可恢复提示），同时把预算接 env/DB 运行时配置。`chat_stream` 是否加重试（**流式重试有重复已发出 token 的风险**，需单独设计）；超时是否计入用量/计费口径；`ResearchWorkspace:461-466`/`ThesisModeSurface` 未剥参（抽公共 `switchMode`）；Chat 与 Discussion 守卫口径统一；VS-16 评估者提的两条改进项。
+- **VS-21/VS-23 已完成**（均 ACCEPT）：单次调用预算（`f4240e7`）+ 整轮 deadline 600s（`abb2a7f`），**`chat_with_tools_loop` 的整轮等待已有上界**。其验收留下的 NIT 分派：
+  - **`tool_loop_truncated` 事件发了但 SSE 不转发**（`routers/chat.py:176-187` 只转发 `tool_completed`；实测客户端事件序列只有 `token,done`）⇒ **可观测性缺口**：客户端无法区分"正常结束"与"整轮截断"**除了**看 `done.truncated_by_deadline`。**列 NEXT 小型项**（若转发，需同步 `API_CONTRACT`）。
+  - **上界隐含"轮内工具执行耗时 ≈ 0"**（`llm_client.py:610-659` 的工具循环不看剩余预算）⇒ 建议 docstring 补该前提；若工具本身很慢，实际墙钟可超公式。**并入 deadline 后续卡**。
+  - **`research_orch._call_agent` 自有 5 轮循环**（`research_orch.py:260` `for _round in range(5)`，走 `chat_with_tools_safe`）**仍无整轮上界** ⇒ **研究侧的最大遗留面**，列 NEXT。
+  - 600s 为代码常量、未接 env/DB 配置 ⇒ 并入 deadline 后续卡。
+  - ~~`IMPLEMENT_RESULT §6.3` 称 `API_CONTRACT.md` 未同步~~ ⇒ **已过期**：编排者在 `62acc50` 已同步，且评估者逐字比对 `chat.py:181-186/:218-226` 确认文档与实现一致。
 - **LATER**：VS-18 的两条 NIT；**VS-20 验收的 3 条 NIT**——①`unknown` 呈现偏宽：`agent_results` 为空/缺失的报告会一次渲染 **5 行"状态未知"**，建议折叠或跳过（**用户体验层面，优先级高于另两条**）；②实时 `agent_completed` 带 `degraded_reasons` 的 SSE 形态无专属用例（由 done 重算冗余覆盖，属**覆盖缺口非缺陷**）；③`deep.agent.notice.unknown` 模板未用 `{reason}`（无副作用）；`agent_reasons` 分级（数量而非布尔）；A4-P3×2 / P4×1（`Dashboard:86` 硬编码 `UNKNOWN`、运行中 401 跳登录页、`LocalCapabilityBanner` 落点类型）；R83 起沿用的 LATER 列表（构建指纹、真实工作区备份端到端证据、`/api/health` 暴露 `local_mode`、备份自动清理等）。
 - **NOT_NOW**：沿用 R83 + VS-11 F1 的裁决。
