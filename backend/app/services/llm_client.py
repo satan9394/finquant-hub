@@ -19,6 +19,9 @@ from .llm_usage import record_llm_usage
 
 
 JSONDict = dict[str, Any]
+# VS23：工具循环的两种返回形态——不带截止（既有 3 元组契约）与带截止（多一个**显式**状态项）。
+ToolLoopResult = tuple[str, list[JSONDict], int | None]
+ToolLoopResultWithStatus = tuple[str, list[JSONDict], int | None, JSONDict]
 
 # G-11: 瞬时故障重试纪律——长研究管线（4 Agent × 多轮工具调用）对单次上游抖动零容忍，
 # 一次 429/5xx/网络抖动即让整轮研究失败。对可重试故障做有限次指数退避。
@@ -47,6 +50,16 @@ _DEFAULT_TOTAL_BUDGET_SECONDS = 180.0
 # （实测：now 1000.3 - 1000.0 = 0.2999999999999545 ⇒ 剩余 4.5e-14 > 0）。不设容差就会出现
 # "还剩 1e-14 秒 → 睡一下 → 再发一次尝试"这种与语义相悖的抖动。1 微秒相对 180 秒预算可忽略。
 _BUDGET_EPSILON_SECONDS = 1e-6
+
+# VS23: **整轮**带工具对话的聚合等待上界——"每次调用最多等 N 秒" ≠ "用户最多等 N 秒"。
+# VS21 的单次预算只约束**一次** `_post_chat_with_retry`，而 `chat_with_tools_loop` 每轮各起算一次，
+# 故 max_rounds=5 时最坏静默等待 = 5 × (180 + 120) = 1500 秒（25 分钟）：`max_rounds` 只约束
+# **轮数**、不约束**时长**，代码里没有任何聚合约束。默认值取 600s = 2 × 单次调用上界(300s)：
+#   ① 即使首轮跑满最坏路径(300s)，仍留给后续轮次一个完整的调用窗口，工具循环不会一上来就被截止掐死；
+#   ② 由"只在轮间检查"得到的可判定上界 = 600 + 300 = 900 秒（15 分钟），比改动前的 1500 秒短 40%；
+#   ③ 它是**调用方**（routers/chat.py）显式传入的值；`chat_with_tools_loop` 自身默认 `None`（不启用），
+#      以保持既有行为逐项一致。
+DEFAULT_TOOL_LOOP_DEADLINE_SECONDS = 600.0
 
 
 def _http_date_seconds(raw: str) -> float | None:
@@ -114,7 +127,12 @@ def _retry_delay_seconds(attempt: int, response: httpx.Response | None) -> float
 # 受控工具循环事件枚举（借鉴 OpenAI Agents SDK run_streamed 的类型化事件）。
 # chat_with_tools_loop 通过 event_sink 回调发出这些事件，SSE 层/编排层直接消费，
 # 避免各调用方自行解析 tool_calls 后重新拼事件。
-TOOL_LOOP_EVENTS = ("tool_started", "tool_completed", "tool_failed", "tool_loop_done", "tool_loop_exhausted")
+# VS23 追加 `tool_loop_truncated`：整轮截止触发时提前结束的信号（与返回值里的
+# `truncated_by_deadline` 同源），使"提前结束"在**事件通道**上同样显式、不可静默。
+TOOL_LOOP_EVENTS = (
+    "tool_started", "tool_completed", "tool_failed", "tool_loop_done", "tool_loop_exhausted",
+    "tool_loop_truncated",
+)
 
 
 def _finish_reason_of(data: JSONDict) -> str | None:
@@ -201,6 +219,26 @@ class LLMClient:
             trust_env=not bool(self.proxy_url),
         )
 
+    def _redact(self, body: str) -> str:
+        """错误文案里的上游响应片段一律脱敏：**api_key 绝不出现在任何错误里**。"""
+        return body.replace(self.api_key, "[已隐藏]") if self.api_key else body
+
+    def _response_snippet(self, response: httpx.Response | None) -> str:
+        """VS23 NIT①：把**脱敏后**的上游 body 片段附到错误文案里（`_response_error` 同款口径）。
+
+        VS21 的预算耗尽路径此前只带状态码、把上游 body 整个丢掉 ⇒ 同一个 429 会被误读成
+        "预算太小"，而不是"账户额度/鉴权问题"。响应体拿不到（如未 read 的流式响应）时返回空串：
+        错误文案不得因为"取不到片段"而改变性质，更不得因此遮蔽真实失败原因。
+        """
+        if response is None:
+            return ""
+        try:
+            body = response.text
+        except Exception:  # pragma: no cover - 防御：响应体不可读不得遮蔽真实失败原因
+            return ""
+        snippet = self._redact(body)[:300]
+        return f"上游响应片段：{snippet}" if snippet else ""
+
     def _response_error(self, status: int, body: str) -> LLMError:
         suggestion = {
             401: "请检查 API Key 是否正确、有效。",
@@ -208,24 +246,32 @@ class LLMClient:
             404: "请核对 API 地址是否为供应商的 Base URL，以及模型名是否存在。",
             429: "请检查账户额度或稍后重试。",
         }.get(status, "请检查供应商服务状态后重试。")
-        snippet = body.replace(self.api_key, "[已隐藏]") if self.api_key else body
+        snippet = self._redact(body)
         return LLMError(f"API 返回 {status}：{snippet[:300]}。{suggestion}")
 
-    def _budget_exhausted_error(self, attempts: int, response: httpx.Response | None) -> LLMError:
+    def _budget_exhausted_error(
+        self, attempts: int, response: httpx.Response | None, budget_seconds: float | None = None,
+    ) -> LLMError:
         """VS21：总时长预算耗尽的收尾错误。
 
         文案必须与"尝试次数用尽"（循环末尾那条）**可区分**——否则线上日志里"上游一路 429
         把预算烧光"与"三次尝试都失败"看起来一模一样，无法诊断。预算耗尽时把最后一次的
-        状态码一并带上（若最后一次是状态码类失败），不丢掉上游给出的真实原因。
+        状态码**连同脱敏后的上游响应片段**一并带上（VS23 补 NIT①，与 `_response_error` 同款：
+        body 截断 300 字、api_key 一律替换为 `[已隐藏]`），不丢掉上游给出的真实原因。
+        `budget_seconds` 是本次实际生效的预算（整轮截止可能把它压到剩余值）；缺省用客户端预算。
         """
+        effective_budget = self.total_budget_seconds if budget_seconds is None else budget_seconds
         detail = f"最后一次尝试返回 HTTP {response.status_code}。" if response is not None else ""
+        snippet = self._response_snippet(response)
         return LLMError(
-            f"LLM 调用总时长预算已用尽（{self.total_budget_seconds:g} 秒）：已发起 {attempts} 次尝试仍未成功，"
-            f"停止重试。{detail}请检查 API 地址、网络/代理连接及供应商服务状态，"
+            f"LLM 调用总时长预算已用尽（本次 {effective_budget:g} 秒）：已发起 {attempts} 次尝试仍未成功，"
+            f"停止重试。{detail}{snippet}请检查 API 地址、网络/代理连接及供应商服务状态，"
             f"或调大 total_budget_seconds（当前 {self.total_budget_seconds:g} 秒）。"
         )
 
-    async def _post_chat_with_retry(self, payload: JSONDict) -> httpx.Response:
+    async def _post_chat_with_retry(
+        self, payload: JSONDict, budget_seconds: float | None = None,
+    ) -> httpx.Response:
         """POST /chat/completions，对瞬时故障做有限次指数退避重试（G-11）。
 
         可重试：网络错误/超时（httpx.HTTPError）、HTTP 429/5xx。
@@ -244,7 +290,13 @@ class LLMClient:
           最后一次尝试最多在其开始后再消耗一个完整超时；默认值下为 ≤ 300 秒）。
         - 预算是**构造参数**，测试可注入假时钟/小预算而不必真等；首次尝试**永远会执行**，
           预算只在"要不要再来一次"时生效。
+
+        `budget_seconds`（VS23）：本次调用的时长预算**覆盖值**，默认 `None` ⇒ 用
+        `self.total_budget_seconds`（与 VS21 逐项一致）。`chat_with_tools_loop` 在启用整轮截止时
+        传入 `min(单次预算, 剩余整轮预算)`，使"整轮"不被任何单轮突破；上界公式随之变为
+        "本次调用 ≤ 生效预算 + 单次尝试超时"。
         """
+        budget = self.total_budget_seconds if budget_seconds is None else budget_seconds
         url = f"{self.base_url}/chat/completions"
         last_exc: Exception | None = None
         started_at = time.monotonic()  # VS21：预算自循环开始计时
@@ -263,11 +315,11 @@ class LLMClient:
                 if attempt == _MAX_ATTEMPTS:
                     return response
             if attempt < _MAX_ATTEMPTS:
-                remaining = self.total_budget_seconds - (time.monotonic() - started_at)  # VS21
+                remaining = budget - (time.monotonic() - started_at)  # VS21 / VS23: budget = 生效预算
                 if remaining <= _BUDGET_EPSILON_SECONDS:
                     # 已用 ≥ 预算：既不再等待，也不发起下一次尝试。首次尝试的真实结果/异常
                     # 已在上面 return/抛出，绝不会因为"没预算了"把成功误判成失败。
-                    budget_error = self._budget_exhausted_error(attempt, response)
+                    budget_error = self._budget_exhausted_error(attempt, response, budget)
                     if last_exc is not None:
                         raise budget_error from last_exc
                     raise budget_error
@@ -356,6 +408,7 @@ class LLMClient:
         tools: list[JSONDict] | None = None,
         *,
         with_finish_reason: bool = False,
+        budget_seconds: float | None = None,
     ) -> tuple[str, list[JSONDict], int | None]:
         """Tool calling with DeepSeek-compatible assistant message recovery.
 
@@ -365,6 +418,9 @@ class LLMClient:
 
         with_finish_reason=True 时（VS12 P1-2）额外返回第 4 项 finish_reason，
         默认 False 保持既有 3 元组契约不变。
+
+        budget_seconds（VS23）透传给 `_post_chat_with_retry`，供整轮截止压低单次预算；
+        默认 None ⇒ 用客户端预算，既有调用方行为不变。
         """
         payload = {
             "model": self.model,
@@ -375,7 +431,7 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
-        resp = await self._post_chat_with_retry(payload)
+        resp = await self._post_chat_with_retry(payload, budget_seconds=budget_seconds)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
         data = resp.json()
@@ -420,40 +476,122 @@ class LLMClient:
         event_sink: Callable[[str, JSONDict], Awaitable[None]] | None = None,
         pre_tool_hook: Callable[[str, str], Awaitable[str | None]] | None = None,
         post_tool_hook: Callable[[str, str, str], Awaitable[str | None]] | None = None,
-    ) -> tuple[str, list[JSONDict], int | None]:
+        *,
+        deadline_seconds: float | None = None,
+    ) -> ToolLoopResult | ToolLoopResultWithStatus:
         """完整 function_calling 循环：调用 LLM → 执行工具 → 反馈 → 最终回复。
 
         参数：
             messages: 对话消息列表（会被修改追加轮次）
             tools: OpenAI 格式的工具定义列表
             tool_executor: 异步 callable(name, arguments) → str（工具执行结果文本）
-            max_rounds: 最大 tool_use 轮数
+            max_rounds: 最大 tool_use 轮数（**只约束轮数，不约束时长**）
             event_sink: 异步 callable(event, data)（可选）。受控事件见 TOOL_LOOP_EVENTS；
                 事件 data 统一为 {"tool_name", "arguments", ...}，SSE 层可直接转发。
             pre_tool_hook: 异步 callable(name, arguments_json) → str | None（可选）。
                 返回非 None 文本时跳过工具执行，以该文本作为工具结果（guardrail 拦截）。
             post_tool_hook: 异步 callable(name, arguments_json, result_text) → str | None（可选）。
                 返回非 None 文本时替换工具结果（输出校验/tripwire 检查）。
+            deadline_seconds（VS23）: **整轮**对话的聚合等待上界（秒；相对本函数开始执行计时）。
+                `None`（默认）⇒ 与改动前**逐项一致**：不做任何截止判断、每轮都用
+                `self.total_budget_seconds` 的单次预算、返回 3 元组。给定正有限数时：
+                  ① **每轮开始前**检查是否已过截止（含 `_BUDGET_EPSILON_SECONDS` 浮点容差，与 VS21 同口径）；
+                     已过 ⇒ **立即停止发起新的 LLM 调用**（此刻并不持有进行中的调用，故它**不被中断**）；
+                  ② 该轮的单次预算被压低为 `min(self.total_budget_seconds, 剩余整轮预算)`；
+                  ③ 因截止提前结束 ⇒ 返回**显式**的截断结果（见"返回"），绝不伪装成正常完成；
+                  ④ 值必须为正有限数：0/负数/NaN/Inf ⇒ `ValueError`（与 `total_budget_seconds` 同口径）。
+                可判定上界：**整轮墙钟 ≤ deadline_seconds + 单次调用上界**（= 单次预算 + 单次尝试超时），
+                因为截止只在**轮间**检查，最后一次已经开始的调用最多再多跑一个完整超时；默认值下即
+                ≤ 600 + 300 = 900 秒（改动前最坏 5 × 300 = 1500 秒）。上界还可收紧为
+                `deadline_seconds + self.timeout`：单轮预算已被剩余值压低，单轮的溢出只剩"最后那次
+                进行中的尝试"。
 
         返回：
-            (最终文本, 全部工具调用记录 list[dict], total_tokens)
+            `deadline_seconds is None` ⇒ `(最终文本, 全部工具调用记录 list[dict], total_tokens)`
+            （**既有 3 元组契约不变**）。
+            `deadline_seconds` 非 None ⇒ **4 元组，末项为状态字典**（设了截止就一定拿得到状态，
+            因此不存在"设了截止却读不到截断标记"的静默用法）：
+                {"truncated_by_deadline": bool,  # True = 因截止提前结束（显式），不是"正常完成"
+                 "reason": str | None,           # "deadline_exceeded_before_tool_round"
+                                                 # | "deadline_exceeded_before_final_answer" | None
+                 "deadline_seconds": float | None,
+                 "llm_calls": int,               # 实际发起的上游对话调用次数（不含内部重试）
+                 "elapsed_seconds": float}       # 整轮已消耗墙钟（由注入的时钟测得）
+            截断时第 1 项是**最后一段可用文本**（可能为空串）、第 2 项是已完成的工具调用记录，
+            调用方据此如实提示"因超过总时长上限提前结束，以下为已完成部分"；若提供了 `event_sink`，
+            同时发出受控事件 `tool_loop_truncated`（事件通道与返回值同源，两条都不静默）。
+            完成后恰好越过截止 ⇒ 仍按**完成**返回（`truncated_by_deadline=False`）：
+            完成就是完成，不得误报截断。
         """
+        if deadline_seconds is not None and (
+            not math.isfinite(deadline_seconds) or deadline_seconds <= 0
+        ):
+            # 与 total_budget_seconds 同口径：拒绝 0/负数/NaN/Inf，而不是"一次都不试"或"永不停止"。
+            raise ValueError("deadline_seconds 必须是正有限数（单位：秒）或 None")
+
         all_tool_calls: list[JSONDict] = []
         total_tokens = 0
+        llm_calls = 0
+        last_content = ""
+        loop_started_at = time.monotonic()
 
         # Each upstream request made by chat_with_tools_safe is persisted once.
         # Do not add an aggregate row here: that would double-count tool loops.
 
+        def _remaining_round_budget() -> float | None:
+            """本轮可用的单次调用预算 = min(单次预算, 剩余整轮预算)；未启用截止时为 None（行为不变）。"""
+            if deadline_seconds is None:
+                return None
+            return min(self.total_budget_seconds, deadline_seconds - (time.monotonic() - loop_started_at))
+
+        def _deadline_reached() -> bool:
+            """截止是否已到（含 VS21 同款浮点容差）；未启用截止时恒为 False。"""
+            if deadline_seconds is None:
+                return False
+            return deadline_seconds - (time.monotonic() - loop_started_at) <= _BUDGET_EPSILON_SECONDS
+
+        def _status(truncated: bool, reason: str | None) -> JSONDict:
+            return {
+                "truncated_by_deadline": truncated,
+                "reason": reason,
+                "deadline_seconds": deadline_seconds,
+                "llm_calls": llm_calls,
+                "elapsed_seconds": time.monotonic() - loop_started_at,
+            }
+
+        def _finish(content: str) -> ToolLoopResult | ToolLoopResultWithStatus:
+            """正常收尾：未启用截止 ⇒ 3 元组（既有契约）；启用 ⇒ 4 元组（末项状态显式）。"""
+            completed: ToolLoopResult = (content, all_tool_calls, total_tokens or None)
+            if deadline_seconds is None:
+                return completed
+            return (*completed, _status(False, None))
+
+        async def _truncate(reason: str) -> ToolLoopResultWithStatus:
+            """因截止提前结束：显式截断结果 + 受控事件，**绝不**伪装成正常完成。"""
+            if event_sink is not None:
+                await event_sink("tool_loop_truncated", {
+                    "reason": reason,
+                    "deadline_seconds": deadline_seconds,
+                    "tool_calls": all_tool_calls,
+                })
+            return (last_content, all_tool_calls, total_tokens or None, _status(True, reason))
+
         for _round in range(max_rounds):
+            if _deadline_reached():
+                # 截止已过：不再发起新的 LLM 调用（进行中的调用不受影响——此刻不持有它）。
+                return await _truncate("deadline_exceeded_before_tool_round")
+            llm_calls += 1
             content, tool_calls, tokens, _finish_reason = await self.chat_with_tools_safe(
-                messages, tools, with_finish_reason=True,
+                messages, tools, with_finish_reason=True, budget_seconds=_remaining_round_budget(),
             )
             total_tokens += tokens or 0
+            last_content = content
 
             if not tool_calls:
                 if event_sink is not None:
                     await event_sink("tool_loop_done", {"tool_calls": all_tool_calls})
-                return content, all_tool_calls, total_tokens or None
+                # 边界：截止可能恰好在这次**成功**调用之后才越过——完成就是完成，不得误报截断。
+                return _finish(content)
 
             assistant_message = {
                 "role": "assistant",
@@ -520,15 +658,21 @@ class LLMClient:
                     "content": result_text or "",
                 })
 
-        # 超出最大轮数，强制要求最终回复
+        # 超出最大轮数，强制要求最终回复。
+        # VS23：收尾那次请求同样是"新的 LLM 调用"，故同样先查截止（并在触发时**不发**这条
+        # 督促消息——不留下一条永远等不到回复的 user 消息污染后续上下文）。
+        if _deadline_reached():
+            return await _truncate("deadline_exceeded_before_final_answer")
         messages.append({"role": "user", "content": "请基于已有数据输出最终结论。"})
+        llm_calls += 1
         content, _, tokens, _finish_reason = await self.chat_with_tools_safe(
-            messages, tools, with_finish_reason=True,
+            messages, tools, with_finish_reason=True, budget_seconds=_remaining_round_budget(),
         )
         total_tokens += tokens or 0
+        last_content = content
         if event_sink is not None:
             await event_sink("tool_loop_exhausted", {"tool_calls": all_tool_calls})
-        return content, all_tool_calls, total_tokens or None
+        return _finish(content)
 
     async def chat_stream(self, messages: list[JSONDict]) -> AsyncIterator[str]:
         """流式调用，逐 token yield 增量文本。"""

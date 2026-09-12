@@ -705,3 +705,405 @@ def test_vs21_default_budget_is_injectable_and_documented():
     injected = LLMClient("https://llm.test", "key", "model", timeout=7.0, total_budget_seconds=3.0)
     assert (injected.total_budget_seconds, injected.timeout) == (3.0, 7.0)
     assert default_client.timeout == 120.0, "单次尝试超时语义不变（不得被预算改动）"
+
+
+# ==================== VS23: 整轮工具对话的聚合截止（deadline） ====================
+# "每次调用最多等 N 秒" ≠ "用户最多等 N 秒"：单次预算只约束一轮，max_rounds 只约束轮数，
+# 整轮墙钟此前无任何聚合约束（最坏 5 × 300 = 1500s）。下面用假时钟（budget_clock）覆盖
+# "截止生效 / 上界 / 单轮预算被压低 / 显式而非静默 / 零回归"，**不真实等待**。
+
+def _tool_call_reply(call_id: str, tokens: int = 3):
+    """一轮"请求工具"的假回复（chat_with_tools_safe 的 4 元组形态）。"""
+    return ("", [{
+        "id": call_id,
+        "type": "function",
+        "function": {"name": "echo", "arguments": "{}"},
+    }], tokens, "tool_calls")
+
+
+def _tool_call_response(call_id: str = "1", tokens: int = 3) -> httpx.Response:
+    """同样语义的**真实** HTTP 响应（走 `_post_chat_with_retry` 时用）。"""
+    return httpx.Response(200, json={
+        "choices": [{"message": {"content": "", "tool_calls": [
+            {"id": call_id, "type": "function", "function": {"name": "echo", "arguments": "{}"}},
+        ]}}],
+        "usage": {"total_tokens": tokens},
+    })
+
+
+async def _echo_tool(name, arguments):
+    return "ok"
+
+
+@pytest.mark.asyncio
+async def test_vs23_no_deadline_keeps_legacy_contract_and_behaviour(monkeypatch, budget_clock):
+    """①None 默认零回归：仍是 3 元组、不给单次调用注入预算覆盖值、不做任何时间判断、事件序列不变。
+
+    每次假调用都把假时钟推进 10000s——若默认路径里混进了任何截止判断，本用例立刻变红。
+    """
+    client = LLMClient("https://llm.test", "key", "model")
+    assert client.total_budget_seconds == llm_client._DEFAULT_TOTAL_BUDGET_SECONDS
+    seen: list[float | None] = []
+    replies = [
+        _tool_call_reply("1", 3),
+        ("中间文本", _tool_call_reply("2")[1], 4, "tool_calls"),
+        ("最终答案", [], 5, "stop"),
+    ]
+
+    async def fake_chat(messages, tools, **kwargs):
+        seen.append(kwargs.get("budget_seconds"))
+        budget_clock["now"] += 10_000.0
+        return replies.pop(0)
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[str] = []
+
+    async def sink(event, data):
+        events.append(event)
+
+    result = await client.chat_with_tools_loop(
+        [{"role": "user", "content": "hi"}], [], _echo_tool, event_sink=sink,
+    )
+
+    assert isinstance(result, tuple) and len(result) == 3, "None ⇒ 3 元组契约不变"
+    content, tool_calls, tokens = result
+    assert (content, tokens) == ("最终答案", 12)
+    assert [call["name"] for call in tool_calls] == ["echo", "echo"]
+    assert seen == [None, None, None], "缺省下不得改写单次预算（覆盖值必须仍是 None）"
+    assert events == ["tool_started", "tool_completed", "tool_started", "tool_completed", "tool_loop_done"]
+    assert "tool_loop_truncated" not in events
+
+
+@pytest.mark.asyncio
+async def test_vs23_deadline_stops_loop_with_explicit_truncation_flag(monkeypatch, budget_clock):
+    """②③截止生效且**显式**：50s 截止、每轮 30s ⇒ 第 3 轮开始前停手，第 3 次调用根本不发。"""
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=100.0)
+    seen: list[float | None] = []
+
+    async def fake_chat(messages, tools, **kwargs):
+        seen.append(kwargs.get("budget_seconds"))
+        budget_clock["now"] += 30.0
+        return _tool_call_reply(str(len(seen)))
+
+    async def execute(name, arguments):
+        return "ok"
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[tuple[str, dict]] = []
+
+    async def sink(event, data):
+        events.append((event, data))
+
+    result = await client.chat_with_tools_loop([], [], execute, deadline_seconds=50.0, event_sink=sink)
+
+    assert len(result) == 4, "设了截止 ⇒ 必须拿到显式状态项（不可能只拿 3 元组）"
+    content, tool_calls, tokens, status = result
+    assert status["truncated_by_deadline"] is True, "提前结束必须是显式标记，不得伪装成正常完成"
+    assert status["reason"] == "deadline_exceeded_before_tool_round"
+    assert status["deadline_seconds"] == 50.0
+    assert status["llm_calls"] == 2 and len(seen) == 2, "截止后不得再发起新的 LLM 调用"
+    assert status["elapsed_seconds"] == 60.0
+    assert (content, tokens) == ("", 6)
+    assert [call["name"] for call in tool_calls] == ["echo", "echo"], "已完成的工具调用记录不得被丢弃"
+    assert [name for name, _ in events].count("tool_loop_truncated") == 1
+    assert events[-1][0] == "tool_loop_truncated"
+    assert events[-1][1]["reason"] == "deadline_exceeded_before_tool_round"
+
+
+@pytest.mark.asyncio
+async def test_vs23_deadline_already_spent_before_first_round_issues_no_llm_call(monkeypatch, budget_clock):
+    """⑥截止在首轮开始前就已过（剩余 ≤ 浮点容差）⇒ **一次 LLM 调用都不发**，直接显式截断。"""
+    client = LLMClient("https://llm.test", "key", "model")
+    calls: list[dict] = []
+
+    async def fake_chat(messages, tools, **kwargs):
+        calls.append(kwargs)
+        return ("不该被调用", [], 1, "stop")
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[str] = []
+
+    async def sink(event, data):
+        events.append(event)
+
+    content, tool_calls, tokens, status = await client.chat_with_tools_loop(
+        [], [], _echo_tool, deadline_seconds=1e-9, event_sink=sink,
+    )
+
+    assert calls == [], "首轮开始前已过截止 ⇒ 不得发起任何 LLM 调用"
+    assert status["truncated_by_deadline"] is True
+    assert status["reason"] == "deadline_exceeded_before_tool_round"
+    assert status["llm_calls"] == 0
+    assert (content, tool_calls, tokens) == ("", [], None)
+    assert events == ["tool_loop_truncated"]
+
+
+@pytest.mark.asyncio
+async def test_vs23_round_budget_is_min_of_single_budget_and_remaining(monkeypatch, budget_clock):
+    """④单轮预算 = min(单次预算, 剩余整轮预算)：剩余只剩 7s ⇒ 该轮**实测**只用 7s。"""
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=180.0)
+    seen: list[float | None] = []
+
+    async def fake_chat(messages, tools, **kwargs):
+        seen.append(kwargs.get("budget_seconds"))
+        budget_clock["now"] += 173.0 if len(seen) == 1 else 10.0
+        return _tool_call_reply(str(len(seen)))
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    result = await client.chat_with_tools_loop([], [], _echo_tool, deadline_seconds=180.0)
+
+    _, _, _, status = result
+    assert seen == [180.0, 7.0], "第 1 轮 min(180,180)=180；第 2 轮剩余 7s < 180s ⇒ 必须压低为 7s"
+    assert status["llm_calls"] == 2
+    assert status["truncated_by_deadline"] is True
+    assert status["elapsed_seconds"] == 183.0
+
+
+@pytest.mark.asyncio
+async def test_vs23_lowered_round_budget_actually_caps_the_retry_loop(monkeypatch, budget_clock):
+    """④（实测，端到端）压低后的预算**真的**进入 `_post_chat_with_retry`：等待被截断到 4s 而非 30s。
+
+    第 1 轮一次成功但耗时 195s ⇒ 剩余整轮预算 5s；第 2 轮因此只用 5s：尝试 1 后剩 4s < Retry-After 上限 30s
+    ⇒ 等待被截断到 4s。若预算没被压低（仍是 180s），这里记录到的会是 30s。
+    """
+    attempts = {"n": 0}
+
+    def handler(request):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            budget_clock["now"] += 195.0
+            return _tool_call_response()
+        budget_clock["now"] += 1.0
+        return httpx.Response(503, text="unavailable", headers={"Retry-After": "99999"})
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm_client, "record_llm_usage", lambda model, usage: None)
+    client = LLMClient("https://llm.test", "key", "model")
+
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat_with_tools_loop([], [], _echo_tool, deadline_seconds=200.0)
+
+    assert budget_clock["sleeps"] == [4.0], "预算未被压低就会是 Retry-After 的 30s 上限"
+    assert attempts["n"] == 3
+    assert "总时长预算已用尽（本次 5 秒）" in str(excinfo.value), "生效预算必须如实回传，不得报客户端默认值"
+
+
+@pytest.mark.asyncio
+async def test_vs23_worst_case_wall_clock_within_deadline_plus_single_call_bound(monkeypatch, budget_clock):
+    """③上界（最坏形态）：每轮都"吃光剩余整轮预算 + 再跑一个完整单次尝试超时"（进行中的尝试不被打断）。
+
+    上界 = 截止 + 单次调用上界（= 单次预算 + 单次尝试超时 = 180 + 120 = 300s）：
+    第 1 轮 600 + 120 = 720s，此时剩余为负 ⇒ 第 2 轮永不开始。
+    """
+    client = LLMClient("https://llm.test", "key", "model")
+    deadline = 600.0
+    seen: list[float | None] = []
+
+    async def fake_chat(messages, tools, **kwargs):
+        seen.append(kwargs.get("budget_seconds"))
+        remaining = deadline - _elapsed(budget_clock)
+        budget_clock["now"] += remaining + client.timeout
+        return _tool_call_reply("1")
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    result = await client.chat_with_tools_loop([], [], _echo_tool, deadline_seconds=deadline)
+
+    status = result[3]
+    elapsed = _elapsed(budget_clock)
+    assert status["truncated_by_deadline"] is True
+    assert len(seen) == 1, "第 2 轮开始前必须被截止挡住"
+    assert elapsed == deadline + client.timeout == 720.0
+    assert elapsed <= deadline + client.total_budget_seconds + client.timeout, "不得超过卡里声明的上界"
+    assert elapsed <= deadline + client.timeout, "实测更紧的上界：截止 + 单次尝试超时"
+
+
+@pytest.mark.asyncio
+async def test_vs23_end_to_end_wall_clock_upper_bound_with_real_retry_path(monkeypatch, budget_clock):
+    """③上界（端到端，真实重试路径）：503 → 等 30s → 第二次尝试成功 ⇒ 本轮 270s，随后被截止停手。"""
+    attempts = {"n": 0}
+
+    def handler(request):
+        attempts["n"] += 1
+        budget_clock["now"] += 120.0
+        if attempts["n"] == 1:
+            return httpx.Response(503, text="unavailable", headers={"Retry-After": "99999"})
+        return _tool_call_response("1", 3)
+
+    _install_transport(monkeypatch, handler)
+    monkeypatch.setattr(llm_client, "record_llm_usage", lambda model, usage: None)
+    client = LLMClient("https://llm.test", "key", "model")
+    deadline = 250.0
+
+    content, tool_calls, tokens, status = await client.chat_with_tools_loop(
+        [], [], _echo_tool, deadline_seconds=deadline,
+    )
+
+    assert budget_clock["sleeps"] == [30.0], "Retry-After: 99999 仍受 30s 上限约束（VS10 未被削弱）"
+    assert attempts["n"] == 2
+    assert status["truncated_by_deadline"] is True
+    assert status["reason"] == "deadline_exceeded_before_tool_round"
+    assert status["llm_calls"] == 1
+    assert (content, tokens, len(tool_calls)) == ("", 3, 1)
+    assert _elapsed(budget_clock) == 270.0
+    assert _elapsed(budget_clock) <= deadline + client.total_budget_seconds + client.timeout
+    assert _elapsed(budget_clock) <= deadline + client.timeout
+
+
+@pytest.mark.asyncio
+async def test_vs23_deadline_crossed_after_successful_call_is_reported_as_completed(monkeypatch, budget_clock):
+    """⑤边界：截止恰落在一次**成功**调用之后 ⇒ 必须标"完成"，不得误报截断。"""
+    client = LLMClient("https://llm.test", "key", "model")
+
+    async def fake_chat(messages, tools, **kwargs):
+        budget_clock["now"] += 100.0  # 这次调用把 10s 截止远远甩在后面
+        return ("完整答案", [], 7, "stop")
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[str] = []
+
+    async def sink(event, data):
+        events.append(event)
+
+    content, tool_calls, tokens, status = await client.chat_with_tools_loop(
+        [], [], _echo_tool, deadline_seconds=10.0, event_sink=sink,
+    )
+
+    assert content == "完整答案"
+    assert status["truncated_by_deadline"] is False
+    assert status["reason"] is None
+    assert status["llm_calls"] == 1
+    assert status["elapsed_seconds"] == 100.0, "已超截止也照实记录，但结论是'完成'"
+    assert events == ["tool_loop_done"], "完成后越过截止不得补发截断事件"
+
+
+@pytest.mark.asyncio
+async def test_vs23_deadline_before_forced_final_answer_is_explicit(monkeypatch, budget_clock):
+    """边界：轮数用尽但收尾那次请求被截止挡住 ⇒ 显式截断，且不留下等不到回复的督促消息。"""
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=180.0)
+    seen: list[float | None] = []
+
+    async def fake_chat(messages, tools, **kwargs):
+        seen.append(kwargs.get("budget_seconds"))
+        budget_clock["now"] += 12.0
+        return _tool_call_reply(str(len(seen)))
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[str] = []
+
+    async def sink(event, data):
+        events.append(event)
+
+    messages: list[dict] = [{"role": "user", "content": "research"}]
+    _, _, _, status = await client.chat_with_tools_loop(
+        messages, [], _echo_tool, max_rounds=2, deadline_seconds=20.0, event_sink=sink,
+    )
+
+    assert seen == [20.0, 8.0]
+    assert status["llm_calls"] == 2
+    assert status["truncated_by_deadline"] is True
+    assert status["reason"] == "deadline_exceeded_before_final_answer"
+    assert status["elapsed_seconds"] == 24.0
+    assert messages[-1]["role"] == "tool", "不会发出请求时不得追加督促消息（否则留下等不到回复的 user 消息）"
+    assert "tool_loop_exhausted" not in events
+    assert events[-1] == "tool_loop_truncated"
+
+
+@pytest.mark.asyncio
+async def test_vs23_forced_final_answer_still_runs_within_a_generous_deadline(monkeypatch, budget_clock):
+    """同源：截止未到 ⇒ 轮数用尽后照旧强制收尾（既有语义不变），状态标"完成"。"""
+    client = LLMClient("https://llm.test", "key", "model")
+    call = {"n": 0}
+
+    async def fake_chat(messages, tools, **kwargs):
+        call["n"] += 1
+        if call["n"] <= 2:
+            return _tool_call_reply(str(call["n"]), call["n"])
+        return ("forced", [], 9, "stop")
+
+    monkeypatch.setattr(client, "chat_with_tools_safe", fake_chat)
+    events: list[str] = []
+
+    async def sink(event, data):
+        events.append(event)
+
+    messages: list[dict] = []
+    content, tool_calls, tokens, status = await client.chat_with_tools_loop(
+        messages, [], _echo_tool, max_rounds=2, deadline_seconds=10_000.0, event_sink=sink,
+    )
+
+    assert (content, len(tool_calls), tokens) == ("forced", 2, 12)
+    assert messages[-1]["role"] == "user"
+    assert status["truncated_by_deadline"] is False
+    assert events[-1] == "tool_loop_exhausted"
+
+
+@pytest.mark.parametrize("deadline", [0.0, -1.0, 0, -0.5, float("nan"), float("inf")])
+@pytest.mark.asyncio
+async def test_vs23_non_positive_or_non_finite_deadline_is_rejected(deadline):
+    """边界：0/负数/NaN/Inf ⇒ 与 total_budget_seconds 同口径拒绝（构造期式 ValueError），不静默。"""
+    client = LLMClient("https://llm.test", "key", "model")
+    with pytest.raises(ValueError, match="deadline_seconds"):
+        await client.chat_with_tools_loop([], [], _echo_tool, deadline_seconds=deadline)
+
+
+@pytest.mark.asyncio
+async def test_vs23_budget_exhausted_error_carries_redacted_upstream_body(monkeypatch, budget_clock):
+    """NIT① 正例：预算耗尽必须带上游 body 片段，否则同一个 429 会被误读成"预算太小"。"""
+    tail_marker = "TAIL-MARKER-SHOULD-BE-TRUNCATED"
+    body = '{"error":{"code":"insufficient_quota","message":"account quota exceeded"}}' + "A" * 400 + tail_marker
+
+    def handler(request):
+        budget_clock["now"] += 40.0  # 首次尝试即烧光 1s 预算
+        return httpx.Response(429, text=body)
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=1.0)
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat([])
+
+    message = str(excinfo.value)
+    assert "总时长预算已用尽" in message
+    assert "429" in message, "状态码不得被预算文案吞掉"
+    assert "insufficient_quota" in message, "上游给出的真实原因（额度/鉴权）不得被丢掉"
+    assert "account quota exceeded" in message
+    assert "上游响应片段：" in message
+    assert tail_marker not in message, "片段必须截断到 300 字，不得整段回灌"
+
+
+@pytest.mark.asyncio
+async def test_vs23_budget_exhausted_error_never_leaks_api_key(monkeypatch, budget_clock):
+    """NIT① 反例：api_key 出现在上游 body 里也必须脱敏（沿用既有脱敏口径）。"""
+    secret = "sk-vs23-should-never-appear"
+
+    def handler(request):
+        budget_clock["now"] += 40.0
+        return httpx.Response(429, text=f"invalid key {secret} for account")
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", secret, "model", total_budget_seconds=1.0)
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat([])
+
+    message = str(excinfo.value)
+    assert secret not in message, "api_key 绝不出现在任何错误里"
+    assert "[已隐藏]" in message
+    assert "invalid key" in message, "脱敏后其余片段仍在（不得因噎废食把整段丢掉）"
+
+
+@pytest.mark.asyncio
+async def test_vs23_network_failure_budget_error_has_no_body_snippet(monkeypatch, budget_clock):
+    """NIT① 边界：网络类失败没有响应体 ⇒ 空白片段不得破坏文案，也不得崩在取片段上。"""
+    def handler(request):
+        budget_clock["now"] += 40.0
+        raise httpx.ConnectError("offline", request=request)
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model", total_budget_seconds=1.0)
+    with pytest.raises(LLMError) as excinfo:
+        await client.chat([])
+
+    message = str(excinfo.value)
+    assert "总时长预算已用尽" in message
+    assert "上游响应片段" not in message
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectError)
+

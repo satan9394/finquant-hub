@@ -13,7 +13,7 @@ from ..agent.tools import ToolRegistry
 from ..models import MessageIn, SessionCreate, SessionUpdate
 from ..services.context import estimate_tokens
 from ..services import model_router
-from ..services.llm_client import LLMError
+from ..services.llm_client import DEFAULT_TOOL_LOOP_DEADLINE_SECONDS, LLMError
 from ..services.llm_usage import reset_usage_context, set_usage_context
 from ..services.memory import native_memory_provider
 from ..services.memory_rollout import MemoryRollout, finalize_memory_rollout, prepare_memory_rollout
@@ -186,12 +186,21 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                         }, ensure_ascii=False),
                     })
 
-            full, tool_calls, llm_tokens = await client.chat_with_tools_loop(
+            full, tool_calls, llm_tokens, loop_status = await client.chat_with_tools_loop(
                 llm_messages,
                 registry.to_openai_tools(),
                 _execute_tool,
                 event_sink=_event_sink,
+                # VS23：整轮（多轮工具调用累加）的聚合等待上界。"每次调用最多等 N 秒"不等于
+                # "用户最多等 N 秒"——轮数上限只约束轮数，不约束时长。
+                deadline_seconds=DEFAULT_TOOL_LOOP_DEADLINE_SECONDS,
             )
+            # VS23：因截止提前结束必须**显式**透出——既不伪装成正常回答（回落文案进正文与
+            # done 载荷），也不静默丢弃已完成的工具调用记录。
+            truncated_by_deadline = bool(loop_status["truncated_by_deadline"])
+            if truncated_by_deadline:
+                notice = "（因超过总时长上限提前结束，以下为已完成部分）"
+                full = f"{notice}\n\n{full}" if full else notice
             for ev in tool_events:
                 yield ev
             if full:
@@ -211,6 +220,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                 "data": json.dumps(
                     {"message_id": msg_id, "token_count": estimate_tokens(full),
                      "llm_token_count": llm_tokens, "tool_call_count": len(tool_calls),
+                     "truncated_by_deadline": truncated_by_deadline,
                      "user_message_id": user_msg_id},
                     ensure_ascii=False,
                 ),

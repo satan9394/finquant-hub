@@ -19,6 +19,20 @@ from app.services import model_router
 from app.services.notifications import publish_notification
 
 
+def _loop_result(payload, deadline_seconds):
+    """VS23：`chat_with_tools_loop` 在设了整轮截止时多返回一个**显式**状态项。
+
+    与生产契约同源：`deadline_seconds is None` ⇒ 3 元组；非 None ⇒ 4 元组（末项为状态字典）。
+    聊天路由始终带上整轮截止，故替身必须按同一规则应答。
+    """
+    if deadline_seconds is None:
+        return payload
+    return (*payload, {
+        "truncated_by_deadline": False, "reason": None, "deadline_seconds": deadline_seconds,
+        "llm_calls": 1, "elapsed_seconds": 0.0,
+    })
+
+
 class FakeLLMClient:
     """确定性假 LLM：流式返回固定 token，非流式返回固定总结。"""
 
@@ -29,8 +43,8 @@ class FakeLLMClient:
         for t in ["这是", "假模型", "的回复。"]:
             yield t
 
-    async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
-        return "这是假模型的回复。", [], 12
+    async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None, *, deadline_seconds=None):
+        return _loop_result(("这是假模型的回复。", [], 12), deadline_seconds)
 
 
 async def _fake_get_client(model_id=None, **_kwargs):
@@ -248,9 +262,9 @@ class TestChat:
         captured_messages = []
 
         class CapturingClient:
-            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
+            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None, *, deadline_seconds=None):
                 captured_messages.append(messages)
-                return "已读取历史线索", [], 8
+                return _loop_result(("已读取历史线索", [], 8), deadline_seconds)
 
         async def get_capturing_client(model_id=None, **_kwargs):
             return CapturingClient(), {"id": 1, "name": "Capture"}
@@ -286,7 +300,7 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_executes_registered_tool_and_emits_tool_event(self, client, monkeypatch):
         class ToolCallingClient:
-            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
+            async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None, *, deadline_seconds=None):
                 if event_sink is not None:
                     await event_sink("tool_started", {"tool_name": "calculate_by_financial_rigor", "arguments": '{"expression":"2+2"}'})
                 result = await executor("calculate_by_financial_rigor", '{"expression":"2+2"}')
@@ -296,11 +310,11 @@ class TestChat:
                         "arguments": '{"expression":"2+2"}',
                         "result": result,
                     })
-                return "精确计算结果为 4。", [{
+                return _loop_result(("精确计算结果为 4。", [{
                     "name": "calculate_by_financial_rigor",
                     "arguments": '{"expression":"2+2"}',
                     "result": result,
-                }], 21
+                }], 21), deadline_seconds)
 
         async def get_tool_client(model_id=None, **_kwargs):
             return ToolCallingClient(), {"id": 1, "name": "ToolModel"}

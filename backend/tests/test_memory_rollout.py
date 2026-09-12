@@ -145,9 +145,19 @@ async def test_chat_opt_in_injects_typed_context_and_finalizes_audit(rollout_db,
     captured: list[list[dict[str, str]]] = []
 
     class CapturingClient:
-        async def chat_with_tools_loop(self, messages, tools, executor, max_rounds=5, event_sink=None, pre_tool_hook=None, post_tool_hook=None):
+        async def chat_with_tools_loop(
+            self, messages, tools, executor, max_rounds=5, event_sink=None,
+            pre_tool_hook=None, post_tool_hook=None, *, deadline_seconds=None,
+        ):
             captured.append(messages)
-            return "fixture response", [], 4
+            # VS23：设了整轮截止 ⇒ 多返回一个**显式**状态项（与生产契约同源）。
+            payload = ("fixture response", [], 4)
+            if deadline_seconds is None:
+                return payload
+            return (*payload, {
+                "truncated_by_deadline": False, "reason": None, "deadline_seconds": deadline_seconds,
+                "llm_calls": 1, "elapsed_seconds": 0.0,
+            })
 
     async def fake_get_client(model_id=None, **kwargs):
         return CapturingClient(), {"id": 1}
