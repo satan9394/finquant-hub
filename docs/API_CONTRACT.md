@@ -17,9 +17,14 @@
 
 | event | data |
 |------|------|
-| `token` | `{"delta": "部分文本"}` |
-| `done` | `{"message_id": 12, "token_count": 245, "user_message_id": 11}` |
+| `tool_call` | `{"tool_name": "get_stock_price", "arguments": {...}, "result": "..."}` —— **仅在工具执行完成时**发出（每次工具调用一帧；`tool_started`/`tool_failed` 等内部事件**不**外发） |
+| `token` | `{"delta": "部分文本"}` —— 最终整段文本；**若本轮流被整轮截止截断，其前置一行提示**（见下） |
+| `done` | `{"message_id": 12, "token_count": 245, "llm_token_count": 210, "tool_call_count": 2, "truncated_by_deadline": false, "user_message_id": 11}` |
 | `error` | `{"error": "错误描述"}` |
+
+**整轮截止（VS-23）**：该端点经 ToolRegistry function-calling 循环，**轮数上限只约束轮数、不约束时长**，故设整轮聚合等待上界 `DEFAULT_TOOL_LOOP_DEADLINE_SECONDS = 600s`。触发时：①正文（即 `token.delta`）**前置**「（因超过总时长上限提前结束，以下为已完成部分）」；②`done.truncated_by_deadline = true`。二者与**落库内容**同源——**用户所见 == 已保存内容**。截止**恰在一次成功调用之后**才越界时按**正常完成**处理（不误报截断）。
+
+**单次调用预算（VS-21/23）**：单次 LLM 调用另有总时长预算（默认 180s，上界 = 预算 + 单次尝试超时），预算耗尽抛携带（脱敏后的）上游响应片段的可行动错误；整轮截止会**压低**当轮的单次预算（取 `min(单次预算, 剩余整轮预算)`）。
 
 ### 多 Agent 讨论
 
