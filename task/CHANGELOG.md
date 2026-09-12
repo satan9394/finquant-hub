@@ -716,3 +716,16 @@
 - Docs updated: 上列；另 `docs/ai/evo/{PRODUCT_STATE,PRODUCT_GAP_MAP,PROJECT_BRIEF}.md`。
 - Verification: 后端聚焦 pytest **89 passed** + `ruff check .` 干净；前端 vitest 新增 **17+6 passed**、回归 **30+16 passed**；`bun run build`（含 `tsc -b`）**exit 0**。`start.bat` 侧由独立 Evaluator 以**合成 WAL 夹具**三路对照（三件套 202 / 旧只复制 `.db` 0 / 新实现逐字经 `cmd.exe` 实跑 202）并实测失败路径 `exit 3` 且残件经回收站清除。全部改动经 **19 次独立评估**，其中 **10 次抓到真实缺陷**，修复后复评通过。
 - Risk: medium。`start.bat` 备份段与 `llm_client` 重试属高风险区，均已独立评估。**未跑全量 pytest，亦未跑 `tests/test_api.py`**（本机沙箱下两者均会挂起，见 `AGENTS.md` 踩坑）。`start.bat` 的"产物过期判定脆弱"（A3 P1-2）已立卡 **VS-14**，尚未实施。
+
+## 2026-09-11（续）— 产品演进编排（VS-14..VS-17，含行尾加固与提交纪律）
+
+- What changed:
+  - `start.bat`：**"产物疑似过期"不再硬退出**（新增 `:stale_frontend` / `:stale_frontend_nobun` / `:reuse_frontend`；仅在产物**确实缺失**时才要求装 Bun）；复用路径**打印产物构建时间**；`:venv_failed` 改为陈述要求并**打印检测到的 Python 版本**；备份改**两阶段落盘**（先写 `<dest>.<PID>.partial`、完整性校验通过后 `Move-Item -Force` 改名；失败只回收自己的 `.partial`、绝不触碰 `.db`；遗留 `.partial` 给提示不自动删）。
+  - `frontend/src/pages/{Dashboard,Chat,Discussion,ResearchWorkspace}.tsx`：首页"最近会话/讨论"改为**规范目标深链**（`/research?mode=fast&session=<id>`、`?mode=review&room=<id>`）；`Chat` 新增 `?session=`（正整数解析 + 成员资格校验 + `sessionsResolved` 门控 + `appliedSessionRef` 只应用一次）；`Discussion` 同构加固并修一处 **snap-back**（缺"只应用一次"守卫，因 VS-16 首次产出 `?room=` 链接才变得可达）；切模式剥离 `session`/`room`。
+  - `.gitattributes`：补 **`*.bat`/`*.cmd text eol=crlf`**——此前仓库存 LF，`autocrlf=false` 的克隆者会拿到 **LF-only 的 Windows 双击入口**（对照实测：无规则→裸 LF 190 / 有规则→裸 LF 0）。
+  - 文档：`docs/QUICKSTART.md`（产物/Bun 与备份保留措辞与实现对齐）、`README.md`、`AGENTS.md`（新增"批处理载荷必须经 cmd 实测""回收含 junction 的目录""提交前须确认内容处于最终态"等跨会话踩坑）。
+  - 测试：`frontend/tests/{ChatSessionDeepLink,ResearchAgentFailedWire}.test.tsx` 新增；`{Dashboard,Discussion,ResearchModeRouting}.test.tsx` 追加用例。
+- Why: 用户可见文本必须反映实际行为；备份产物在多实例与硬中断下不得互删或伪装成有效；首页入口必须真的打开所指记录；Windows 双击入口的行尾不能取决于克隆者的 git 配置。
+- Docs updated: 上列；另 `docs/ai/evo/{PRODUCT_STATE,PRODUCT_GAP_MAP,PROJECT_BRIEF}.md`（PROJECT_BRIEF 已刷新为**第四轮审计基线**，含四条质疑方向）。
+- Verification: VS-14/VS-15/`.gitattributes` 与 VS-13 的 F1 加固均经**独立评估 ACCEPT**（其中 VS-14 先被 REJECT——唯一阻塞项是文档未同步——修复后复评通过；`.gitattributes` 复验由评估者独立测得 有规则 CRLF=190/裸 LF=0、无规则 CRLF=0/裸 LF=190，并证明对照有效）。VS-16 门禁 8 文件 **59 例绿** + `build exit 0`，其 snap-back 回归用例有**修前必红**证明。VS-17 备份加固由编排者以**同一夹具对照**实测：旧实现失败会**回收 1 个预置有效备份**（5→4），新实现**一个未动**（5→5）且无 `.partial` 残留。
+- Risk: medium。**编排者记录一处自身失误**：提交 VS-16 时把 `ResearchWorkspace.tsx` 的**变异态**（`TEMP-REPRO`，缺两行剥离逻辑）提进了 `9979b14`，已 `--amend` 修为 `1f95d4f` 并即时更正正在进行的评估者以免假驳回；教训已写入 `AGENTS.md`。另：`start.bat` 备份载荷已增至 1951 字符（cmd 单行上限 8191，约 24%），后续再扩需重新量。
