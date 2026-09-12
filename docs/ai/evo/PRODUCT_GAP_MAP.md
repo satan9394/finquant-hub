@@ -174,3 +174,27 @@
   - ~~`IMPLEMENT_RESULT §6.3` 称 `API_CONTRACT.md` 未同步~~ ⇒ **已过期**：编排者在 `62acc50` 已同步，且评估者逐字比对 `chat.py:181-186/:218-226` 确认文档与实现一致。
 - **LATER**：VS-18 的两条 NIT；**VS-20 验收的 3 条 NIT**——①`unknown` 呈现偏宽：`agent_results` 为空/缺失的报告会一次渲染 **5 行"状态未知"**，建议折叠或跳过（**用户体验层面，优先级高于另两条**）；②实时 `agent_completed` 带 `degraded_reasons` 的 SSE 形态无专属用例（由 done 重算冗余覆盖，属**覆盖缺口非缺陷**）；③`deep.agent.notice.unknown` 模板未用 `{reason}`（无副作用）；`agent_reasons` 分级（数量而非布尔）；A4-P3×2 / P4×1（`Dashboard:86` 硬编码 `UNKNOWN`、运行中 401 跳登录页、`LocalCapabilityBanner` 落点类型）；R83 起沿用的 LATER 列表（构建指纹、真实工作区备份端到端证据、`/api/health` 暴露 `local_mode`、备份自动清理等）。
 - **NOT_NOW**：沿用 R83 + VS-11 F1 的裁决。
+
+---
+
+# R5 审计（第五轮：A5 产品UX / D5 可靠性）
+
+> 基线：`PROJECT_BRIEF.md` 的「第五轮审计基线」节。**D5 已交付**（`RELIABILITY_REPORT_R5.md`，`e830a5f`）；**A5 进行中**（`PRODUCT_UX_REPORT_R5.md`）。**综合待 A5 落地后完成。**
+
+## D5 的发现（其最高危项**经编排者逐条 grep 独立核实成立**）
+
+- **🔴 优先级倒挂：deadline 只接到了"最便宜的路径"（列 NOW）**。VS-21/23 的整轮上界**只覆盖交互 chat**（`chat.py:196` 传 600s、`llm_client.py:579-586` 实现），而**研究/讨论编排走另一条循环**——`research_orch.py:260` `for _round in range(5)` + `:292` 收尾一次（**6 次调用/Agent**），链路 `_request_tool_round` → `chat_with_tools_safe` **全不传 `deadline_seconds`**。
+  - **编排者核实**：全 backend 中 `deadline_seconds` **仅**出现在 `chat.py`(2) 与 `llm_client.py`(18)，**`research_orch.py` 零命中**；`chat.py:179` 仅放行 `tool_completed`。
+  - ⇒ 单 Agent 最坏 **1800s**、含主编串行**整轮约 60 分钟**，**无产品内取消、`done` 无截断信号**。**D5 的措辞值得记**："这正是 VS-21 注释自己算过的 5×(180+120) 场景，却只接到了最便宜的路径。" —— **这是产品核心路径（"深度研究"）的等待上界，优先级应高于交互 chat 的那条。**
+- **🟠 "三通道"实为一通道（列 NOW，并入同一张卡）**：`tool_loop_truncated` 被生产 sink 丢弃（`chat.py:179` 白名单只有 `tool_completed`），且 **`done.truncated_by_deadline` 在前端零消费方**（编排者独立 grep：frontend 全库零命中）⇒ **用户实际只看到正文前缀**，返回值与 `done` 标记都无界面效果。与 VS-23 验收的 NIT② 是**同一处的两个独立来源**。修法二选一且必须明确：把信号接到界面，**或**承认"只有正文前缀"并**同步修正注释/文档**（现 `llm_client.py:521-522` 的注释称"事件通道同样显式"，与事实不符）。
+- **🟡 swarm 未纳入结构化契约（列 NEXT）**：`swarm_orch.py:272-282` 的逐 Agent 条目未走 VS-20 的 `status` 契约（D5 标注**部分未验证**，需先读 `runtime.py` 确认字段再动手）。
+- **🟡 残件"永久累积、无体积上限"（列 LATER）**：`.partial` 及伴生件只提示不清理。
+- **D5 的正面结论（同样重要）**：①同秒并发 `$dest` 覆盖一条 **如实标注"与 R4 相同、无新增"**；②**R4 的 P1 已被 VS-18 真正修复**——"属正面对账而非新问题"。**这两条说明"不要凑条数"的反面约束被执行了。**
+
+## VS-22 验收带来的同类面清单（列 NOW 之后，D5/A5 综合时一并排期）
+
+- **🔴 `MemoryManager.tsx:119,122` 同屏自相矛盾**：同一屏幕上**同时**显示"读取失败"与"暂无研究记忆"。**这不是"失败伪装成空"，而是两者公开并存**——用户看到两句互相否定的话。**是同类面里最刺眼的一处。**
+- **🟠 口径不一致**：`Dashboard.loadStats` 重试时**先清失败态**，往返期间区块/卡片**瞬时退回 UNKNOWN/"暂无"**；而 `Chat`/`Discussion` 是"**仅成功才清**"。同一产品两种口径。
+- **🟡 失败信息仅在折叠披露区**：`Research.tsx:852`、`NotificationCenter.tsx:203`、`ResearchWorkspace.tsx:527,530`。
+- **🟡 测试卫生**：`MonitorToday.test.tsx:30` 未传已成必填的 `onRetry`（`tests/` 不在 `tsc` include 内故不报错）——**类型检查覆盖不到的测试文件**本身也是一个隐患。
+- **正面处置**：VS-22 的 `LoadFailureAlert` **组件已就绪**，上述各处可直接复用。
