@@ -84,6 +84,7 @@ frontend/src/
 - **同一件事的两条路径必须同源**：交互 vs 调度、实时 SSE vs 历史回放、脚本 vs 文档、UI vs CLI。历次真缺陷多为"改了一处、忘了另一处"。
 - **文档承诺必须与实现一致**：出现过"文档说滚动保留 7 份、实现只提示不删"、"README 承诺预置产物免 Bun、脚本却硬退出"、"PRD 描述了并不存在的加密迁移"。**改行为时同步改文案。**
 - **宁可说"未知"也不要说成"成功"**：不确定就标 `degraded` / "未验证"；绝不把失败渲染成成功，也绝不把局部失败说成整轮失败。
+- **`start.bat` 的行尾由 `.gitattributes` 保证 CRLF**（`*.bat text eol=crlf`，2026-09-11 补）。此前仓库里存的是 **LF**，只因本机 `core.autocrlf=true` 才检出 CRLF ⇒ **`autocrlf=false` 的克隆者（Linux/macOS 默认）会拿到 LF-only 的批处理**（Windows 双击入口）。**验证行尾不要只看工作副本**——那只是本机配置的产物；要验证就用**真实克隆 + 显式 `-c core.autocrlf=false`**，并用 `git ls-files --eol <path>` 看 `i/`（索引）与 `attr/`。**注意**：`git checkout-index --work-tree=<临时目录>` 会在**该临时目录**里找 `.gitattributes`，得不到仓库规则，用它做这类验证会得出错误结论。
 - **数据一致性改动要当心 SQLite WAL**：只复制 `finquant.db` 会**静默丢弃 `-wal` 中已提交的事务**；用 `sqlite3.Connection.backup()`（全仓既有约定）。且**真实 `backend\data` 的 WAL 已被 checkpoint**，想验证 WAL 行为必须**自造场景**（保持连接不关闭 + `wal_autocheckpoint=0`）。
 
 详见 `memory/`：`MAIN_SESSION_TOKEN_DISCIPLINE.md`、`SUBAGENT_TIMEOUT_DISCIPLINE.md`、`VERIFICATION_BLIND_SPOT.md`。
