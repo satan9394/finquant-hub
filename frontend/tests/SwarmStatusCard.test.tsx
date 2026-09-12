@@ -50,4 +50,34 @@ describe('SwarmStatusCard', () => {
     expect(mocks.streamFour.mock.calls[0][2]).toEqual(expect.any(Function));
     expect(mocks.streamFour.mock.calls[0][3]).toBeInstanceOf(AbortSignal);
   });
+
+  it('shows a degraded agent as degraded (with its structured reason), not as a clean completion', async () => {
+    mocks.streamFour.mockImplementation(async (
+      _ticker: string,
+      _model: number | null,
+      onEvent: (event: { event: string; data: Record<string, unknown> }) => void,
+    ) => {
+      onEvent({ event: 'agent_started', data: { role_key: 'value' } });
+      onEvent({
+        event: 'agent_completed',
+        data: { role_key: 'value', status: 'degraded', degraded_reasons: ['tool_failed'], token_count: 10 },
+      });
+      onEvent({
+        event: 'done',
+        data: {
+          status: 'completed',
+          token_count: 10,
+          agent_results: {
+            value: { content: '结论', status: 'degraded', degraded_reasons: ['tool_failed'], token_count: 10 },
+          },
+        },
+      });
+      return 'done';
+    });
+
+    render(<LanguageProvider><SwarmStatusCard ticker="600519" /></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: /启动团队/ }));
+
+    expect(await screen.findByText('工具调用失败')).toBeTruthy();
+  });
 });

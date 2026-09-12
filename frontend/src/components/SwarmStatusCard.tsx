@@ -22,6 +22,7 @@ import {
 } from '../services/swarmApi';
 import { useModelStore } from '../store/modelStore';
 import { useLanguage } from '../i18n/LanguageContext';
+import { describeDegradedReasons } from '../features/degradedReasons';
 
 const { Paragraph, Text } = Typography;
 
@@ -198,6 +199,13 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
                     {agent.dependencies.length > 0 ? t('research.swarm.dependencies', { count: agent.dependencies.length }) : t('research.swarm.independent')}
                   </Text>
                   {agent.error ? <Paragraph type="danger" style={{ margin: '8px 0 0' }}>{agent.error}</Paragraph> : null}
+                  {/* VS-35：结构化 status === 'degraded' ⇒ 产出在、过程有残缺。
+                      不得把它渲染成干净的"完成"；原因码缺失时如实显示"原因未记录"。 */}
+                  {agent.degraded ? (
+                    <Paragraph type="warning" style={{ margin: '8px 0 0' }}>
+                      {describeDegradedReasons(agent.degradedReasons ?? [], t) ?? t('deep.agent.reasonUnrecorded')}
+                    </Paragraph>
+                  ) : null}
                 </div>
               </Card>
             </Col>

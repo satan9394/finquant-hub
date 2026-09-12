@@ -20,6 +20,10 @@ import ResearchArtifact from '../components/ResearchArtifact';
 import type { EvidenceRecord } from '../components/EvidenceDrawer';
 import { useLanguage } from '../i18n/LanguageContext';
 import ResearchPlan, { type AgentRunStep } from '../components/ResearchPlan';
+import {
+  describeDegradedReasons,
+  reasonCodes as asReasonCodes,
+} from '../features/degradedReasons';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -168,18 +172,6 @@ export type AgentReplayOutcome = {
   degradedReasons?: string[];
 };
 
-/** 后端 degraded_reasons → i18n 键。未知码原样显示（如实，不编造）。 */
-const DEGRADED_REASON_KEYS: Record<string, string> = {
-  tool_failed: 'deep.agent.reason.toolFailed',
-  tool_loop_exhausted: 'deep.agent.reason.toolLoopExhausted',
-  empty_content: 'deep.agent.reason.emptyContent',
-  output_truncated: 'deep.agent.reason.outputTruncated',
-  // VS27：整轮截止（research_orch.DEADLINE_REASON_*）。这是"提前结束"在**环节级**
-  // 的可见文案；报告级另有 resolveTruncatedByDeadline 的提示条。
-  deadline_exceeded: 'deep.agent.reason.deadlineExceeded',
-  deadline_exceeded_before_start: 'deep.agent.reason.deadlineBeforeStart',
-};
-
 /**
  * VS20：把原因文本压成**一行可读摘要**。
  * 异常堆栈（Traceback / File "..." 行）不得直接塞给用户，故丢弃这些行并截断。
@@ -194,21 +186,10 @@ export function summarizeReason(raw: unknown, maxLength = 120): string | undefin
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
 }
 
-function asReasonCodes(raw: unknown): string[] {
-  return Array.isArray(raw)
-    ? raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : [];
-}
-
 /** 结局 → 展示用原因；返回 undefined 表示**确实没有记录**（界面须显示"原因未记录"）。 */
 export function describeOutcomeReason(outcome: AgentReplayOutcome, t: Translate): string | undefined {
   if (outcome.reason) return outcome.reason;
-  if (outcome.degradedReasons?.length) {
-    return outcome.degradedReasons
-      .map((code) => (DEGRADED_REASON_KEYS[code] ? t(DEGRADED_REASON_KEYS[code]) : code))
-      .join('、');
-  }
-  return undefined;
+  return describeDegradedReasons(outcome.degradedReasons ?? [], t);
 }
 
 type AgentEventSignal = { failed?: string; degradedReasons?: string[] };

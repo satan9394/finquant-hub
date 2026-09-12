@@ -14,7 +14,13 @@ from .context import estimate_tokens
 from .llm_client import LLMError
 from .instruments import InstrumentService
 from .market_data import MarketDataService
-from .research_orch import _call_agent
+from .research_orch import (
+    AGENT_STATUS_COMPLETED,
+    AGENT_STATUS_DEGRADED,
+    AGENT_STATUS_FAILED,
+    _agent_result,
+    _call_agent,
+)
 from .report_builder import build_unified_report
 
 _TEAMS_PATH = Path(__file__).resolve().parent.parent / "orchestrator" / "teams"
@@ -22,6 +28,17 @@ _FOUR_MASTERS_PATH = _TEAMS_PATH / "four_masters.yaml"
 _EARNINGS_REVIEW_PATH = _TEAMS_PATH / "earnings_review.yaml"
 JSONDict: TypeAlias = dict[str, Any]
 logger = logging.getLogger(__name__)
+
+# VS35: 逐 Agent 条目的结构化状态——**直接复用 VS-20 的词表与条目构造器**
+# （`research_orch._agent_result`），不另立第二套并行语义：
+#   completed / degraded / failed 三个值的含义、字段名与 `research_orch` 逐字相同。
+# 唯一的**扩展**（不是替代）是 `skipped`：swarm 是 DAG，存在"前序依赖失败 ⇒ 本环节
+# 从未执行"这一结局，research_orch 的 4 个 Agent 相互独立、不存在该结局。
+# 它只新增一个取值，既有三个取值的语义与消费方判据一字未改（向后兼容）。
+AGENT_STATUS_SKIPPED = "skipped"
+# 被判定为"真正跑成了"的状态集合：run 级 completed/partial 依此判定（与改动前
+# "len(ordered_results) == len(team.agents)" 逐项等价，见 `_run_team` 内注释）。
+_AGENT_STATUS_SUCCEEDED = frozenset({AGENT_STATUS_COMPLETED, AGENT_STATUS_DEGRADED})
 
 
 @lru_cache(maxsize=1)
@@ -216,6 +233,11 @@ async def _run_team(
                 "avatar": agent.avatar,
                 "system_prompt": agent.system_prompt,
             }
+            # VS35: 与 `research_orch` 同源——把"内容实际不完整"的信号（工具失败 /
+            # 工具循环耗尽 / 空内容 / max_tokens 截断）交给 `_call_agent` 收集。
+            # 改动前这里**没有**传 degraded_reasons，于是同样的残缺在 research 侧是
+            # degraded、在 swarm 侧什么都不留（只能被读成"完成"）。
+            agent_reasons: list[str] = []
             content, tool_log = await _call_agent(
                 client,
                 role,
@@ -225,6 +247,7 @@ async def _run_team(
                 user_id=user_id,
                 allowed_tools=set(agent.tools),
                 prior_context=_prior_context(agent, context, fundamentals_context),
+                degraded_reasons=agent_reasons,
             )
             for tool_call in tool_log:
                 context.emit("tool_call", {
@@ -233,18 +256,29 @@ async def _run_team(
                     "arguments": tool_call["arguments"],
                 })
             token_count = estimate_tokens(content)
+            status = AGENT_STATUS_DEGRADED if agent_reasons else AGENT_STATUS_COMPLETED
+            # VS35: 事件形状与 `research_orch.run_research` 的 agent_completed 对齐
+            # （status + degraded_reasons）；token_count 是 swarm 侧既有的增量字段，保留。
             context.emit("agent_completed", {
                 "role_key": agent.key,
                 "name": agent.name,
                 "length": len(content),
                 "token_count": token_count,
+                "status": status,
+                **({"degraded_reasons": list(agent_reasons)} if agent_reasons else {}),
             })
+            # VS35: 条目由 VS-20 的构造器 `_agent_result` 产出（字段名/语义同 research_orch），
+            # swarm 既有的 role_key/avatar/token_count 作为**增量**字段并入（向后兼容）。
             return {
+                **_agent_result(
+                    name=agent.name,
+                    content=content,
+                    tool_log=tool_log,
+                    status=status,
+                    degraded_reasons=agent_reasons,
+                ),
                 "role_key": agent.key,
-                "name": agent.name,
                 "avatar": agent.avatar,
-                "content": content,
-                "tool_log": tool_log,
                 "token_count": token_count,
             }
 
@@ -253,36 +287,90 @@ async def _run_team(
     runtime = build_team_runtime(team, runner_factory)
     failed_agents: list[str] = []
     skipped_agents: list[str] = []
+    # VS35: 失败原文 / 被跳过的原因（失败依赖）在这里**留存**，供下面构造结构化条目使用。
+    # 这两个 list 本身继续下发（向后兼容既有消费方），但它们不再是失败事实的唯一载体。
+    failed_errors: dict[str, str] = {}
+    skipped_dependencies: dict[str, list[str]] = {}
     async for event in runtime.stream():
         if event.kind in {"agent_started", "tool_call", "agent_completed"}:
             yield event.kind, event.data
         elif event.kind == "node_failed":
             failed_agents.append(event.node_key)
+            failed_errors[event.node_key] = str(event.error)
             yield "agent_failed", {
                 "role_key": event.node_key,
                 "error": str(event.error),
             }
         elif event.kind == "node_skipped":
             skipped_agents.append(event.node_key)
+            dependencies = [
+                str(key) for key in event.data.get("failed_dependencies", [])
+            ]
+            skipped_dependencies[event.node_key] = dependencies
             yield "agent_skipped", {
                 "role_key": event.node_key,
                 **event.data,
             }
 
-    ordered_results = {
-        agent.key: runtime.results[agent.key]
-        for agent in team.agents
-        if agent.key in runtime.results
-    }
+    # VS35: **每个** Agent 都有条目，形状与 `research_orch.agent_results[key]` 同形
+    # （name/content/tool_log/status + error/degraded_reasons）。改动前失败与被跳过的
+    # Agent 在 `agent_results` 里**根本没有条目**，失败事实只存在于顶层的
+    # `failed_agents`/`skipped_agents` 两个 key 列表里——那是同一件事的第二处载体。
+    # 条目 content 保持空串（不新造 `【分析失败】` 文本哨兵：VS-20 已把文案哨兵降级为
+    # 历史兜底，不得再新增），失败原因走结构化 `error`。
+    ordered_results: JSONDict = {}
+    for agent in team.agents:
+        if agent.key in runtime.results:
+            ordered_results[agent.key] = dict(runtime.results[agent.key])
+        elif agent.key in failed_errors:
+            ordered_results[agent.key] = {
+                **_agent_result(
+                    name=agent.name,
+                    content="",
+                    tool_log=[],
+                    status=AGENT_STATUS_FAILED,
+                    error=failed_errors[agent.key],
+                ),
+                "role_key": agent.key,
+                "avatar": agent.avatar,
+                "token_count": 0,
+            }
+        elif agent.key in skipped_dependencies:
+            dependencies = skipped_dependencies[agent.key]
+            reason = (
+                f"前序专家（{', '.join(dependencies)}）未完成，本环节未执行"
+                if dependencies
+                else "前序专家未完成，本环节未执行"
+            )
+            ordered_results[agent.key] = {
+                **_agent_result(
+                    name=agent.name,
+                    content="",
+                    tool_log=[],
+                    status=AGENT_STATUS_SKIPPED,
+                    error=reason,
+                ),
+                "role_key": agent.key,
+                "avatar": agent.avatar,
+                "token_count": 0,
+            }
+    # run 级状态的口径**逐项与改动前一致**：改动前 "completed" ⇔ 每个 Agent 都在
+    # `runtime.results` 里（即都真正跑成了）；现在失败/被跳过的 Agent 也进 ordered_results，
+    # 故改按结构化 status 判定（completed/degraded 视为跑成）。两者等价，不是新的语义。
+    succeeded = [
+        key for key, entry in ordered_results.items()
+        if entry.get("status") in _AGENT_STATUS_SUCCEEDED
+    ]
     yield "done", {
         "team": metadata,
         "ticker": ticker,
         "company_name": company_name or ticker,
-        "status": "completed" if len(ordered_results) == len(team.agents) else "partial",
+        "status": "completed" if len(succeeded) == len(team.agents) else "partial",
         "agent_results": ordered_results,
         "failed_agents": failed_agents,
         "skipped_agents": skipped_agents,
-        "token_count": sum(result["token_count"] for result in ordered_results.values()),
+        # 失败/被跳过的条目 token_count 为 0，故该和与改动前（只对成功条目求和）等价。
+        "token_count": sum(entry["token_count"] for entry in ordered_results.values()),
         "fundamentals": fundamentals,
     }
 

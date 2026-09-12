@@ -89,6 +89,61 @@ describe('Swarm state machine', () => {
   });
 });
 
+// VS-35：swarm 的逐 Agent 条目改走 VS-20 的结构化 status 契约后，
+// 前端必须**读结构化字段**，而不是靠"有条目就算完成"猜。
+describe('Swarm structured agent status (VS-20 shape)', () => {
+  test('done reads per-agent status: failed stays failed, degraded is flagged with reasons', () => {
+    let state = { ...createSwarmRunState(team), status: 'running' as const };
+    state = applySwarmEvent(state, {
+      event: 'done',
+      data: {
+        status: 'partial',
+        token_count: 100,
+        agent_results: {
+          value_investor: { content: '', status: 'failed', error: 'llm down', token_count: 0 },
+          tech_analyst: {
+            content: '技术结论', status: 'degraded', degraded_reasons: ['tool_failed'], token_count: 40,
+          },
+          macro_strategist: { content: '宏观结论', status: 'completed', token_count: 30 },
+          risk_manager: { content: '', status: 'skipped', error: '前序专家未完成', token_count: 0 },
+        },
+      },
+    });
+
+    expect(state.agents.value_investor.status).toBe('failed');
+    expect(state.agents.value_investor.error).toBe('llm down');
+    expect(state.agents.tech_analyst.status).toBe('completed');
+    expect(state.agents.tech_analyst.degraded).toBe(true);
+    expect(state.agents.tech_analyst.degradedReasons).toEqual(['tool_failed']);
+    expect(state.agents.macro_strategist.degraded).toBe(false);
+    expect(state.agents.risk_manager.status).toBe('skipped');
+    expect(state.status).toBe('partial');
+  });
+
+  test('agent_completed carries structured status too (live path, same shape as research)', () => {
+    let state = { ...createSwarmRunState(team), status: 'running' as const };
+    state = applySwarmEvent(state, {
+      event: 'agent_completed',
+      data: { role_key: 'value_investor', status: 'degraded', degraded_reasons: ['empty_content'], token_count: 5 },
+    });
+
+    expect(state.agents.value_investor.status).toBe('completed');
+    expect(state.agents.value_investor.degraded).toBe(true);
+    expect(state.agents.value_investor.degradedReasons).toEqual(['empty_content']);
+  });
+
+  test('entries without a status field keep the legacy "present means completed" reading', () => {
+    let state = { ...createSwarmRunState(team), status: 'running' as const };
+    state = applySwarmEvent(state, {
+      event: 'done',
+      data: { status: 'completed', agent_results: { value_investor: { content: '结论' } } },
+    });
+
+    expect(state.agents.value_investor.status).toBe('completed');
+    expect(state.agents.value_investor.degraded).toBe(false);
+  });
+});
+
 describe('Swarm SSE parser', () => {
   test('handles CRLF frames and preserves an incomplete trailing frame', () => {
     const first = parseSSEChunk(
