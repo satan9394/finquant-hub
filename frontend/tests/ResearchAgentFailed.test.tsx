@@ -4,11 +4,13 @@ import { applyAgentEvent } from '../src/pages/Research';
 import type { ResearchAgent } from '../src/types';
 
 /**
- * VS13 回归防线：Agent 级 SSE 事件的状态迁移。
+ * VS13：Agent 级 SSE 事件的状态迁移（**仅**纯函数 `applyAgentEvent`）。
  *
  * 背景：`agent_failed` 分支此前**不存在**，导致后端标记为失败的 Agent 卡片被
- * `agent_started` 置为 `running` 后再无人终结（永远转圈）。该缺陷逃逸的原因之一
- * 就是这三条迁移**没有测试覆盖**，故在此补齐。
+ * `agent_started` 置为 `running` 后再无人终结（永远转圈）。本文件覆盖这三条迁移，
+ * **降低**了该缺陷逃逸的概率——但**不覆盖接线**：本文件从不渲染页面，
+ * 删掉 `Research.tsx` 里那条 `case 'agent_failed'` 时它**依然全绿**。
+ * 守住接线的是 `ResearchAgentFailedWire.test.tsx`（真实组件 + 真实 SSE 路径）。
  */
 
 const KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor'];
