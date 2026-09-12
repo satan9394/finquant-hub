@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, List, message, Space, Typography } from 'antd';
+import { Alert, Button, Card, Empty, List, message, Space, Typography } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import DiscoverSearch from '../components/DiscoverSearch';
 import DiscoverResults, { type DiscoveredStock } from '../components/DiscoverResults';
@@ -11,7 +11,7 @@ import { searchAlpha, type AlphaSearchResult } from '../services/alphaApi';
 import { useLanguage } from '../i18n/LanguageContext';
 import { searchStocks } from '../services/stockApi';
 import DiscoverThemes from '../components/DiscoverThemes';
-import LoadFailureAlert from '../components/LoadFailureAlert';
+import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 
 // 股票代码提取：6/5 位数字与 .HK 后缀按代码处理；裸字母 token 需排除常见
 // 筛选/因子术语（ROE/FCF/CAGR 等财务缩写），避免把自然语言筛选词误当证券
@@ -62,6 +62,9 @@ export default function Discover() {
   // 同族范式：VS-32 的 `detailErrorId`（27233a4）——切到新词时旧失败因归属不匹配而自动不渲染，
   // 而"这条失败是谁的"这一信息被保住（切回来仍然显示它）。
   const [nameSearchFailure, setNameSearchFailure] = useState<{ query: string; error: string } | null>(null);
+  // VS39：因子目录检索的失败态**同样自带归属**（哪个查询词 + 出错原文）。修前它只是一个瞬时的
+  // `message.warning`，随后 `factors: []` 让 `discover.noFactors` 空态把"检索失败"讲成了"确实没有"。
+  const [factorSearchFailure, setFactorSearchFailure] = useState<{ query: string; error: string } | null>(null);
   const requestId = useRef(0);
 
   const run = async (rawQuery = query) => {
@@ -103,8 +106,20 @@ export default function Discover() {
         tickers: requestedTickers,
         stocks: [],
         errors: [],
-        factors: factorResult.status === 'fulfilled' ? factorResult.value : [],
+        factors: [],
       };
+      if (factorResult.status === 'fulfilled') {
+        next.factors = factorResult.value;
+        // "成功才清失败态"（VS-32 口径）：重试期间失败态保持显示，成功后才消失。
+        setFactorSearchFailure((current) => (current && current.query === trimmed ? null : current));
+      } else {
+        // 失败先**记下它属于哪个查询词**并带出底层原文；由因子卡片的三态渲染去说"读不出来"，
+        // 而不是让一个空数组去冒称"确实没有"。
+        setFactorSearchFailure({
+          query: trimmed,
+          error: factorResult.reason instanceof Error ? factorResult.reason.message : String(factorResult.reason),
+        });
+      }
       if (screenResult.status === 'fulfilled' && screenResult.value) {
         next.stocks = screenResult.value.data.items ?? [];
         next.errors = screenResult.value.data.errors ?? [];
@@ -149,6 +164,21 @@ export default function Discover() {
   const scopedNameSearchFailure = objectNameSearchFailure && query.trim() === executedQuery
     ? objectNameSearchFailure
     : null;
+  // VS39：因子目录的失败态同样只认"属于当前对象"的那一份（**不加**"输入框已是别的词就不显示"这道门：
+  // 公司名失败的横幅就在检索入口下方，读起来像"你正在输入的新词失败了"；因子失败挂在当前对象的
+  // 证据卡片里，说不说它只取决于"它是不是这个对象的失败"）。**失败优先于空**由此成为结构性质：
+  // 空态只在"属于当前对象的一次成功读取，且确实读回 0 条"时才可能被渲染（见下面的 `readStateOf`）。
+  const objectFactorSearchFailure = factorSearchFailure && factorSearchFailure.query === executedQuery
+    ? factorSearchFailure
+    : null;
+  const factorState = readStateOf({
+    failed: !!objectFactorSearchFailure,
+    // `resolved` 只认"属于当前对象的一次已完成的读取"（`outcome` 只在该对象的 allSettled 落定后写入）。
+    resolved: !!scopedOutcome,
+    count: factors.length,
+    // error 只在 failed 为真时被 readStateOf 读取，而 failed 已按对象作用域 ⇒ 不会串台。
+    error: objectFactorSearchFailure?.error ?? null,
+  });
 
   return <main className="product-page discover-page">
     <TaskPageHeader
@@ -192,13 +222,24 @@ export default function Discover() {
         <DiscoverResults items={stocks} loading={loading} navigate={navigate} onWatch={addToWatchlist} />
       </Card>}
     <Card className="surface-card" title={t('discover.factorResults')} extra={<SourceChip provider="WQ catalogue" quality={factors.length ? 'OK' : 'UNKNOWN'} />}>
-      <List<AlphaSearchResult>
-        dataSource={factors}
-        // 在途且手上还没有属于当前对象的结果 ⇒ 交给加载态，不用"没有匹配的真实因子目录结果"冒充结论。
-        loading={loading && !factors.length}
-        locale={{ emptyText: t('discover.noFactors') }}
-        renderItem={(item) => <List.Item><List.Item.Meta title={item.name} description={`${item.desc || 'UNKNOWN'} · ${item.dataset || item.category || 'UNKNOWN'}`} /></List.Item>}
-      />
+      {/* VS39：因子目录读取改走族内唯一的三态判定（VS-29 的 `readStateOf`/`LoadStateView`）。
+          修前这里是 `locale={{ emptyText: t('discover.noFactors') }}` 直接挂在 List 上，失败时
+          `factors: []` ⇒ 屏幕上写着"没有匹配的真实因子目录结果"，把**读不出来**说成了**确实没有**。
+          现在：失败 ⇒ `LoadFailureAlert`（失败文案 + 底层原文 + **真重发同一查询词**的重试）；
+          在途且无当前对象的结果 ⇒ 加载态；空态只在成功读过之后才可能出现。 */}
+      <LoadStateView
+        state={factorState}
+        failureMessage={t('discover.factorSearchFailed')}
+        onRetry={() => void run(objectFactorSearchFailure?.query ?? executedQuery)}
+        emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('discover.noFactors')} />}
+      >
+        <List<AlphaSearchResult>
+          dataSource={factors}
+          // 在途且手上还没有属于当前对象的结果 ⇒ 交给加载态，不用"没有匹配的真实因子目录结果"冒充结论。
+          loading={loading && !factors.length}
+          renderItem={(item) => <List.Item><List.Item.Meta title={item.name} description={`${item.desc || 'UNKNOWN'} · ${item.dataset || item.category || 'UNKNOWN'}`} /></List.Item>}
+        />
+      </LoadStateView>
     </Card></>}
   </main>;
 }

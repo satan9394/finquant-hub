@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Empty, Input, List, Modal, Space, Tag, Typography, message } from 'antd';
 import {
   BellOutlined, ExperimentOutlined, FileTextOutlined, FundOutlined, MessageOutlined,
@@ -12,8 +12,29 @@ import {
   type GlobalTaskAction, type GlobalTaskTarget,
 } from '../features/globalTaskEntry';
 import { useLanguage } from '../i18n/LanguageContext';
+// VS-38：失败态复用族内**唯一**三态实现（VS-29），这里不自己编排 loading/empty/error 的优先级。
+import { LoadStateView, readStateOf } from './LoadFailureAlert';
 
 const { Text } = Typography;
+
+/**
+ * VS-38：一次检索的**产出连同它属于哪个查询词**作为一个整体提交。
+ * 此前 `results` 是裸挂在组件上的一个数组 ⇒ "输入框里已是新词 + 挂着的仍是上一词的候选"可以并存
+ * （同族第 4 处：VS-32 `detailErrorId`、VS-36 `DiscoverOutcome`/`nameSearchFailure`）。
+ */
+interface TaskSearchOutcome {
+  query: string;
+  results: GlobalTaskTarget[];
+}
+
+/**
+ * VS-38：失败态**自带归属**（哪个查询词 + 出错原文）。
+ * 不用"发起新请求时清一下"掩盖 —— 那样会丢掉"这条失败是谁的"，切回旧词就再也看不到它。
+ */
+interface TaskSearchFailure {
+  query: string;
+  error: string;
+}
 
 // BACKLOG-032 Step A：全局提问弹窗收敛为单实例（header 常驻的那一个）。
 // 任何来源（⌘K 由 App 层注册、hero 触发按钮、其他入口）都 dispatch 本事件，
@@ -45,10 +66,18 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<GlobalTaskTarget[]>([]);
+  // VS-38：候选结果不再裸挂 —— 一份产出 = 一个值 + 它属于哪个查询词（`query` 字段）。
+  const [outcome, setOutcome] = useState<TaskSearchOutcome | null>(null);
+  // VS-38：失败态自带归属（哪个词 + 原文），不再靠"发起新请求时清空 results"掩盖。
+  const [searchFailure, setSearchFailure] = useState<TaskSearchFailure | null>(null);
+  // VS-38：**在途也带归属**——"正在为哪个词请求"。没有它，在途只能靠"空态"或什么都不渲染来表达，
+  // 而这两种都会让"新词正在查"看起来像"新词什么也没有"（VS-29 要消灭的正是这种假象）。
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [selected, setSelected] = useState<GlobalTaskTarget | null>(null);
   const [recent, setRecent] = useState<GlobalTaskTarget[]>(readRecentTargets);
   const [saved, setSaved] = useState<GlobalTaskTarget[]>([]);
+  // VS-38：迟到的响应不得改写"当前查询词"的产出/失败（同族：VS-36 在 Discover/AlphaPanel 的 requestId 守卫）。
+  const requestId = useRef(0);
 
   const show = () => {
     setOpen(true);
@@ -67,8 +96,8 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const runSearch = async () => {
-    const value = query.trim();
+  const runSearch = async (rawQuery = query) => {
+    const value = rawQuery.trim();
     if (!value) return;
     const command = globalCommandIntent(value);
     if (command) {
@@ -76,18 +105,29 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
       onNavigate(command.path);
       return;
     }
+    const id = ++requestId.current;
     setSearching(true);
+    setPendingQuery(value);
     try {
       const items = await searchStocks(value);
-      setResults(items.map((item) => ({ code: item.code, name: item.name, market: item.market })));
+      // 迟到的响应（中途换词/重试）不写归属：它属于的那个词已经不是输入框里的词了。
+      if (id !== requestId.current) return;
+      setOutcome({ query: value, results: items.map((item) => ({ code: item.code, name: item.name, market: item.market })) });
+      // "成功才清"（VS-32 口径）：同一个词的失败在重试期间保持显示，成功之后才消失。
+      setSearchFailure((current) => (current && current.query === value ? null : current));
       if (items.length === 1) setSelected({ code: items[0].code, name: items[0].name, market: items[0].market });
       else if (!items.length && isLikelyTicker(value)) setSelected({ code: value.toUpperCase(), name: value.toUpperCase() });
-    } catch {
-      setResults([]);
+    } catch (error) {
+      if (id !== requestId.current) return;
+      // VS-38：失败**不再**被渲染成"没有结果" —— 带出归属与底层原文，交给族内唯一错误态实现。
+      setSearchFailure({ query: value, error: error instanceof Error ? error.message : String(error) });
       if (isLikelyTicker(value)) setSelected({ code: value.toUpperCase(), name: value.toUpperCase() });
       else message.warning(t('command.searchUnavailable'));
     } finally {
-      setSearching(false);
+      if (id === requestId.current) {
+        setSearching(false);
+        setPendingQuery(null);
+      }
     }
   };
 
@@ -122,6 +162,26 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
     </div>
   );
 
+  // VS-38：渲染处只认"属于**输入框里当前那个词**"的那一份产出/失败/在途。候选列表就在输入框正下方，
+  // 词一变（哪怕还没提交）旧候选就必须让位；词改回来时它又回来 —— 归属保留，而不是被清掉。
+  const scopedOutcome = outcome && outcome.query === query.trim() ? outcome : null;
+  const scopedFailure = searchFailure && searchFailure.query === query.trim() ? searchFailure : null;
+  const scopedPending = pendingQuery !== null && pendingQuery === query.trim();
+  const results = scopedOutcome?.results ?? [];
+  const emptyHint = <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('command.empty')} />;
+  // 三态优先级**不在这里编排**（VS-29：全产品唯一的判据是 `readStateOf`）——这里只交事实：
+  // 当前词失败了吗、成功读到过吗、手上几条、原文是什么。剩下那种"还没有结论"由它判成 loading，
+  // 而不是像修前那样退回"没有结果"的空态。
+  const searchState = readStateOf({
+    failed: Boolean(scopedFailure),
+    resolved: Boolean(scopedOutcome),
+    count: results.length,
+    error: scopedFailure?.error,
+  });
+  // 只区分"当前词有没有活动"：有结论（成功/失败）或在途 ⇒ 三态视图；否则是"还没查过这个词"，
+  // 既不摆空态也不摆转圈（修前输入框空着就显示空态，那才是"把没查过说成没有结果"）。
+  const searchStarted = Boolean(scopedOutcome || scopedFailure || scopedPending);
+
   return (
     <>
       {!hideTrigger ? (
@@ -154,20 +214,29 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
           onSearch={() => void runSearch()}
         />
 
-        {results.length > 0 && (
-          <List
-            className="global-task-entry__results"
-            size="small"
-            dataSource={results}
-            renderItem={(item) => (
-              <List.Item>
-                <Button type="text" block aria-label={t('command.selectTarget', { name: item.name, code: item.code })} onClick={() => choose(item)}>
-                  <span>{item.name}</span><Tag>{item.code}</Tag><Text type="secondary">{item.market}</Text>
-                </Button>
-              </List.Item>
-            )}
-          />
-        )}
+        {/* VS-38：候选 / 空态 / 失败三态由族内唯一实现渲染（`LoadStateView` 的错误分支内部转调
+            `LoadFailureAlert`），重试**真的重发同一个查询词**；失败时绝不摆"没有结果"的观感。 */}
+        {searchStarted ? (
+          <LoadStateView
+            state={searchState}
+            failureMessage={t('command.searchFailed')}
+            onRetry={() => void runSearch(scopedFailure?.query)}
+            emptyContent={emptyHint}
+          >
+            <List
+              className="global-task-entry__results"
+              size="small"
+              dataSource={results}
+              renderItem={(item) => (
+                <List.Item>
+                  <Button type="text" block aria-label={t('command.selectTarget', { name: item.name, code: item.code })} onClick={() => choose(item)}>
+                    <span>{item.name}</span><Tag>{item.code}</Tag><Text type="secondary">{item.market}</Text>
+                  </Button>
+                </List.Item>
+              )}
+            />
+          </LoadStateView>
+        ) : (selected ? null : emptyHint)}
 
         {selected ? (
           <div className="global-task-entry__tasks">
@@ -178,7 +247,7 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
               ))}
             </div>
           </div>
-        ) : !results.length && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('command.empty')} />}
+        ) : null}
 
         <Button
           className="global-task-entry__question"
