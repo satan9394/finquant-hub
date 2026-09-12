@@ -292,7 +292,10 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     selectDragonTigerDate('2026-08-20');
     await screen.findByText('龙虎榜：历史龙虎榜不可用');
     expect(within(card).getByRole('button', { name: /2026-08-19/, pressed: true })).toBeTruthy();
-    expect((within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement).value).toBe(shanghaiToday());
+    // VS-26：只改“何时断言”，不改“断言什么”。上面的 findByText 只等到错误条落地，
+    // 而 DatePicker 受控回滚到原日期还要多走一次内部文本同步；这里等待条件成立后再断言，
+    // 断言的仍是同一个具体值（回滚后的窗口截止日期 == 今天），未放宽。
+    await waitFor(() => expect((within(card).getByRole('textbox', { name: '选择龙虎榜窗口截止日期' }) as HTMLInputElement).value).toBe(shanghaiToday()));
 
     fireEvent.click(screen.getByRole('button', { name: /重试/ }));
     card = await screen.findByTestId('dragon-tiger-card');
@@ -318,7 +321,10 @@ describe('ResearchWorkspace A-share evidence cards', () => {
 
     await waitFor(() => expect(api.fetchDragonTiger).toHaveBeenLastCalledWith('000001', shanghaiToday()));
     card = await screen.findByTestId('dragon-tiger-card');
-    expect(within(card).getByRole('button', { name: /2026-08-27/, pressed: true })).toBeTruthy();
+    // VS-26：只改“何时断言”，不改“断言什么”。上面的 waitFor 只等到“请求已发出”，
+    // 新标的的龙虎榜数据还要再提交一次状态才成为选中的那条记录；这里等待条件成立后再断言，
+    // 断言的仍是同一条具体记录（2026-08-27 且为选中态），未放宽。
+    await waitFor(() => expect(within(card).getByRole('button', { name: /2026-08-27/, pressed: true })).toBeTruthy());
     const detail = within(card).getByTestId('dragon-tiger-detail');
     for (const text of ['000001', '平安银行', '平安银行最近上榜']) {
       expect(within(detail).getByText(text)).toBeTruthy();
@@ -333,7 +339,9 @@ describe('ResearchWorkspace A-share evidence cards', () => {
     renderWorkspace();
 
     expect(await screen.findByText('资金流向：资金接口不可用')).toBeTruthy();
-    expect(screen.getByText('龙虎榜：龙虎榜接口不可用')).toBeTruthy();
+    // VS-26：只改“何时断言”，不改“断言什么”。两条错误条不保证在同一次提交里可见；
+    // 这里等待该条错误落地后再断言，断言的仍是同一条具体错误文案，未放宽。
+    await waitFor(() => expect(screen.getByText('龙虎榜：龙虎榜接口不可用')).toBeTruthy());
     expect(within(screen.getByTestId('money-flow-card')).getByText('资金流向暂不可用；未用估算值替代')).toBeTruthy();
     expect(within(screen.getByTestId('dragon-tiger-card')).getByText('回看窗口内暂无龙虎榜记录')).toBeTruthy();
   });
