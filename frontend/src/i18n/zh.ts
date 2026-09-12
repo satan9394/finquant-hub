@@ -1861,6 +1861,16 @@ const zh: Record<string, string> = {
   'chat.listFailed': '会话列表读取失败',
   // VS29：加载态。与 chat.empty 互斥：在途（还没有任何结论）时不得出现"暂无会话"。
   'chat.listLoading': '正在读取会话列表…',
+  // VS34：消息记录（GET /chat/sessions/{id}/messages）读取失败 / 在途的文案。三态互斥（VS29 契约）：
+  // 在途说"正在读取"，失败说"读取失败"，**只有成功且确实没有消息**才允许出现 chat.messagesEmpty。
+  // 修前这条请求是 `.catch(() => {})` —— 失败后消息区一片空白，等价于冒称"这个会话没有消息"。
+  'chat.messagesFailed': '消息记录读取失败',
+  'chat.messagesLoading': '正在读取消息记录…',
+  // VS34：消息记录确实为空时的空态。空态只能代表"确实没有数据"（VS19/VS22 底线）。
+  'chat.messagesEmpty': '这个会话还没有消息',
+  // VS34：角色列表（GET /agents）读取失败。Chat 的角色下拉与"新建会话"的 role_preset 都来自它，
+  // 失败时下拉是空的 —— 必须说清"是读取失败"，而不是让用户以为"没有角色可选"。
+  'chat.rolesLoadFailed': '角色列表读取失败',
   'chat.selectSession': '请选择或创建一个会话',
   // VS19：深链（?session=<id>）落空时的一次性提示。两种失败必须分清——
   // missing=列表已成功返回但不含该 id（"已不存在"）；unavailable=列表请求本身失败（不得说成"已不存在"）。

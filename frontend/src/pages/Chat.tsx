@@ -3,7 +3,7 @@
  * ============================================================ */
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  Layout, List, Input, Button, Select, Typography, Popconfirm, message, Empty, Spin,
+  Layout, List, Input, Button, Select, Typography, Popconfirm, message, Empty,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, SendOutlined, SwapOutlined,
@@ -13,7 +13,9 @@ import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
-import { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
+// VS34：`LoadFailureAlert`（错误态）与 `LoadStateView`（三态唯一渲染出口）都复用 VS29 的唯一实现处，
+// 本页不另造三态判定。
+import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import { parseBacktestRequest } from '../features/backtest/request';
 import type { Session, Message, AgentPreset } from '../types';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -87,7 +89,19 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [agents, setAgents] = useState<AgentPreset[]>([]);
   const [selectedRole, setSelectedRole] = useState<string | undefined>();
   const [inputValue, setInputValue] = useState('');
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  // VS34（吞错点 A）：角色列表读取失败必须可归因、可重试 —— 与 VS25 在 Discussion.tsx 建立的
+  // `loadAgents` 完全同构（成功/失败分开、请求序号丢弃过期响应、**仅成功才清失败态**）。
+  const [agentsFailed, setAgentsFailed] = useState(false);
+  const [agentsError, setAgentsError] = useState('');
+  const agentsRequestRef = useRef(0);
+  // VS34（吞错点 B）：消息记录读取的三态。`messagesLoadedId` / `messagesErrorId` 是**作用域**——
+  // 只有"属于当前会话"的成功与失败才算数，否则切会话时会把上一个会话的失败原文/空态串到新会话上
+  // （VS29 的串台教训 + VS32 的"错误原文也要按实体作用域"）。
+  const [messagesLoadedId, setMessagesLoadedId] = useState<number | null>(null);
+  const [messagesFailed, setMessagesFailed] = useState(false);
+  const [messagesError, setMessagesError] = useState('');
+  const [messagesErrorId, setMessagesErrorId] = useState<number | null>(null);
+  const messagesRequestRef = useRef(0);
   // VS16：会话列表是否已成功返回。深链只有在"拿到当前用户自己的会话列表"之后才允许生效，
   // 否则无法区分"id 不存在/非本人"与"列表还没回来"。
   const [sessionsResolved, setSessionsResolved] = useState(false);
@@ -129,15 +143,30 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
 
   useEffect(() => { void loadSessions(); }, [loadSessions]);
 
-  useEffect(() => {
-    let cancelled = false;
-    apiClient.get('/agents').then((res) => {
-      if (cancelled) return;
-      setAgents(res.data.items);
-      if (res.data.items.length > 0) setSelectedRole(res.data.items[0].role_key);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+  // VS34（吞错点 A）：角色列表读取抽成可重复调用的 `loadAgents`——错误态上的"重试"因此**真的**
+  // 会重新发起这条请求。修前这里是 `apiClient.get('/agents').then(...).catch(() => {})`：
+  // 失败被静默吞掉，下拉永远是空的，用户无从知道"读不到"与"确实没有角色"的区别，也无处可重试。
+  // 刻意**不**在重试发起时清掉失败态：否则重试期间错误态会消失、下拉闪回"空且无解释"的样子。
+  const loadAgents = useCallback(async () => {
+    const requestId = ++agentsRequestRef.current;
+    try {
+      const res = await apiClient.get('/agents');
+      // 过期响应直接丢弃：不得让先发的慢请求覆盖后发的重试结果。
+      if (agentsRequestRef.current !== requestId) return;
+      const items = (res.data.items ?? []) as AgentPreset[];
+      setAgents(items);
+      // 只在用户还没选过角色时补默认值：重试不得把用户已经选好的角色改回去。
+      if (items.length > 0) setSelectedRole((prev) => prev ?? items[0].role_key);
+      setAgentsFailed(false);
+      setAgentsError('');
+    } catch (error: unknown) {
+      if (agentsRequestRef.current !== requestId) return;
+      setAgentsFailed(true);
+      setAgentsError(error instanceof Error ? error.message : '');
+    }
   }, []);
+
+  useEffect(() => { void loadAgents(); }, [loadAgents]);
 
   useEffect(() => {
     if (starterPrompt) setInputValue(starterPrompt);
@@ -170,14 +199,42 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   }, [requestedSessionId, sessions, sessionsResolved, sessionsFailed, setCurrentSessionId, t]);
 
   // 加载当前会话消息
+  // VS34（吞错点 B）：抽成可重复调用的 `loadMessages`——错误态上的"重试"必须**真的**重新发起。
+  // 修前是 `.then(...).catch(() => {})`：失败被吞掉后消息区**什么都不渲染**，等价于告诉用户
+  // "这个会话没有消息"（VS-19/VS-22 反复确立的底线：失败不得伪装成空），且没有重试入口。
+  // ①成功与失败分开记；②请求序号丢弃过期响应；③**仅成功才清失败态**（重试期间失败态保持，
+  // 不闪回空态/加载态——与左栏列表、Discussion 详情、Dashboard 同口径）。
+  const loadMessages = useCallback(async (sessionId: number) => {
+    const requestId = ++messagesRequestRef.current;
+    try {
+      const res = await apiClient.get(`/chat/sessions/${sessionId}/messages`);
+      if (messagesRequestRef.current !== requestId) return;
+      setMessages(sessionId, res.data.items);
+      setMessagesLoadedId(sessionId);
+      setMessagesFailed(false);
+      setMessagesError('');
+      setMessagesErrorId(null);
+    } catch (error: unknown) {
+      if (messagesRequestRef.current !== requestId) return;
+      setMessagesFailed(true);
+      setMessagesError(error instanceof Error ? error.message : '');
+      // 这份错误原文属于**这个会话**：只有当前会话仍是它时，消息区才允许显示。
+      setMessagesErrorId(sessionId);
+    }
+  }, [setMessages]);
+
   useEffect(() => {
-    if (!currentSessionId) return;
-    setLoadingMessages(true);
-    apiClient.get(`/chat/sessions/${currentSessionId}/messages`)
-      .then((res) => setMessages(currentSessionId, res.data.items))
-      .catch(() => {})
-      .finally(() => setLoadingMessages(false));
-  }, [currentSessionId, setMessages]);
+    if (!currentSessionId) {
+      // 作废在途请求：会话已取消选择，迟到的响应不得再写回消息区。
+      messagesRequestRef.current += 1;
+      setMessagesLoadedId(null);
+      setMessagesFailed(false);
+      setMessagesError('');
+      setMessagesErrorId(null);
+      return;
+    }
+    void loadMessages(currentSessionId);
+  }, [currentSessionId, loadMessages]);
 
   // 自动滚动
   useEffect(() => {
@@ -323,6 +380,20 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
 
   const currentMessages = currentSessionId ? (messages[currentSessionId] || []) : [];
 
+  // VS34：消息区的三态，**按当前会话作用域**——切会话时上一个会话的"成功/失败"一律不算数，
+  // 否则新会话在途的那一刻会拿旧会话的结论冒充事实（既可能显示上一条的失败原文，也可能显示"空"）。
+  const scopedMessagesFailed = messagesFailed && messagesErrorId === currentSessionId;
+  const scopedMessagesResolved = currentSessionId !== null && messagesLoadedId === currentSessionId;
+  // "手上有内容"包括本地已知存在的记录（乐观写回的提问、正在流式生成的气泡）：
+  // 读取失败**不得**顺手把它们藏掉。优先级仍由 readStateOf 唯一决定，本页不自行编排三态。
+  const visibleMessageCount = currentMessages.length + (isStreaming ? 1 : 0);
+  const messagesState = readStateOf({
+    failed: scopedMessagesFailed,
+    resolved: scopedMessagesResolved,
+    error: messagesError,
+    count: visibleMessageCount,
+  });
+
   return (
     <Layout style={{ minHeight: 'calc(100dvh - 56px)', background: 'var(--fq-surface-1)' }}>
       {/* 左栏：会话列表 */}
@@ -331,6 +402,20 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
           <Button type="primary" block icon={<PlusOutlined />} onClick={handleNewSession}>
             {t('chat.newSession')}
           </Button>
+          {/* VS34（吞错点 A）：角色列表读取失败 ⇒ 这里（不需要任何点击就看得见）先说清"是读取失败"。
+              角色既有**消费方之一**就在这个按钮上：`handleNewSession` 把 `selectedRole` 当
+              `role_preset` 提交，读不到时它只能是 undefined —— 用户会在毫不知情的情况下建出一个
+              "角色没选上"的会话。修前这条读取 `.catch(() => {})`，界面上"读不到"与"确实没有角色"
+              完全一样，且没有任何重试入口。 */}
+          {agentsFailed ? (
+            <div style={{ marginTop: 12 }}>
+              <LoadFailureAlert
+                message={t('chat.rolesLoadFailed')}
+                error={agentsError}
+                onRetry={() => void loadAgents()}
+              />
+            </div>
+          ) : null}
         </div>
         {/* VS22：列表请求失败 ⇒ 原位给出与首页同款的错误态（失败文案 + 具体错误 + 可点重试）。
             只有请求成功且为空时，才轮到"暂无会话"——空态只代表"确实没有数据"。
@@ -380,21 +465,35 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
       <Content style={{ display: 'flex', flexDirection: 'column' }}>
         {/* 顶部工具栏 */}
         {currentSessionId && (
-          <div style={{
-            padding: '8px 16px', borderBottom: '1px solid var(--fq-border)',
-            display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-          }}>
-            <Select
-              aria-label={t('chat.role.placeholder')}
-              value={selectedRole}
-              onChange={handleChangeRole}
-              style={{ width: 160 }}
-              placeholder={t('chat.role.placeholder')}
-              options={agents.map((a) => ({ label: a.name, value: a.role_key }))}
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <SwapOutlined /> {t('chat.role.hint')}
-            </Text>
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--fq-border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <Select
+                aria-label={t('chat.role.placeholder')}
+                value={selectedRole}
+                onChange={handleChangeRole}
+                style={{ width: 160 }}
+                placeholder={t('chat.role.placeholder')}
+                options={agents.map((a) => ({ label: a.name, value: a.role_key }))}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <SwapOutlined /> {t('chat.role.hint')}
+              </Text>
+            </div>
+            {/* VS34（吞错点 A）：角色下拉的**全部**选项都来自 GET /agents。失败时下拉是空的，
+                与"确实没有角色"长得一模一样 —— 必须在**这个下拉的正下方**原位说出来，
+                否则用户对着一个空下拉只会以为没有角色可选，也没有任何重试入口。
+                与左栏那一份是**两个独立消费方**（这里=会话内切角色，左栏=新建会话的 role_preset）；
+                antd 在本页没有任何遮罩会挡住其中一个，故两处都常驻、各自可点。
+                形态复用 VS29 的 `LoadFailureAlert`（族内唯一错误态实现处），不另造判定。 */}
+            {agentsFailed ? (
+              <div style={{ marginTop: 8 }}>
+                <LoadFailureAlert
+                  message={t('chat.rolesLoadFailed')}
+                  error={agentsError}
+                  onRetry={() => void loadAgents()}
+                />
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -408,10 +507,20 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
                 <Title level={4} type="secondary">{t('chat.selectSession')}</Title>
               </div>
             )
-          ) : loadingMessages ? (
-            <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
           ) : (
-            <>
+            /* VS34（吞错点 B）：消息区三态改由 LoadStateView **一个 switch** 渲染（复用 VS29 的
+               唯一三态实现处，不另造判定）：读取失败 ⇒ 原位给出失败文案 + 底层原因 + 可点重试，
+               绝不退化成"这个会话没有消息"。`showContentOnError` + `retainedCount` 保证失败态
+               不会顺手藏掉本地已知存在的记录（乐观写回的提问 / 正在流式生成的气泡）。 */
+            <LoadStateView
+              state={messagesState}
+              failureMessage={t('chat.messagesFailed')}
+              onRetry={() => void loadMessages(currentSessionId)}
+              loadingText={t('chat.messagesLoading')}
+              emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('chat.messagesEmpty')} />}
+              retainedCount={visibleMessageCount}
+              showContentOnError
+            >
               {currentMessages.map((msg) => (
                 <ChatMessageBubble key={msg.id} message={msg} />
               ))}
@@ -432,7 +541,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
                 />
               )}
               <div ref={messagesEndRef} />
-            </>
+            </LoadStateView>
           )}
         </div>
 

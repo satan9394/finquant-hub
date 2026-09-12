@@ -1861,6 +1861,17 @@ const en: Record<string, string> = {
   'chat.listFailed': 'Could not load your sessions',
   // VS29: loading state. Mutually exclusive with chat.empty — "No sessions" may not appear while loading.
   'chat.listLoading': 'Loading conversations…',
+  // VS34: failure / in-flight copy for the message history read (GET /chat/sessions/{id}/messages).
+  // The three states stay mutually exclusive (VS29 contract): loading says "loading", a failure says
+  // "could not load", and chat.messagesEmpty is only allowed once the read succeeded and was empty.
+  'chat.messagesFailed': 'Could not load the message history',
+  'chat.messagesLoading': 'Loading messages…',
+  // VS34: the honest empty state — empty may only ever mean "there is genuinely no data".
+  'chat.messagesEmpty': 'This session has no messages yet',
+  // VS34: the role list (GET /agents) failed to load. Chat's role picker and the role_preset used
+  // when creating a session both come from it, so say "the read failed" rather than leaving an empty
+  // picker that looks like "no roles exist".
+  'chat.rolesLoadFailed': 'Could not load roles',
   'chat.selectSession': 'Select or create a session',
   // VS19: one-shot notice when a ?session=<id> deep link cannot be honoured. The two
   // failures stay distinct: missing = the list loaded and does not contain the id;
