@@ -155,7 +155,12 @@ echo [进阶] 手动补齐依赖：在 backend 目录运行 .venv\Scripts\python
 goto fail
 
 :venv_failed
-echo [错误] Python 运行环境准备失败，通常是没有装 Python 3.12 或安装时没勾选加入 PATH。
+echo [错误] Python 运行环境准备失败：本项目需要 **Python 3.12**。
+rem VS-15：打印"检测到的版本"，避免装了 3.13/3.11 的用户只看到"没装 3.12"而不知问题在版本号上。
+rem 注：python -V 输出到 stdout（已实测），故 2>nul 只抑制"不是内部或外部命令"这类 stderr。
+echo [检测] 当前 PATH 中 python 命令的版本：
+call python -V 2>nul
+echo         （上面若没有版本号，说明 PATH 中没有 python 命令）
 echo [怎么做] 1^) 打开 https://www.python.org/downloads/release/python-31210/ 下载 Windows 安装包；
 echo [怎么做] 2^) 安装时务必勾选 Add python.exe to PATH，装完重启电脑；
 echo [怎么做] 3^) 重新双击 start.bat。详细图文步骤见 docs\QUICKSTART.md 的"你需要准备什么"。
