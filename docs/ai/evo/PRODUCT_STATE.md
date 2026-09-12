@@ -187,7 +187,7 @@
 
 > **R197 更新（此前该节已过期数十轮：仍在写"优先补 VS-4 独立评估/验证 4 个 slice"，而那早已完成、且 slice 已交付 26 个）**。做法与本文约定一致：**"当前"类陈述随进展更新；带日期/带出处的历史陈述只标记"已被取代"，不改写**。
 
-**当前**：R5 两路审计（`RELIABILITY_REPORT_R5` / `PRODUCT_UX_REPORT_R5`）；D5 已于 R196 启动（对象是后端失败/并发/中断路径），**A5 待 VS-22 判定后启动**（其对象正是 VS-22 改过的三处失败态，需等靶子稳定）。审计产出的综合与排期见 `PRODUCT_GAP_MAP.md` 的「R4 后的路线图」与 R5 综合节。
+**当前（R200 更新）**：**R5 两路审计已完成并综合完毕**（`RELIABILITY_REPORT_R5.md` / `PRODUCT_UX_REPORT_R5.md`，综合与优先级裁决见 `PRODUCT_GAP_MAP.md` 的 R5 节）。综合结论：**R5 的最大缺口是"核心交互的静默断链"而非新功能**；NOW 顺位为 **①追问条无人接住（A5-P1-1，已派 VS-24）** ②讨论角色死胡同（A5-P2-3）③编排路径无整轮上界（D5-🔴）④三态契约收口（补 `LoadFailureAlert` 的 loading/empty 维度后回填四处）。
 
 ## 技术债 / 风险（滚动）
 - 既有：无内置模型单价、历史费用无快照、UTC 时区提示、用量面板多请求、AlphaSimulationWorkbench 负载 flake、全量 pytest 特定沙箱 no_proxy 挂起。
