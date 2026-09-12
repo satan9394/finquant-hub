@@ -202,7 +202,7 @@
   - **编排者核实**：全 backend 中 `deadline_seconds` **仅**出现在 `chat.py`(2) 与 `llm_client.py`(18)，**`research_orch.py` 零命中**；`chat.py:179` 仅放行 `tool_completed`。
   - ⇒ 单 Agent 最坏 **1800s**、含主编串行**整轮约 60 分钟**，**无产品内取消、`done` 无截断信号**。**D5 的措辞值得记**："这正是 VS-21 注释自己算过的 5×(180+120) 场景，却只接到了最便宜的路径。"
 - **🟠 "三通道"实为一通道**：`tool_loop_truncated` 被生产 sink 丢弃（`chat.py:179` 白名单只有 `tool_completed`），且 **`done.truncated_by_deadline` ~~在前端零消费方~~ ⇒ **已由 VS-28（`3109b6e`）接上真实消费方**（`ChatMessageBubble.tsx:63-75` 持久警示条；刷新后由 `GET .../messages` 回放**同源**字段，故回看仍看得见），并改正了 `llm_client.py` 中"事件通道同样显式"的不实说法**（原注“编排者独立 grep：frontend 全库零命中 ⇒ 用户实际只看到正文前缀”**已随本卡作废**；VS-28 的评估者用真实后端探针确认该字段确由后端产出且有消费方。）与 VS-23 验收的 NIT② 是**同一处的两个独立来源**。
-- **🟡 swarm 未纳入结构化契约**：`swarm_orch.py:272-282` 的逐 Agent 条目未走 VS-20 的 `status` 契约（D5 标注**部分未验证**）。
+- **🟡 swarm 未纳入结构化契约**：`backend/app/services/swarm_orch.py`（**⚠️ 原记的 `orchestrator/swarm_orch.py` 与行号 :272-282 均未经核实、实为错误**：`orchestrator/` 下只有 `runtime.py`/`team.py`；**行号须重新核实**） 的逐 Agent 条目未走 VS-20 的 `status` 契约（D5 标注**部分未验证**）。
 - **🟡 残件"永久累积、无体积上限"**。
 - **D5 的正面结论（同样重要）**：①同秒并发 `$dest` 覆盖一条 **如实标注"与 R4 相同、无新增"**；②**R4 的 P1 已被 VS-18 真正修复**——"属正面对账而非新问题"。**这两条说明"不要凑条数"的反面约束被执行了。**
 
