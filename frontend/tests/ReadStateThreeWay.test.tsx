@@ -8,10 +8,11 @@
  * 因此本文件按**契约 → 各面**的顺序验证：
  *   ①`readStateOf` 的优先级（唯一判据处）；②`LoadStateView` 的四分支互斥（唯一渲染处）；
  *   ③各回填面的 loading / empty / error 三夹具；④ loading 期间**不出现**空态文案或 UNKNOWN；
- *   ⑤切房间失败**不串台**；⑥MemoryManager 同屏不矛盾；⑦全产品统一口径：**仅成功才清失败态**。
+ *   ⑤切房间失败**不串台**（VS32 补：**错误原文**也必须按房间作用域）；⑥MemoryManager 同屏不矛盾；
+ *   ⑦全产品统一口径：**仅成功才清失败态**。
  */
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -340,6 +341,87 @@ describe('VS29 Discussion 详情：切房间失败不串台', () => {
     // 仅成功才清：重试在途仍是失败态（既不闪回加载中，也不显示"空"）。
     expect(within(content()).getByText('讨论详情读取失败')).toBeTruthy();
     expect(within(content()).queryByText('正在加载讨论详情…')).toBeNull();
+    expect(within(content()).queryByTestId('committee')).toBeNull();
+  }, 20000);
+});
+
+// ==================== ⑤b VS32：错误原文也按房间作用域（VS29 漏掉的那一维） ====================
+/* 修前：`detailFailed` / `detailError` 是**全局**的（只有内容 `roomDetailId` 与加载态做了作用域）⇒
+ * 42 详情失败后切到 43，43 在途时右栏渲染的仍是 **42 的错误原文**（评估者实测 P10-OBSERVED：
+ * loading=false error=true staleErrorText=true）。
+ *
+ * 三条断言缺一不可，尤其第 2 条是**反向断言**：少了它，"切房间时把错误一律清掉"也会全绿 ——
+ * 那是把"清掉旧错误"做成了"错误永不显示"，是比原缺陷更坏的修法。
+ */
+
+describe('VS32 Discussion 详情：错误原文按房间作用域', () => {
+  const newer = { ...room, id: 43, conversation_id: 143, topic: '新选的讨论' };
+  const content = () => document.querySelector('.ant-layout-content') as HTMLElement;
+
+  const api = (detail43: () => Promise<unknown>) => {
+    vi.mocked(apiClient.get).mockImplementation((url) => {
+      if (url === '/discussion/rooms') return Promise.resolve({ data: { items: [room, newer] } }) as never;
+      if (url === '/agents') return Promise.resolve({ data: { items: [] } }) as never;
+      if (url === '/discussion/rooms/42') return Promise.reject(new Error('room 42 unavailable')) as never;
+      if (url === '/discussion/rooms/43') return detail43() as never;
+      return Promise.resolve({ data: {} }) as never;
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.setItem('finquant_lang', 'zh');
+    useDiscussionStore.setState({
+      rooms: [room, newer], currentRoomId: 42, messages: {}, streamingContent: '', isStreaming: false,
+    });
+  });
+
+  it('42 失败后切 43（在途）⇒ 右栏不得再显示 42 的错误原文，也不得显示 42 的内容', async () => {
+    api(() => pending());
+    render(<MemoryRouter><LanguageProvider><Discussion /></LanguageProvider></MemoryRouter>);
+
+    // 前提：42 的失败确实已经显示在右栏（否则本用例不能证明"串台被消除"）。
+    await waitFor(() => expect(within(content()).getByText('room 42 unavailable')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('新选的讨论'));
+
+    // 核心判据先断言（顺序承重）：43 在途期间，右栏里 42 的错误原文必须消失。修前它一直在这里。
+    await waitFor(() => expect(within(content()).queryByText('room 42 unavailable')).toBeNull());
+    expect(within(content()).queryByText('讨论详情读取失败')).toBeNull();
+    // 串台的另一半：42 的**内容**同样不得残留（VS29 已保证，这里一并守住）。
+    expect(within(content()).queryByText('上一条讨论')).toBeNull();
+    expect(within(content()).queryByTestId('committee')).toBeNull();
+    // 且必须是"加载中"这一态，不是"什么都没有"。
+    expect(within(content()).getByText('正在加载讨论详情…')).toBeTruthy();
+  }, 20000);
+
+  it('43 自己失败 ⇒ 必须显示 43 自己的错误原文（反向断言：不得修成"错误永不显示"）', async () => {
+    api(() => Promise.reject(new Error('room 43 unavailable')));
+    render(<MemoryRouter><LanguageProvider><Discussion /></LanguageProvider></MemoryRouter>);
+
+    await waitFor(() => expect(within(content()).getByText('room 42 unavailable')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('新选的讨论'));
+
+    await waitFor(() => expect(within(content()).getByText('room 43 unavailable')).toBeTruthy());
+    expect(within(content()).getByText('讨论详情读取失败')).toBeTruthy();
+    expect(within(content()).getByRole('button', { name: RETRY })).toBeTruthy();
+    // 显示的是 43 自己的原文，不是 42 的。
+    expect(within(content()).queryByText('room 42 unavailable')).toBeNull();
+  }, 20000);
+
+  it('42 失败且不切房间 ⇒ 42 的错误原文仍在原位（"清掉旧错误"不得做成"清掉一切错误"）', async () => {
+    api(() => pending());
+    render(<MemoryRouter><LanguageProvider><Discussion /></LanguageProvider></MemoryRouter>);
+
+    await waitFor(() => expect(within(content()).getByText('room 42 unavailable')).toBeTruthy());
+
+    // 触发一次与详情无关的重渲染（左栏列表刷新产生新数组）——错误态不得因此被清掉。
+    act(() => { useDiscussionStore.getState().setRooms([...useDiscussionStore.getState().rooms]); });
+
+    expect(within(content()).getByText('讨论详情读取失败')).toBeTruthy();
+    expect(within(content()).getByText('room 42 unavailable')).toBeTruthy();
+    expect(within(content()).getByRole('button', { name: RETRY })).toBeTruthy();
     expect(within(content()).queryByTestId('committee')).toBeNull();
   }, 20000);
 });

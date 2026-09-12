@@ -48,6 +48,12 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // VS29：详情读取的三态（loadingDetail 在途 / detailFailed+detailError 失败 / roomDetail 成功）。
   const [detailFailed, setDetailFailed] = useState(false);
   const [detailError, setDetailError] = useState('');
+  // VS32：`detailFailed`/`detailError` **属于哪个房间** —— 与 `roomDetailId` 同构。
+  // 修前错误态是**全局**的：42 详情失败后切到 43，43 在途时右栏仍然渲染 42 的错误原文
+  // （评估者实测 P10-OBSERVED：loading=false error=true staleErrorText=true）。
+  // 这是 VS29"不串台"漏掉的一维：它作用域了**内容**(roomDetailId)与**加载态**，没作用域**错误原文**。
+  // 这里同样是"在结构上不可能发生"而不是"记得在切房间时清一下"：清一下会连**自己**的错误一起清掉。
+  const [detailErrorId, setDetailErrorId] = useState<number | null>(null);
   // VS29：详情请求序号，丢弃过期响应（切房间/重试可能晚于前一次请求返回）。
   const detailRequestRef = useRef(0);
   const [createOpen, setCreateOpen] = useState(false);
@@ -163,12 +169,17 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
 
   // 加载房间详情
   // VS29：抽成可重复调用的 loadRoomDetail —— 详情错误态上的"重试"必须**真的**重新发起这条请求。
-  // 三件事一次做对：
+  // 三件事一次做对（VS32 补第四件）：
   //   ①**切房间即作废旧内容**（清空 roomDetail/roomDetailId）：右栏不得在"上一条讨论"的内容上
   //     显示新房间的标题（串台）；修前 roomDetail 只在 `!currentRoomId` 时清空，切房间失败就串台。
   //   ②失败必须**原位说出来**（detailFailed/detailError ⇒ 错误态 + 重试），修前只弹一次 toast，
   //     且 `loadingDetail || !roomDetail` 会**永久停在 Spin**（既不是加载、也没有失败提示）。
   //   ③**仅成功才清失败态**：重试发起时不清 detailFailed（与 Chat/Discussion 列表、Dashboard 同口径）。
+  // VS32：①~③ 之外补第四件——**错误原文也按房间作用域**（`detailErrorId`，见下方 `scopedDetailFailed`）。
+  //   ①~③ 作用域了"内容"与"加载态"，但错误态仍是全局的 ⇒ 42 失败后切 43、43 在途时，
+  //   右栏的 `readStateOf` 把 42 的失败当成当前事实，于是显示 42 的错误原文（串台）。
+  //   注意别修反：不能靠"切房间时清 detailFailed"——那会在重试（同一房间）或"新房间自己失败"时
+  //   把**当前房间自己**的错误一起清掉，等于"错误永不显示"。作用域只是让它**只属于发起它的房间**。
   const loadRoomDetail = useCallback(async (roomId: number) => {
     const requestId = ++detailRequestRef.current;
     setStreamingByAgent({});
@@ -180,16 +191,19 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
       if (detailRequestRef.current !== requestId) return;
       const room = res.data?.room as DiscussionRoom | undefined;
       // 成功响应里没有房间对象 ⇒ 仍然是"没能读到详情"，不是"这个房间是空的"。
-      if (!room) { setDetailFailed(true); setDetailError(''); return; }
+      if (!room) { setDetailFailed(true); setDetailError(''); setDetailErrorId(roomId); return; }
       setRoomDetail(room);
       setRoomDetailId(roomId);
       setDetailFailed(false);
       setDetailError('');
+      setDetailErrorId(null);
       setMessages(roomId, res.data.messages || []);
     } catch (error: unknown) {
       if (detailRequestRef.current !== requestId) return;
       setDetailFailed(true);
       setDetailError(error instanceof Error ? error.message : '');
+      // VS32：错误原文是**这个房间**的 ⇒ 只有当前房间仍是它时，右栏才允许显示。
+      setDetailErrorId(roomId);
     }
   }, [setMessages]);
 
@@ -201,6 +215,7 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
       setRoomDetailId(null);
       setDetailFailed(false);
       setDetailError('');
+      setDetailErrorId(null);
       return;
     }
     void loadRoomDetail(currentRoomId);
@@ -327,9 +342,15 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   // VS29：右栏只认"属于当前房间"的详情。`roomDetailId` 与 `currentRoomId` 不一致时一律当作没有内容，
   // 于是"切房间失败还显示上一条内容"（串台）在结构上不可能发生。
   const scopedDetail = roomDetail && roomDetailId === currentRoomId ? roomDetail : null;
+  // VS32：错误态同样只认"属于当前房间"。`detailErrorId` 与 `currentRoomId` 不一致 ⇒ 这份错误原文
+  // 属于上一个房间，一律当作没有错误（切房间在途时不得显示上一个房间的错误原文）。
+  // 注意**不是**把错误一律清掉：当前房间自己失败时 `detailErrorId === currentRoomId`，
+  // 错误原文照常显示（并照常在"仅成功才清失败态"的口径下于重试期间保持显示）。
+  const scopedDetailFailed = detailFailed && detailErrorId === currentRoomId;
   const detailState = readStateOf({
-    failed: detailFailed,
+    failed: scopedDetailFailed,
     resolved: scopedDetail !== null,
+    // error 只在 failed 为真时被 readStateOf 读取（优先级 1），而 failed 已按房间作用域 ⇒ 不会串台。
     error: detailError,
     count: scopedDetail ? 1 : 0,
   });
