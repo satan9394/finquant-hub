@@ -53,6 +53,28 @@
   - 实例 B（第一次变得可达）：`ResearchWorkspace.tsx:461-466`（Core 落地页的 `AgentModeSelector`）与 `ThesisModeSurface:93-100` **未**剥离 `session`/`room`——当前**应用内没有产出者**，只有手工构造 `/research?session=7` 才可达，属潜在不一致（建议抽公共 `switchMode`）。
   - 请专门用这个问题过一遍上面 8 类改动。
 
+## 成熟度更新（2026-09-11 **第五轮**审计基线）
+
+> **本节取代上一节的"第四轮基线"作为当前审计基线**；上一节保留为**带日期的历史证据**（记录 R4 当时的事实），**不得回改**。
+> 本节只列**R4 之后动过的真实行为**（VS-16..VS-23），供审计当作"可能引入新缺口的改动面"；**不含任何审计结论**。
+
+- 当前量：i18n zh/en **各 2478 键、parity 0**（R195 实测）；schema v26；`bun run build`（含 `tsc -b`）通过。
+
+**R4 之后已交付的六个改动面**：
+1. **首页深链**（VS-16）：首页"最近会话/最近讨论"链接带上记录 id（`/research?mode=fast&session=<id>`、`?mode=review&room=<id>`）；`Chat` 新增 `?session=`（正整数解析 + **成员资格校验** + 一次性守卫）；`Discussion` 同构加固；`ResearchWorkspace` 切模式**剥离** `session`/`room`。
+2. **备份产物不再可能被误认为可用备份**（VS-17 + VS-18）：两阶段落盘（`<dest>.<PID>.partial` → 校验通过后改名），失败**只回收自己的 `.partial`**；`QUICKSTART` 恢复步骤**显式限定**只挑 `finquant-backup-*.db` 并排除 `.partial`（口径**中性**：可能完整也可能残缺、**无法从名字判断**），并补"只看最新不够、应按结尾而非按时间";遗留提示 `-Filter` 放宽为 `*.partial*`（**尾星承重**，覆盖 `-wal`/`-shm`/`-journal` 伴生件）。
+3. **"失败"与"没有数据"可区分**（VS-19 + VS-22）：首页两张卡片、`Chat`/`Discussion` **左栏**、首页**研究运行区块**共用同一个 `LoadFailureAlert`（失败文案 + 具体错误 + **可点重试**）；失败时**不再渲染"暂无…"**；深链落空给**一次性**提示且**两种失败分开归因**（`deepLinkMissing`"已不存在" vs `deepLinkUnavailable`"列表读取失败"）。
+4. **降级/失败状态结构化、实时与回放同源**（VS-20）：`agent_results[key]` 带结构化 `status`（`completed`/`degraded`/`failed`，失败带 `error`、降级带 `degraded_reasons`）；前端 `deriveAgentOutcomes` 判据顺序 = **结构化 → 事件 → 哨兵兜底**（哨兵**保留**作历史兼容）；`done_payload` **原样透传**（原先挑字段重建会丢新字段）；主编失败**不再被多余的 `agent_completed` 翻回"完成"**。
+5. **LLM 等待有上界**（VS-21 + VS-23）：**单次调用**总时长预算（默认 180s，可判定上界 = 预算 + 单次尝试超时）；**整轮** `chat_with_tools_loop` deadline **600s**（触发时返回显式标记 + 正文前置提示，与落库内容同源）；预算耗尽错误带**脱敏后的**上游响应片段。
+6. **契约与规则**：`docs/API_CONTRACT.md` 的 chat SSE 契约已同步（含 `tool_call` 行与 `done` 的完整 6 字段）；`AGENTS.md` 新增多条跨会话踩坑（**读在途工作树会把故意变异误当成真缺陷**、`.bat` 的 **LF-only + 非 ASCII 会解析错位**、`-Filter` 尾星承重、PowerShell `$` 展开等）。
+
+**给 R5 的质疑方向（前两条沿用、后两条为本轮新增）**：
+- **①** 上述改动在**异常 / 并发 / 中断**情形下的行为——尤其：备份的硬中断与同秒并发、**deadline 触发时的三通道一致性**（返回值 / 事件 / SSE 正文与 `done`）、SSE 截断与落库内容。
+- **②** 同一功能的**多条路径**是否仍一致：实时 vs 回放（`status` 契约）、交互 vs 调度、UI vs 文档。
+- **③（沿用，且已连续两次产出真发现）不要让"新代码有没有错"独占注意力，要问"这次新增让哪些既有路径第一次变得可达、或触达面变大"**。实例：`Discussion` 的 `?room=` snap-back 是**旧缺陷**，只是首页卡片让它触达面变大；`Chat`/`Discussion` 左栏与 `ResearchRuns` 的"失败伪装成空态"同理（VS-22）。
+- **④（新增）"失败 vs 空"已修，但"加载中 vs 空"未修**：三处在请求在途时**仍短暂渲染空态文案**；而 `ResearchRuns` 的**合法空态历史上是 `<p>UNKNOWN</p>`**（与 A4-P3-1 是同一处）。请判断这一族还剩几面、以及是否值得收口。
+- **反面约束**：若你只重复出 R4 的结论，请**如实写"未见新缺口"**——**审计的价值在准确，不在产出条数**。
+
 ## 给审计子代理的说明
 
 - 审计子代理**只读不改**；可访问代码库（backend/app、frontend/src、docs）。
