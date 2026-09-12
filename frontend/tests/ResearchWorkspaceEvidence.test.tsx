@@ -114,7 +114,14 @@ describe('ResearchWorkspace A-share evidence cards', () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem('finquant_lang', 'zh');
-    vi.clearAllMocks();
+    // VS-31：这里必须用 resetAllMocks，不能用 clearAllMocks。
+    // clearAllMocks 只清调用记录，**不清 mock*Once 队列**；某条用例提前中断（断言失败/超时）时，
+    // 它留下的未消费 mockResolvedValueOnce 会顺延给后续用例，让 once 队列整体错位一格，
+    // 制造"与自身无关"的假红。resetAllMocks 会清空 once 队列。
+    // 顺序安全性：本 beforeEach 里全部 mock 实现都在这一行**之后**设置，reset 清不到它们；
+    // 另有 4 个 mock（fetchResearchReport / listResearchWorkspaces / saveResearchWorkspace /
+    // searchInstruments）本文件从未设置实现，两种写法下都返回 undefined，行为无差异。
+    vi.resetAllMocks();
     api.fetchInstrumentSnapshot.mockResolvedValue(snapshot);
     api.fetchInstrumentBars.mockResolvedValue({
       ...snapshot, instrument: snapshot.instrument, items: [], indicators: {}, frequency: '1d',

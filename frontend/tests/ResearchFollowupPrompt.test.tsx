@@ -101,6 +101,17 @@ async function followupOutcome(question: string) {
   return { location: location(), receipt, draft: draft.value };
 }
 
+/*
+ * VS-31：本文件首条用例要**首次**挂载整个研究页（antd 组件树 + 追问条接线），
+ * 实测正常耗时 1.5–4.6s，逼近 vitest 默认 testTimeout = 5000ms ⇒ 负载下必红。
+ * 这里只把该条用例的**时间上限**抬到 15s，**不是放宽断言**：它的三条断言逐字未变，
+ * 也没有新增任何"弱断言"（查询-不存在式 / 不抛错式 / 存在即可式 / 任意值匹配器）。
+ * 既无法在不削弱该用例的前提下削减其前置工作量（它要渲染的就是真实页面本身，
+ * 再 mock 掉组件就等于不再验证"追问真的被接住"），也不该给全文件放宽——
+ * 其余用例实测最长 ~1.5s，保留默认 5s 才能让"真挂起"快速失败。
+ */
+const FIRST_PAGE_MOUNT_TIMEOUT_MS = 15_000;
+
 describe('VS-24 追问被接住（唯一消费点）', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -137,7 +148,7 @@ describe('VS-24 追问被接住（唯一消费点）', () => {
     expect(outcome.draft).toBe('现金流质量如何？');
     // ③ 有标的时绝不退化成标的检索（修前"有标的永不出手"的反面：也不能乱检索）
     expect(researchApi.searchInstruments).not.toHaveBeenCalled();
-  });
+  }, FIRST_PAGE_MOUNT_TIMEOUT_MS);
 
   it('追问去向只有一个规范形态（两条入口都由它拼 URL）', () => {
     expect(followupResearchPath('600519', '现金流质量如何？'))
