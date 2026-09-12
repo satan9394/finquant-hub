@@ -721,7 +721,7 @@
 
 - What changed:
   - `start.bat`：**"产物疑似过期"不再硬退出**（新增 `:stale_frontend` / `:stale_frontend_nobun` / `:reuse_frontend`；仅在产物**确实缺失**时才要求装 Bun）；复用路径**打印产物构建时间**；`:venv_failed` 改为陈述要求并**打印检测到的 Python 版本**；备份改**两阶段落盘**（先写 `<dest>.<PID>.partial`、完整性校验通过后 `Move-Item -Force` 改名；失败只回收自己的 `.partial`、绝不触碰 `.db`；遗留 `.partial` 给提示不自动删）。
-  - `frontend/src/pages/{Dashboard,Chat,Discussion,ResearchWorkspace}.tsx`：首页"最近会话/讨论"改为**规范目标深链**（`/research?mode=fast&session=<id>`、`?mode=review&room=<id>`）；`Chat` 新增 `?session=`（正整数解析 + 成员资格校验 + `sessionsResolved` 门控 + `appliedSessionRef` 只应用一次）；`Discussion` 同构加固并修一处 **snap-back**（缺"只应用一次"守卫，因 VS-16 首次产出 `?room=` 链接才变得可达）；切模式剥离 `session`/`room`。
+  - `frontend/src/pages/{Dashboard,Chat,Discussion,ResearchWorkspace}.tsx`：首页"最近会话/讨论"改为**规范目标深链**（`/research?mode=fast&session=<id>`、`?mode=review&room=<id>`）；`Chat` 新增 `?session=`（正整数解析 + 成员资格校验 + `sessionsResolved` 门控 + `appliedSessionRef` 只应用一次）；`Discussion` 同构加固并修一处 **snap-back**（缺"只应用一次"守卫；**该缺陷早已可达**——`components/research/ResearchContinuity.tsx:115` 早已产出 `/discussion?room=<id>`，本卡只是**扩大其触达面**，非引入可达性）；切模式剥离 `session`/`room`。
   - `.gitattributes`：补 **`*.bat`/`*.cmd text eol=crlf`**——此前仓库存 LF，`autocrlf=false` 的克隆者会拿到 **LF-only 的 Windows 双击入口**（对照实测：无规则→裸 LF 190 / 有规则→裸 LF 0）。
   - 文档：`docs/QUICKSTART.md`（产物/Bun 与备份保留措辞与实现对齐）、`README.md`、`AGENTS.md`（新增"批处理载荷必须经 cmd 实测""回收含 junction 的目录""提交前须确认内容处于最终态"等跨会话踩坑）。
   - 测试：`frontend/tests/{ChatSessionDeepLink,ResearchAgentFailedWire}.test.tsx` 新增；`{Dashboard,Discussion,ResearchModeRouting}.test.tsx` 追加用例。
