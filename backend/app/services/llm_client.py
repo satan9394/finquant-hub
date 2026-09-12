@@ -359,6 +359,7 @@ class LLMClient:
     async def chat_with_tools(
         self, messages: list[JSONDict], tools: list[JSONDict] | None = None, *,
         with_finish_reason: bool = False,
+        budget_seconds: float | None = None,
     ) -> tuple[str, list[JSONDict], int | None]:
         """调用支持 function_calling，返回 (文本, tool_calls 列表, total_tokens)。
 
@@ -367,6 +368,11 @@ class LLMClient:
 
         with_finish_reason=True 时（VS12 P1-2）额外返回第 4 项 finish_reason
         （"length" 即 max_tokens 截断）。默认 False 保持既有 3 元组契约不变。
+
+        budget_seconds（VS27）透传给 `_post_chat_with_retry`，供**整轮截止**压低单次预算
+        （与 `chat_with_tools_safe` 的 VS23 参数同语义、同口径）；默认 None ⇒ 用客户端预算
+        `self.total_budget_seconds`，既有调用方**逐项零回归**。研究编排的强制收尾调用走
+        的就是本方法，若它不接受该参数，整轮上界（截止 + 单次尝试超时）就不成立。
         """
         payload = {
             "model": self.model,
@@ -377,7 +383,7 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
-        resp = await self._post_chat_with_retry(payload)
+        resp = await self._post_chat_with_retry(payload, budget_seconds=budget_seconds)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
         data = resp.json()

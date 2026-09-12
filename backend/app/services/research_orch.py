@@ -6,6 +6,8 @@
 """
 import asyncio
 import json
+import math
+import time
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeAlias
@@ -21,6 +23,23 @@ from ..services.report_builder import build_unified_report, parse_lead_review
 
 _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="research-tool")
 JSONDict: TypeAlias = dict[str, Any]
+
+# VS27: 深度研究"整轮"的运行级截止默认值（秒）。
+#
+# 研究走的是**自己的**轮循环（`_call_agent`），不是 `chat_with_tools_loop`：
+# 每个 Agent 最多 6 次 LLM 调用（5 轮 tool_use + 1 次强制收尾），单次调用上界
+# 约 `total_budget_seconds(180) + timeout(120) = 300s` ⇒ 单 Agent 最坏 ~1800s，
+# 主编串行再算一次 ⇒ 整轮最坏约 60 分钟，且 `done`/落库没有任何截断信号。
+# VS21/VS23 只把整轮上界接到了交互 chat 这条最便宜的路径上，核心研究路径是裸的。
+DEFAULT_RESEARCH_DEADLINE_SECONDS = 900.0
+
+# 与 `llm_client._BUDGET_EPSILON_SECONDS` 同口径的浮点容差：剩余 ≤ 容差即视为已到截止。
+_DEADLINE_EPSILON_SECONDS = 1e-6
+
+# VS27 截断原因码——**结构化**写进 `agent_results[key].degraded_reasons`（VS20 契约），
+# 前端 `Research.tsx` 的 `DEGRADED_REASON_KEYS` 是它的真实消费方。
+DEADLINE_REASON_TRUNCATED = "deadline_exceeded"
+DEADLINE_REASON_NOT_STARTED = "deadline_exceeded_before_start"
 
 # VS7 P1b: 工具异常被吞成文本回给模型，编排层只能靠这个统一前缀识别"该工具没真正跑成"。
 # 与 llm_client.chat_with_tools_loop 中同名前缀保持一致（同语义、同文案）。
@@ -184,6 +203,7 @@ async def _request_tool_round(
     tools: list[JSONDict],
     *,
     method: str = "chat_with_tools_safe",
+    budget_seconds: float | None = None,
 ) -> tuple[str, list[JSONDict], str | None]:
     """调用 LLM 一轮并带回 finish_reason（VS12 P1-2）。
 
@@ -194,9 +214,49 @@ async def _request_tool_round(
     注意：这里**刻意不做** `except TypeError` 兜底回退。宽泛兜底会吞掉客户端内部
     真实的 TypeError（JSON/序列化 bug 等）并让同一次 LLM 调用被重发一遍（白付一次
     费用）——"失败必须可见、不得静默吞掉"正是 VS12 的主题。
+
+    VS27：`budget_seconds` 是整轮截止压低后的**单次调用预算**（透传给
+    `chat_with_tools_safe`/`chat_with_tools` 的既有关键字参数）。默认 None ⇒
+    **调用形状与改动前逐字一致**（不传该参数），既有客户端替身零回归。
     """
     call = getattr(client, method)
-    return _unpack_tool_response(await call(messages, tools, with_finish_reason=True))
+    kwargs: JSONDict = {"with_finish_reason": True}
+    if budget_seconds is not None:
+        kwargs["budget_seconds"] = budget_seconds
+    return _unpack_tool_response(await call(messages, tools, **kwargs))
+
+
+def _deadline_reached(deadline_at: float | None) -> bool:
+    """运行级截止是否已到（含与 VS21 同款浮点容差）；未启用截止时恒为 False。
+
+    `deadline_at` 是**绝对**单调时钟点（`time.monotonic()` 口径），不是剩余秒数——
+    这样并行 4 个 Agent 读的是同一时刻，不会各算各的。
+    """
+    if deadline_at is None:
+        return False
+    return deadline_at - time.monotonic() <= _DEADLINE_EPSILON_SECONDS
+
+
+def _remaining_call_budget(client: Any, deadline_at: float | None) -> float | None:
+    """本次调用可用的单次预算覆盖值 = min(客户端单次预算, 整轮剩余秒数)。
+
+    - 未启用截止 ⇒ None（**不改写**单次预算，与改动前零回归）；
+    - 客户端没有可读的 `total_budget_seconds`（测试替身）⇒ None（不改写其调用形状）；
+    - 否则把单次预算压到整轮剩余，使任何一次调用都无法突破整轮截止
+      （`llm_client._post_chat_with_retry` 的既有权衡：本次调用 ≤ 生效预算 + 单次尝试超时）。
+    """
+    if deadline_at is None:
+        return None
+    client_budget = getattr(client, "total_budget_seconds", None)
+    if isinstance(client_budget, bool) or not isinstance(client_budget, (int, float)):
+        return None
+    return min(float(client_budget), deadline_at - time.monotonic())
+
+
+def _deadline_not_started_message(deadline_seconds: float | None) -> str:
+    """"未开始即已超时"的如实文案（面向用户，落进 `agent_results[key].error`）。"""
+    limit = f"{deadline_seconds:g} 秒" if isinstance(deadline_seconds, (int, float)) else "总时长上限"
+    return f"因超过研究总时长上限（{limit}）未开始分析，已跳过"
 
 
 def _flag_incomplete_output(
@@ -223,12 +283,28 @@ async def _call_agent(
     prior_context: str = "",
     memory_context: str = "",
     degraded_reasons: list[str] | None = None,
+    deadline_at: float | None = None,
 ) -> tuple[str, list[JSONDict]]:
     """单个 Agent 完成研究，返回 (全文, 工具调用记录)。
 
     degraded_reasons 非 None 时，本函数把"内容实际不完整"的信号（工具失败、
-    工具循环耗尽、空内容、max_tokens 截断）追加进去，供 run_research 汇总为
-    quality=degraded（VS7 P1b / VS12 P1-1、P1-2）。
+    工具循环耗尽、空内容、max_tokens 截断、**整轮截止截断**）追加进去，供
+    run_research 汇总为 quality=degraded（VS7 P1b / VS12 P1-1、P1-2 / VS27）。
+
+    deadline_at（VS27）：本 Agent 所属**整轮**的绝对截止点（`time.monotonic()` 口径，
+    由 `run_research` 计算并下传），None ⇒ 不做任何时间判断（逐项与改动前一致）。
+
+    本 Agent 的可判定上界：**≤ deadline_at + client.timeout**，前提是"**只在两次
+    调用之间检查**截止"——进行中的那次调用不被打断，最多在截止后再跑完一次尝试：
+      - 每次调用**发起前**检查（含 `_DEADLINE_EPSILON_SECONDS` 容差），已过 ⇒ 不再发起；
+      - 每次调用的单次预算被压低为 `min(client.total_budget_seconds, 截止剩余)`
+        （见 `_remaining_call_budget`），故该次调用墙钟 ≤ 生效预算 + 单次尝试超时
+        （`llm_client._post_chat_with_retry` 的既有权衡）；
+      - 因此最后一个"已发起"的调用最多在截止后再花一个 `client.timeout` 收尾。
+    截断时的降级原因是**结构化**的（`degraded_reasons`），不写进正文：
+      - 第 1 轮调用都还没发起 ⇒ `deadline_exceeded_before_start`（该 Agent 未开始）；
+      - 已经跑过至少一次调用 ⇒ `deadline_exceeded`（产出保留，但可能不完整）。
+    已完成的工具调用记录与最后一段可用文本**一律保留**（不静默丢弃）。
     """
     system = role["system_prompt"]
     user_msg = (
@@ -255,10 +331,26 @@ async def _call_agent(
         if allowed_tools is None or tool.name in allowed_tools
     ]
     tool_calls_log: list[JSONDict] = []
+    # VS27: 最近一次成功调用的文本。截止截断时它就是"已完成部分"，必须随结果返回。
+    last_content = ""
 
     # 最多 5 轮 tool_use 循环
-    for _round in range(5):
-        content, tool_calls, finish_reason = await _request_tool_round(client, messages, tools)
+    for round_index in range(5):
+        if _deadline_reached(deadline_at):
+            # 只在两次调用**之间**检查：此刻并不持有进行中的调用，故它不被打断；
+            # 已完成的工具记录与文本原样返回（部分结果不得抛掉）。
+            _mark_agent_degraded(
+                degraded_reasons,
+                DEADLINE_REASON_NOT_STARTED if round_index == 0 else DEADLINE_REASON_TRUNCATED,
+            )
+            return last_content, tool_calls_log
+        content, tool_calls, finish_reason = await _request_tool_round(
+            client,
+            messages,
+            tools,
+            budget_seconds=_remaining_call_budget(client, deadline_at),
+        )
+        last_content = content
 
         if not tool_calls:
             # Agent 给出最终回答
@@ -289,11 +381,16 @@ async def _call_agent(
     # VS7 P1b: 工具循环耗尽（llm_client 的 tool_loop_exhausted 同语义）——模型是在
     # "数据没抓全"的情况下被强制下结论的，报告必须诚实标降级。
     _mark_agent_degraded(degraded_reasons, "tool_loop_exhausted")
+    if _deadline_reached(deadline_at):
+        # VS27: 收尾这第 6 次调用同样只在**发起前**检查；截止已到就不发起它。
+        _mark_agent_degraded(degraded_reasons, DEADLINE_REASON_TRUNCATED)
+        return last_content, tool_calls_log
     content, _, finish_reason = await _request_tool_round(
         client,
         messages + [{"role": "user", "content": "请基于已有数据输出最终分析结论。"}],
         tools,
         method="chat_with_tools",
+        budget_seconds=_remaining_call_budget(client, deadline_at),
     )
     _flag_incomplete_output(content, finish_reason, degraded_reasons)
     return content, tool_calls_log
@@ -305,6 +402,7 @@ async def run_research(
     model_id: int | None = None,
     *,
     user_id: int,
+    deadline_seconds: float | None = DEFAULT_RESEARCH_DEADLINE_SECONDS,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
     """并行执行四个 Agent 的研究，通过 yield (event, data) 推送 SSE 事件流。
 
@@ -317,7 +415,42 @@ async def run_research(
     - report_progress: 报告生成进度
     - done: 全部完成（quality 为 audited/degraded）
     - error: 真致命错误（目前仅"拿不到 LLM client"，router 收到即判 failed+break）
+
+    deadline_seconds（VS27）：**整轮**（4 个并行 Agent + 串行主编）的聚合等待上界，
+    相对本函数开始执行计时；缺省 `DEFAULT_RESEARCH_DEADLINE_SECONDS`，即产品默认
+    核心研究路径**一定有上界**（三条调用路径 research/analysis/scheduler 同源，
+    都吃这个缺省，不存在"改了一条忘了另一条"）。显式传 `None` ⇒ 不做任何时间判断，
+    逐项与改动前一致（仅供测试/离线批处理）。
+
+    可判定上界：**整轮墙钟 ≤ deadline_seconds + client.timeout**（单次尝试超时），
+    前提是"**只在两次调用之间检查**截止，进行中的调用不打断"：
+      ① 4 个 Agent **并行**，各自最多 6 次调用（5 轮 + 1 次强制收尾），每次调用发起前
+         检查同一个绝对截止点（含浮点容差），已过 ⇒ 该次调用根本不发起；
+      ② 每次调用的单次预算被压低为 `min(client.total_budget_seconds, 截止剩余)` ⇒ 该次
+         调用墙钟 ≤ 生效预算 + 单次尝试超时（llm_client 既有权衡）；
+      ③ 主编在全部 Agent 之后**串行**开始，同样在发起前检查；已过 ⇒ 一次调用都不发。
+    合起来：最后一个"已发起"的调用最多在截止后再跑完**一次尝试** ⇒ ≤ 截止 + `client.timeout`
+    （默认 120s；改动前最坏 ≈ 6 × 300 + 主编 300 ≈ 60 分钟）。
+    不在该上界内的：①工具自身的执行时长（由工具超时/熔断负责，编排层不做时间切片）；
+    ②收尾进度动画（恒定 ~0.7s）；③前置步骤（记忆检索 / 取 LLM client）——它们是本地检索与
+    本地解析，且在第一次调用**之前**发生，不产生 LLM 等待。
+
+    值必须为正有限数：0/负数/NaN/Inf ⇒ `ValueError`（与 VS21/VS23 同口径）。
+
+    截断时（`done.truncated_by_deadline is True` / `report.truncated_by_deadline`）：
+      - 已完成的 Agent 成果**保留**在报告内；
+      - 被截断的 Agent 状态**如实**：跑过调用 ⇒ `degraded` + `degraded_reasons`
+        `["deadline_exceeded"]`；一次都没发起 ⇒ `failed` + `error`（"未开始"）；
+      - 信号与落库**同源**：`report_data.truncated_by_deadline` 与 `agent_results[key]`
+        就是 router/scheduler 落库的那一份，前端实时与回放读同一字段（见 `Research.tsx`）。
     """
+    # 截止值非法必须在**任何副作用之前**拒绝（也早于记忆检索与 LLM client 获取）。
+    if deadline_seconds is not None and (
+        not math.isfinite(deadline_seconds) or deadline_seconds <= 0
+    ):
+        raise ValueError("deadline_seconds 必须是正有限数（单位：秒）或 None")
+    deadline_at = None if deadline_seconds is None else time.monotonic() + deadline_seconds
+
     from ..services import model_router
 
     memory_hits = await native_memory_provider.search(f"{ticker} {company_name}", user_id=user_id, limit=4)
@@ -350,10 +483,13 @@ async def run_research(
     # BACKLOG-G-03: 任一 agent / 主编环节失败时，报告必须诚实标记降级，
     # 不得呈现为无条件"completed 成功报告"。
     degraded = False
+    # VS27: 整轮截止是否真的截断过（有调用被跳过）。它与 quality 一起落进 report_data，
+    # 实时 done 与落库/回放读的是同一份。
+    truncated = False
 
     def make_node(role: JSONDict) -> DAGNode:
         async def run_agent(context: DAGContext) -> tuple[str, str, str, list[JSONDict]]:
-            nonlocal degraded
+            nonlocal degraded, truncated
             role_key = role["role_key"]
             context.emit("agent_started", {
                 "role_key": role_key,
@@ -371,6 +507,7 @@ async def run_research(
                     user_id=user_id,
                     memory_context=memory_context,
                     degraded_reasons=agent_reasons,
+                    deadline_at=deadline_at,
                 )
             except LLMError as exc:
                 # G-03: agent 的 LLMError 是"非致命降级"——返回降级文本让报告仍能完成，
@@ -388,6 +525,16 @@ async def run_research(
             # VS7 P1b: 工具异常 / 工具循环耗尽 → 该 agent 的分析不完整，报告降级。
             if agent_reasons:
                 degraded = True
+            if DEADLINE_REASON_TRUNCATED in agent_reasons or DEADLINE_REASON_NOT_STARTED in agent_reasons:
+                truncated = True
+            if DEADLINE_REASON_NOT_STARTED in agent_reasons:
+                # VS27: 该 Agent 连第一次调用都没发起（截止在它开始前已过）。
+                # 状态必须**如实**为 failed（未开始），不得静默变 completed；
+                # 但也绝不升级为整轮失败——其余 Agent 的成果仍在同一份报告里。
+                message = _deadline_not_started_message(deadline_seconds)
+                context.emit("agent_failed", {"role_key": role_key, "error": message})
+                agent_outcomes[role_key] = {"status": AGENT_STATUS_FAILED, "error": message}
+                return role_key, f"【分析失败】{message}", role["name"], []
 
             for tool_call in tool_log:
                 context.emit("tool_call", {
@@ -472,6 +619,7 @@ async def run_research(
             prior_context=lead_context,
             memory_context=memory_context,
             degraded_reasons=lead_reasons,
+            deadline_at=deadline_at,
         )
     except LLMError as exc:
         lead_content, lead_tool_log = "", []
@@ -488,6 +636,13 @@ async def run_research(
     lead_parsed = parse_lead_review(lead_content)
     if lead_reasons or not lead_parsed:
         degraded = True
+    # VS27: 主编同样在**发起前**检查截止，因此"主编一次调用都没发"是有可能的：
+    # 它必须如实呈现为 failed + 可读原因（而不是"降级但原因未记录"）。
+    if DEADLINE_REASON_TRUNCATED in lead_reasons or DEADLINE_REASON_NOT_STARTED in lead_reasons:
+        truncated = True
+    if DEADLINE_REASON_NOT_STARTED in lead_reasons and lead_error is None:
+        lead_error = _deadline_not_started_message(deadline_seconds)
+        yield "agent_failed", {"role_key": "report_lead", "error": lead_error}
     for tool_call in lead_tool_log:
         yield "tool_call", {
             "role_key": "report_lead",
@@ -535,6 +690,9 @@ async def run_research(
     # 额外读顶层 quality 再合并；放在源头后两条路径天然一致。
     quality = "degraded" if degraded else "audited"
     report_data["quality"] = quality
+    # VS27: 整轮截断信号与 quality 放在**同一处**（report_data 内部）⇒ 随报告一起持久化，
+    # 实时 done（data.report）与回放（research_reports.report_data）天然同源。
+    report_data["truncated_by_deadline"] = truncated
     for i, section in enumerate(sections, 1):
         yield "report_progress", {
             "section": i,
@@ -550,6 +708,11 @@ async def run_research(
         # 与 report_builder.lead_review_status 同语义（degraded 前端已有降级提示机制）。
         # 顶层保留以兼容既有 SSE 消费方与前端 resolveReportQuality。
         "quality": quality,
+        # VS27: 整轮截断信号。**它有真实消费方**——`frontend/src/pages/Research.tsx`
+        # 的 `resolveTruncatedByDeadline`（实时 done 与回放 get_report 两条路径读同一字段）
+        # 把它渲染成用户可见的"本轮研究因超过总时长上限提前结束"提示条。
+        # 与 report_data 内部的值同一份（用户所见 == 落库内容）。
+        "truncated_by_deadline": truncated,
         # Tool logs retain the data-source trail (including news URLs) for
         # later report review instead of discarding research provenance.
         # VS20: 结构化状态（status/error/degraded_reasons）必须原样随 done 事件下发——

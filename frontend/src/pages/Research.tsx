@@ -85,6 +85,8 @@ type ResearchStreamData = {
   report?: Record<string, unknown>;
   // G-03: done_payload 顶层携带 quality（audited/degraded），不在 report 内部。
   quality?: string;
+  // VS27: 整轮截止信号。顶层与 report 内部同值（后端同一份 dict），两处都读以防形态差异。
+  truncated_by_deadline?: boolean;
   // VS20: Agent 结局的结构化状态；done 事件携带的正是落库的那份（实时/回放同源）。
   agent_results?: Record<string, StoredAgentResult>;
   degraded_reasons?: string[];
@@ -132,6 +134,20 @@ export function resolveReportQuality(data: { quality?: unknown; report?: Record<
   return raw === 'degraded' ? 'degraded' : 'audited';
 }
 
+/**
+ * VS27：整轮截止信号的**唯一读取点**（实时 done 与历史回放共用）。
+ *
+ * 后端 `research_orch.run_research` 把 `truncated_by_deadline` 同时写进
+ * `done_payload`（顶层）与 `report_data` 内部（随报告落库）；落库形态在回放时
+ * 是 `report_data.truncated_by_deadline`。两处都读、同源同口径：
+ * **只有显式 `true` 才算截断**（缺字段 = 未截断/历史报告，不得误报）。
+ */
+export function resolveTruncatedByDeadline(
+  data: { truncated_by_deadline?: unknown; report?: Record<string, unknown> | null } | null | undefined,
+): boolean {
+  return (data?.truncated_by_deadline ?? data?.report?.truncated_by_deadline) === true;
+}
+
 // ==================== VS20：Agent 结局的结构化判据 ====================
 
 /** 历史兜底哨兵：仅用于**没有**结构化状态的旧报告（不得作为主判据）。 */
@@ -158,6 +174,10 @@ const DEGRADED_REASON_KEYS: Record<string, string> = {
   tool_loop_exhausted: 'deep.agent.reason.toolLoopExhausted',
   empty_content: 'deep.agent.reason.emptyContent',
   output_truncated: 'deep.agent.reason.outputTruncated',
+  // VS27：整轮截止（research_orch.DEADLINE_REASON_*）。这是"提前结束"在**环节级**
+  // 的可见文案；报告级另有 resolveTruncatedByDeadline 的提示条。
+  deadline_exceeded: 'deep.agent.reason.deadlineExceeded',
+  deadline_exceeded_before_start: 'deep.agent.reason.deadlineBeforeStart',
 };
 
 /**
@@ -405,6 +425,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
   const [done, setDone] = useState(false);
   // G-03: 报告质量（audited/degraded）——任一环节失败时屏上诚实提示"内容可能不完整"。
   const [reportQuality, setReportQuality] = useState<'audited' | 'degraded' | null>(null);
+  // VS27: 整轮是否因超过总时长上限提前结束（实时 done 与回放读同一字段，见 resolveTruncatedByDeadline）。
+  const [truncatedByDeadline, setTruncatedByDeadline] = useState(false);
   // VS20: "哪个 Agent 失败/被降级、为什么"——实时与回放共用同一批提示条目。
   const [agentNotices, setAgentNotices] = useState<AgentNotice[]>([]);
   const [history, setHistory] = useState<HistoryGroup[]>([]);
@@ -444,6 +466,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
       setReportTitle(t('deep.report.title', { name: (report.report_data.company_name as string | undefined) ?? report.company_name ?? report.ticker }));
       setReportContent(reportToMarkdown(report.report_data, t));
       setReportQuality(report.report_data.quality === 'degraded' ? 'degraded' : 'audited');
+      // VS27: 回放同样要看得见"本轮提前结束"——读的是同一份落库 report_data。
+      setTruncatedByDeadline(resolveTruncatedByDeadline(report.report_data));
       setDone(report.status === 'completed');
       // VS20: 回放判据改为**读结构化信号**（agent_results[key].status / error /
       // degraded_reasons），事件与 `【分析失败】` 哨兵仅作历史报告兜底——
@@ -515,6 +539,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     setReportQuality(null);
     setSelectedReportId(null);
     setAgentNotices([]);
+    setTruncatedByDeadline(false);
     resetAgents();
 
     abortRef.current = new AbortController();
@@ -586,6 +611,9 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
             accContent = reportToMarkdown(report, t);
             setReportContent(accContent || t('deep.report.empty'));
             setReportQuality(quality);
+            // VS27: 整轮截止触发时，用户必须**在屏上**看到"提前结束了"，而不是以为还在跑/卡死。
+            // 读的是后端 done 载荷里与落库同一份的信号。
+            setTruncatedByDeadline(resolveTruncatedByDeadline(data));
             setDone(true);
             // VS20: ①实时最终态与回放同源——done 携带的 agent_results 就是落库内容，
             // 用它重算提示列表，保证重开这份报告看到的东西与此刻一致。
@@ -726,6 +754,18 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
               type="warning"
               message={t('deep.report.qualityDegraded')}
               role="status"
+              style={{ marginBottom: 12 }}
+            />
+          ) : null}
+          {/* VS27: 整轮截止（"等太久"）的可见回执——这是本信号的**消费方**。
+              不加这条，`truncated_by_deadline` 就只是"字段存在"（VS-23 反面教材：
+              chat 的同名字段在 frontend 全库零消费方）。 */}
+          {done && truncatedByDeadline ? (
+            <Alert
+              type="warning"
+              message={t('deep.report.truncatedByDeadline')}
+              role="status"
+              data-testid="research-truncated-by-deadline"
               style={{ marginBottom: 12 }}
             />
           ) : null}
