@@ -730,7 +730,10 @@
 - Verification: VS-14/VS-15/`.gitattributes` 与 VS-13 的 F1 加固均经**独立评估 ACCEPT**（其中 VS-14 先被 REJECT——唯一阻塞项是文档未同步——修复后复评通过；`.gitattributes` 复验由评估者独立测得 有规则 CRLF=190/裸 LF=0、无规则 CRLF=0/裸 LF=190，并证明对照有效）。VS-16 门禁 8 文件 **59 例绿** + `build exit 0`，其 snap-back 回归用例有**修前必红**证明。VS-17 备份加固由编排者以**同一夹具对照**实测：旧实现失败会**回收 1 个预置有效备份**（5→4），新实现**一个未动**（5→5）且无 `.partial` 残留。
 - Risk: medium。**编排者记录一处自身失误**：提交 VS-16 时把 `ResearchWorkspace.tsx` 的**变异态**（`TEMP-REPRO`，缺两行剥离逻辑）提进了 `9979b14`，已 `--amend` 修为 `1f95d4f` 并即时更正正在进行的评估者以免假驳回；教训已写入 `AGENTS.md`。另：`start.bat` 备份载荷已增至 1951 字符（cmd 单行上限 8191，约 24%），后续再扩需重新量。
 
-## 2026-09-11（续二）— 第四轮审计（R4）衍生切片 VS-18..VS-21
+## 2026-09-11（续二）— 第四轮审计（R4）衍生切片 VS-18..VS-23
+
+> **日期说明**：本会话**起于 2026-09-11、跨过午夜**，条目前半（VS-18..VS-21）提交于 **09-11**，后半（VS-22、VS-23 及 R5 基线与审计启动）提交于 **09-12**。机器时间以 `Get-Date` 为准；
+> **本仓在日期上出过一次事故**（`docs/ai/evo/` 多处曾误记 09-13，经 `Get-Date` 核对后更正）——故此处显式记录跨日边界，避免后来者按提交时间反查时困惑。
 
 - What changed:
   - `docs/QUICKSTART.md`（**VS-18**）：恢复步骤显式限定"只挑 `finquant-backup-*.db`"、明确排除任何以 `.partial` 结尾的文件，并给出两条理由（口径**中性**：`.partial` 只是"尚未改名完成"，**内容可能完整也可能残缺、无法从名字判断** ⇒ 一律不作为恢复来源）；补齐**根因**提示"只看最新不够——临时件名字同样带时间戳、往往就是最新的那个，应按结尾而非按时间判断"；`：169` 附近解释 `.partial` 的来源。
@@ -738,6 +741,10 @@
   - `frontend/src/pages/{Dashboard,Chat,Discussion}.tsx` + `i18n/{zh,en}.ts`（**VS-19**）：删除 `Dashboard` 吞异常的 `catch { /* non-critical context */ }`，新增 `statsFailed/statsError`，失败时在两张"最近记录"卡片渲染与决策收件箱同款 `Alert`（失败文案 + 具体错误 + 可点重试），`{statsFailed ? statsAlert : <List/>}` 保证"暂无会话/暂无讨论"**只在请求成功且为空时**出现；`Chat`/`Discussion` 深链落空改为**一次性** `message.warning`（`notified*Ref` **先判后记**，只有真命中才写 `applied*Ref`），并用**两个不同 i18n key** 从代码层分开"已不存在"与"列表读取失败"，避免把系统故障**错误归因**成数据不存在。
   - `backend/app/services/llm_client.py` + `tests/test_llm_client.py`（**VS-21**）：给 `_post_chat_with_retry` 加**可注入的整次调用总时长预算**（`total_budget_seconds`，默认 180s；非正/NaN/Inf 构造期 `ValueError`）；循环开始 `time.monotonic()` 计时、**每次 sleep 前**判定、剩余不足**截断等待**、**不打断进行中的尝试**；预算耗尽抛携带状态码的可行动 `LLMError`，与"次数耗尽"文案**互斥可辨**。
   - 文档与规则：`AGENTS.md` 新增多条跨会话踩坑（**读在途工作树会把故意变异误当成真缺陷**——同一坑的审查面；`-Filter` 尾星承重；**LF-only 行尾 + 非 ASCII 会让 cmd 批处理解析错位**，故对含中文的 `.bat` CRLF 是"解析正确性"而非风格；并保留"BOM 假设已证伪"的否定结果以免重走）；`docs/ai/evo/{PRODUCT_STATE,PRODUCT_GAP_MAP}.md` 持续更新（含更正一处**过时数字** i18n 2454→2465，并写明"当前快照的数字随改动更新、带日期的历史条目不得回改"的约定）。
+  - `frontend/src/components/LoadFailureAlert.tsx`（新增）+ `{Chat,Discussion,Dashboard}.tsx` + `components/ResearchRuns.tsx` + `i18n/{zh,en}.ts`（**VS-22**）：把 VS-19 的原则推广到**三处**——Chat 左栏、Discussion 左栏、首页"研究运行"区块**共用同一个错误态组件**（失败文案 + 具体错误 + 可点重试）；**失败时不渲染"暂无…"**（Chat/Discussion 在"失败且本地无记录"时整块不渲染列表，从结构上让空态文案不可达）；`ResearchRuns` 的失败判据用 **`error != null`** 而非"文案是否空串"（后者会把"有失败但无 message"误判为成功）。
+  - `backend/app/services/llm_client.py` + `routers/chat.py`（**VS-23**）：给 `chat_with_tools_loop` 加**整轮** deadline（默认 600s，末尾 keyword-only、`None` 时逐项零回归），每轮开始前查截止、单轮预算取 `min(单次预算, 剩余)`，触发时返回**显式**截断标记并写正文前置提示（与落库内容同源）；**并顺带修掉 VS-21 验收 NIT①**（预算耗尽错误补**脱敏后**的上游 body 片段、文案改为"本次 X 秒"以免误归因为默认 180s）。
+  - `docs/API_CONTRACT.md`：同步 chat SSE 契约（补 `tool_call` 事件行、补全 `done` 的 6 个字段、新增"整轮截止"与"单次调用预算"两段）。
+  - `docs/ai/evo/PROJECT_BRIEF.md`：新增**第五轮审计基线**（取代 R4 基线；R4 节保留为带日期的历史）。
 - Why: R4 两路审计（A4 产品UX / D4 可靠性）给出的最高优先项——**数据受损时不得把半成品当成可用备份**（P1 数据丢失）；**"失败"与"没有数据"必须可区分**（用户要能信这一屏）；**最坏静默等待必须有限且可预期**（单次调用最坏 420s 无聚合上界）。
 - Docs updated: 上列 + `docs/ai/evo/IMPLEMENTATION_BRIEF_VS{18,19,20,21,22}.md`、`RELIABILITY_REPORT_R4.md`、`PRODUCT_UX_REPORT_R4.md`、各 `IMPLEMENT_RESULT`/`EVALUATION_RESULT`。
 - Verification: **VS-18 已独立评估 ACCEPT**（评估者自建逐字 `.bat` 夹具经 `cmd.exe`：静态全绿、旧/新载荷失败路径对照、其他 PID 残件不被回收而新提示确实数到、照文档走不会再选中 `.partial`；并**定位**了实现者未能定位的 cmd 怪象根因）；**VS-21 门禁由编排者独立复跑确认**（`48 passed` / `ruff All checks passed`），其**上界用假时钟实测**（被验 270.0s ≤ 预算+单次尝试超时；移除预算判断的副本回到 420.0s＝3×120+2×30），鉴别力为副本变异后 `6 failed`。VS-19/VS-21 的独立验收与 VS-20 的交付在本条落笔时**仍在进行**，结论见各自 `EVALUATION_RESULT_*`。（更新：**VS-19 已 ACCEPT**——评估者用自己的进程复跑 5 文件 49/49、独立重做变异验证（删 `setStatsFailed(true)` 与两处 `notified*Ref` 判读 → 恰好 4 红；把 `*Unavailable` 换成 `*Missing`、把重试改成只清错误态 → 3 红），并以 `expected … to be called 1 times, but got 2 times` **反证"列表再变一次"确实触发了第二次 effect**，故"只提示一次"非偶然通过；另确认 `git diff 3cdd46d HEAD -- frontend` 为空、判定锚定在被验提交。）
