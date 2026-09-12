@@ -79,6 +79,8 @@ frontend/src/
 - **杀掉后台 pwsh 任务不会杀掉它的子 python**：`job_kill` / `Stop-Process` 只结束 pwsh 包装进程，`pytest` 会**变成孤儿继续跑**（表现为"任务显示已杀/已完成，但命令永不返回"）。收尾时**必须**核对并清理：
   `Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Select ProcessId,CommandLine`
   确认无遗留的 `-m pytest` 后再继续；`Stop-Process -Id <pid> -Force`。注意**别误杀**非本项目的常驻服务（如 `python -m http.server 3001`）。
+- **清理进程必须按"精确匹配自己的命令行"，绝不要按"排除法"**：本会话实测事故（VS-31 主动报回）——它清理自己遗留的 vitest 进程时，白名单**只排除了 `ListFailureNotEmptiness`**，于是**误杀了另外两张卡的 vitest 运行**（`tests/Dashboard.test.tsx` 与 `tests/ResearchDeadlineSi…`）。**代价不是"多杀几个进程"，而是被误杀的卡会把自己"跑到一半中断 / exit code 1 / 无输出"误判为自身缺陷**——在本机"负载下超时"已成常态的背景下，**这类假红与真红的表象完全一样**。
+  - **做法**：①清理时**正向匹配自己那次运行的特征**（完整测试文件名 + 自己使用的命令行参数），**不要**用"排除别人的"这种反向写法；②**动手前先列出全部候选进程的命令行**（`Get-CimInstance Win32_Process -Filter "Name='node.exe' or Name='bun.exe'" | Select ProcessId,CommandLine`），确认每一个都是自己的再杀；③**若已误杀**，**立刻向受影响的卡通报事实，并只给事实**——"我不能证明你看到的那次异常就是它造成的"，请对方**以自己的重跑结果为准，不得因此放松任何断言或判据**；④错误归因一旦扩散，会让人去修**根本没坏的东西**，其代价高于误杀本身。
 - **不要为了迁就测试替身而在生产代码里放宽错误处理**：宽泛的 `except TypeError` / `except Exception` 包住 `await` 会**吞掉真实错误**，并让**同一次调用被重发**（白付一次 API 费用）。如确需兼容，用 `inspect.signature` 判断或只捕获确属签名不匹配的情形，并在注释里写明为何不能用宽捕获。
 - **失败/降级判据不要用字符串前缀哨兵**：读结构化信号。注意**成功结果同样可能是 JSON**（以 `{` 开头）——不可据此判失败，必须解析后看 `success` 一类字段。
 - **同一件事的两条路径必须同源**：交互 vs 调度、实时 SSE vs 历史回放、脚本 vs 文档、UI vs CLI。历次真缺陷多为"改了一处、忘了另一处"。
