@@ -75,7 +75,10 @@ frontend/src/
 ### Agent 作业踩坑（跨会话沉淀；踩过一次就不要重来）
 
 - **读 UTF-8 文件不要用裸 `Get-Content`**：PowerShell 5.1 默认按 ANSI 解码，会**损坏 UTF-8 无 BOM 文件里的中文**（`start.bat` 首当其冲，症状是乱码与引号不配对）。用 `[System.IO.File]::ReadAllLines($p, [System.Text.UTF8Encoding]::new($false))`。**改动或复刻失败时，先怀疑自己的读取/引号/编辑，再怀疑代码**——曾因自己的读取问题误判"载荷执行失败"，差点去"修好"一份正确的实现；也曾因编辑时选错替换范围而**删掉整段记录**。
-- **不要跑全量 pytest，也不要跑 `tests/test_api.py`**：本机沙箱下会**挂起**（`httpx.InvalidURL: Invalid port: ':1]'`，源于代理环境变量）。前置 `$env:no_proxy='localhost,127.0.0.1,::1'`，并**只跑聚焦的测试文件**。
+- **不要跑全量 pytest**：本机沙箱下会**挂起**（多次实测被杀：`pwsh-1/65/79` 全量、`pwsh-113` **连单个 `tests/test_model_pricing.py` 都挂**）。**不是"只有 `test_api.py` 会挂"**——排除它跑 `pytest tests/` 同样会挂。做法：前置 `$env:no_proxy='localhost,127.0.0.1,::1'`（必要时清 `HTTP_PROXY/HTTPS_PROXY`），并且**只跑你确实改到的那几个测试文件**，不要试图跑大范围。
+- **杀掉后台 pwsh 任务不会杀掉它的子 python**：`job_kill` / `Stop-Process` 只结束 pwsh 包装进程，`pytest` 会**变成孤儿继续跑**（表现为"任务显示已杀/已完成，但命令永不返回"）。收尾时**必须**核对并清理：
+  `Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Select ProcessId,CommandLine`
+  确认无遗留的 `-m pytest` 后再继续；`Stop-Process -Id <pid> -Force`。注意**别误杀**非本项目的常驻服务（如 `python -m http.server 3001`）。
 - **不要为了迁就测试替身而在生产代码里放宽错误处理**：宽泛的 `except TypeError` / `except Exception` 包住 `await` 会**吞掉真实错误**，并让**同一次调用被重发**（白付一次 API 费用）。如确需兼容，用 `inspect.signature` 判断或只捕获确属签名不匹配的情形，并在注释里写明为何不能用宽捕获。
 - **失败/降级判据不要用字符串前缀哨兵**：读结构化信号。注意**成功结果同样可能是 JSON**（以 `{` 开头）——不可据此判失败，必须解析后看 `success` 一类字段。
 - **同一件事的两条路径必须同源**：交互 vs 调度、实时 SSE vs 历史回放、脚本 vs 文档、UI vs CLI。历次真缺陷多为"改了一处、忘了另一处"。

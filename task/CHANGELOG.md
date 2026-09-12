@@ -702,7 +702,9 @@
 - Verification: 最终门禁进行中，完成后以 UX_FIX_EVIDENCE_20260907.md 的最终结果为准。
 - Risk: medium；本地开发凭据主密钥改为持久化文件，需连同数据库私下备份。无 schema/依赖/E2E 配置变更，无文件删除。未 commit/push，按三块拆分提交。
 
-## 2026-09-13 — 产品演进编排（VS-1..VS-14 + 三轮独立审计）
+## 2026-09-11 — 产品演进编排（VS-1..VS-14 + 三轮独立审计）
+
+> 注：本条最初误记为 `2026-09-13`（沿用会话中未经核实的日期），经 `Get-Date` 核对机器时间为 **2026-09-11** 后更正。`docs/ai/evo/` 下同期文档头部的 `2026-09-13` 同样系此误，未逐一回改，以此处为准。
 
 - What changed:
   - 后端：`services/research_jobs.py`（重试上限 + 24h 窗口只计 `failed` + 手动运行可绕过熔断）、`services/scheduler.py`、`routers/settings.py`；`services/research_orch.py`（`quality` 在源头并入 `report_data`、`node_failed` 改为非致命 `agent_failed`、降级判据由**字符串前缀哨兵**改为**读结构**覆盖工具失败 5 形态、新增空内容与 `finish_reason=="length"` 判据）；`services/llm_client.py`（瞬时故障重试 + **尊重上游 `Retry-After`**（整数与 HTTP-date，含 30s 单次上限）+ 退避抖动 + `keyword-only` 回传 `finish_reason`）；`routers/research.py`（`quality` 幂等合并，绝不把 `degraded` 反写成 `audited`）。
