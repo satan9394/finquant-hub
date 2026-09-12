@@ -57,7 +57,7 @@ async def test_tool_loop_emits_controlled_events(monkeypatch):
     from app.services.llm_client import LLMClient, TOOL_LOOP_EVENTS
     client = LLMClient(base_url="http://x", api_key="k", model="m")
 
-    async def fake_safe(messages, tools):
+    async def fake_safe(messages, tools, **_kwargs):
         # 第一轮返回工具调用，第二轮直接回复文本
         if not any(msg.get("role") == "tool" for msg in messages):
             return "思考中", [{
@@ -65,8 +65,8 @@ async def test_tool_loop_emits_controlled_events(monkeypatch):
                 "type": "function",
                 "reasoning_content": None,
                 "function": {"name": "echo", "arguments": '{"ticker":"600519"}'},
-            }], 10
-        return "最终答案", [], 5
+            }], 10, "tool_calls"
+        return "最终答案", [], 5, "stop"
 
     monkeypatch.setattr(client, "chat_with_tools_safe", fake_safe)
     events: list[tuple[str, dict]] = []
@@ -110,15 +110,15 @@ async def test_tool_loop_pre_and_post_hooks(monkeypatch):
 
     client = LLMClient(base_url="http://x", api_key="k", model="m")
 
-    async def fake_safe(messages, tools):
+    async def fake_safe(messages, tools, **_kwargs):
         if not any(msg.get("role") == "tool" for msg in messages):
             return "思考中", [{
                 "id": "call_1",
                 "type": "function",
                 "reasoning_content": None,
                 "function": {"name": "echo", "arguments": '{"ticker":"600519"}'},
-            }], 10
-        return "最终答案", [], 5
+            }], 10, "tool_calls"
+        return "最终答案", [], 5, "stop"
 
     monkeypatch.setattr(client, "chat_with_tools_safe", fake_safe)
     executed: list[str] = []

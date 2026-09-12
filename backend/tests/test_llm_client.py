@@ -114,6 +114,34 @@ async def test_tool_chat_preserves_tool_calls_and_reasoning(monkeypatch, safe):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("safe", [False, True])
+async def test_tool_chat_can_return_finish_reason_without_breaking_legacy_arity(monkeypatch, safe):
+    """VS12 P1-2: 截断可见性。
+
+    finish_reason 在 choice 上而非 message 上，此前从未被读取 → max_tokens 截断
+    不可见。`with_finish_reason=True` 额外回传第 4 项；默认仍返回 3 元组（契约不变）。
+    """
+    def handler(request):
+        return httpx.Response(200, json={
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": "半截结论", "tool_calls": []},
+            }],
+            "usage": {"total_tokens": 9},
+        })
+
+    _install_transport(monkeypatch, handler)
+    client = LLMClient("https://llm.test", "key", "model")
+    method = client.chat_with_tools_safe if safe else client.chat_with_tools
+
+    legacy = await method([], [])
+    assert legacy == ("半截结论", [], 9), "默认 3 元组契约不得改变"
+
+    content, calls, tokens, finish_reason = await method([], [], with_finish_reason=True)
+    assert (content, calls, tokens, finish_reason) == ("半截结论", [], 9, "length")
+
+
+@pytest.mark.asyncio
 async def test_tool_chat_errors(monkeypatch):
     responses = [httpx.Response(400, text="bad"), httpx.Response(401, text="no")]
     _install_transport(monkeypatch, lambda request: responses.pop(0))
@@ -128,12 +156,12 @@ async def test_tool_chat_errors(monkeypatch):
 async def test_tool_loop_executes_tools_handles_failure_and_finishes(monkeypatch):
     client = LLMClient("https://llm.test", "key", "model")
     replies = [
-        ("", [{"id": "1", "type": "function", "reasoning_content": "need data", "function": {"name": "ok", "arguments": "{}"}}], 3),
-        ("", [{"id": "2", "type": "function", "function": {"name": "bad", "arguments": "{}"}}], 4),
-        ("done", [], 5),
+        ("", [{"id": "1", "type": "function", "reasoning_content": "need data", "function": {"name": "ok", "arguments": "{}"}}], 3, "tool_calls"),
+        ("", [{"id": "2", "type": "function", "function": {"name": "bad", "arguments": "{}"}}], 4, "tool_calls"),
+        ("done", [], 5, "stop"),
     ]
 
-    async def fake_chat(messages, tools):
+    async def fake_chat(messages, tools, **_kwargs):
         return replies.pop(0)
 
     async def execute(name, arguments):
@@ -156,12 +184,12 @@ async def test_tool_loop_forces_final_answer_after_limit(monkeypatch):
     client = LLMClient("https://llm.test", "key", "model")
     call_count = 0
 
-    async def fake_chat(messages, tools):
+    async def fake_chat(messages, tools, **_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count <= 2:
-            return "", [{"id": str(call_count), "type": "function", "function": {"name": "x", "arguments": "{}"}}], call_count
-        return "forced", [], 9
+            return "", [{"id": str(call_count), "type": "function", "function": {"name": "x", "arguments": "{}"}}], call_count, "tool_calls"
+        return "forced", [], 9, "stop"
 
     async def execute(name, arguments):
         return "result"

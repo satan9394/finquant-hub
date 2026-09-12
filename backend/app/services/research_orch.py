@@ -26,10 +26,42 @@ JSONDict: TypeAlias = dict[str, Any]
 # 与 llm_client.chat_with_tools_loop 中同名前缀保持一致（同语义、同文案）。
 _TOOL_ERROR_PREFIX = "工具执行异常："
 
+# VS12 P1-1: 工具失败共有 5 种形态，原先只有"异常"一种被识别（纯文本前缀哨兵），
+# 于是"工具不存在/未授权/参数校验失败/工具跑了但返回 success:false"四种失败会被
+# 当成成功 —— Agent 拿着空数据编结论，报告仍以 audited 落库。
+# 现在改为读结构：优先解析 JSON 载荷的 success 字段，文本形态仍按前缀兼容识别。
+_JSON_ERROR_PREFIX = "错误：工具 "
+
 
 def _is_tool_failure(result_text: Any) -> bool:
-    """工具执行异常的唯一可识别信号（异常被吞成文本，见 _TOOL_ERROR_PREFIX）。"""
-    return isinstance(result_text, str) and result_text.startswith(_TOOL_ERROR_PREFIX)
+    """判断一次工具调用结果是否代表"该工具没真正跑成"。
+
+    覆盖 `_execute_tool_call` 的全部 5 种失败形态：
+    1. 工具不存在  → `错误：工具 X 不存在`（文本）
+    2. 未授权      → `错误：工具 X 未授权给当前 Agent`（文本）
+    3. 参数校验失败 → `{"success": false, ...}`
+    4. 工具跑了但失败 → `{"success": false, ...}`
+    5. 异常        → `工具执行异常：...`（文本，旧前缀哨兵）
+
+    注意：成功结果同样是 JSON（以 `{` 开头），因此**不能**用"以 `{` 开头"判失败，
+    必须解析后看 `success`。旧前缀判定保留，避免遗漏历史文本形态。
+    """
+    if not isinstance(result_text, str):
+        return False
+    text = result_text.strip()
+    if text.startswith(_TOOL_ERROR_PREFIX):
+        return True
+    if text.startswith(_JSON_ERROR_PREFIX):
+        return True
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except (ValueError, TypeError):
+            # 无法解析的 JSON 载荷：不得当成成功（错误场景 2），按失败处理。
+            return True
+        if isinstance(payload, dict) and "success" in payload:
+            return payload.get("success") is not True
+    return False
 
 
 def _run_tool_in_thread(tool: BaseTool, arguments: JSONDict, user_id: int | None) -> ToolResult:
@@ -96,6 +128,57 @@ async def _execute_tool_call(
         return f"{_TOOL_ERROR_PREFIX}{exc}"
 
 
+def _mark_agent_degraded(degraded_reasons: list[str] | None, reason: str) -> None:
+    """向本次 Agent 调用追加一条降级原因（同因多次命中只记一次）。"""
+    if degraded_reasons is None or reason in degraded_reasons:
+        return
+    degraded_reasons.append(reason)
+
+
+def _unpack_tool_response(
+    response: tuple[Any, ...],
+) -> tuple[str, list[JSONDict], str | None]:
+    """兼容 3 元组（旧调用方/测试替身）与 4 元组（带 finish_reason）返回值。"""
+    if len(response) == 4:
+        content, tool_calls, _, finish_reason = response
+        return content or "", tool_calls, finish_reason
+    content, tool_calls, _ = response
+    return content or "", tool_calls, None
+
+
+async def _request_tool_round(
+    client: Any,
+    messages: list[JSONDict],
+    tools: list[JSONDict],
+    *,
+    method: str = "chat_with_tools_safe",
+) -> tuple[str, list[JSONDict], str | None]:
+    """调用 LLM 一轮并带回 finish_reason（VS12 P1-2）。
+
+    返回值统一为 (文本, tool_calls, finish_reason)：`with_finish_reason` 是
+    LLMClient 上的 keyword-only 参数，客户端若返回旧 3 元组则 finish_reason
+    视为未知（由 `_unpack_tool_response` 兼容）。
+
+    注意：这里**刻意不做** `except TypeError` 兜底回退。宽泛兜底会吞掉客户端内部
+    真实的 TypeError（JSON/序列化 bug 等）并让同一次 LLM 调用被重发一遍（白付一次
+    费用）——"失败必须可见、不得静默吞掉"正是 VS12 的主题。
+    """
+    call = getattr(client, method)
+    return _unpack_tool_response(await call(messages, tools, with_finish_reason=True))
+
+
+def _flag_incomplete_output(
+    content: str,
+    finish_reason: str | None,
+    degraded_reasons: list[str] | None,
+) -> None:
+    """VS12 P1-2: Agent 产出质量判据 —— 空内容或 max_tokens 截断都算"分析不完整"。"""
+    if not content.strip():
+        _mark_agent_degraded(degraded_reasons, "empty_content")
+    if finish_reason == "length":
+        _mark_agent_degraded(degraded_reasons, "output_truncated")
+
+
 async def _call_agent(
     client: LLMClient,
     role: JSONDict,
@@ -111,8 +194,9 @@ async def _call_agent(
 ) -> tuple[str, list[JSONDict]]:
     """单个 Agent 完成研究，返回 (全文, 工具调用记录)。
 
-    degraded_reasons 非 None 时，本函数把"内容实际不完整"的信号（工具执行异常、
-    工具循环耗尽）追加进去，供 run_research 汇总为 quality=degraded（VS7 P1b）。
+    degraded_reasons 非 None 时，本函数把"内容实际不完整"的信号（工具失败、
+    工具循环耗尽、空内容、max_tokens 截断）追加进去，供 run_research 汇总为
+    quality=degraded（VS7 P1b / VS12 P1-1、P1-2）。
     """
     system = role["system_prompt"]
     user_msg = (
@@ -142,10 +226,11 @@ async def _call_agent(
 
     # 最多 5 轮 tool_use 循环
     for _round in range(5):
-        content, tool_calls, _ = await client.chat_with_tools_safe(messages, tools)
+        content, tool_calls, finish_reason = await _request_tool_round(client, messages, tools)
 
         if not tool_calls:
             # Agent 给出最终回答
+            _flag_incomplete_output(content, finish_reason, degraded_reasons)
             return content, tool_calls_log
 
         # ponytail: 同轮调用直接并发，gather 保留输入顺序，无需额外调度层。
@@ -153,9 +238,9 @@ async def _call_agent(
             _execute_tool_call(tool_call, tool_registry, allowed_tools, user_id=user_id)
             for tool_call in tool_calls
         ))
-        # VS7 P1b: 工具执行异常此前只留痕在文本里，报告仍被标 audited。
-        if degraded_reasons is not None and any(_is_tool_failure(text) for text in result_texts):
-            degraded_reasons.append("tool_failed")
+        # VS7 P1b / VS12 P1-1: 工具失败（5 种形态）此前只留痕在文本里，报告仍被标 audited。
+        if any(_is_tool_failure(text) for text in result_texts):
+            _mark_agent_degraded(degraded_reasons, "tool_failed")
         for tc, result_text in zip(tool_calls, result_texts, strict=True):
             func = tc["function"]
             tool_calls_log.append({"name": func["name"], "arguments": func["arguments"], "result": result_text})
@@ -171,12 +256,14 @@ async def _call_agent(
     # 超出 tool_use 轮数，强制要求最终回答
     # VS7 P1b: 工具循环耗尽（llm_client 的 tool_loop_exhausted 同语义）——模型是在
     # "数据没抓全"的情况下被强制下结论的，报告必须诚实标降级。
-    if degraded_reasons is not None:
-        degraded_reasons.append("tool_loop_exhausted")
-    content, _, _ = await client.chat_with_tools(
+    _mark_agent_degraded(degraded_reasons, "tool_loop_exhausted")
+    content, _, finish_reason = await _request_tool_round(
+        client,
         messages + [{"role": "user", "content": "请基于已有数据输出最终分析结论。"}],
         tools,
+        method="chat_with_tools",
     )
+    _flag_incomplete_output(content, finish_reason, degraded_reasons)
     return content, tool_calls_log
 
 
@@ -193,9 +280,11 @@ async def run_research(
     - agent_started: 某 Agent 开始
     - tool_call: 某 Agent 调用工具
     - agent_completed: 某 Agent 完成
+    - agent_failed: 某 Agent 失败但**非致命**（VS12 P1-3：单个 Agent 异常/LLMError 只降级，
+      不毁掉整轮；router 侧对 agent_failed 不 fail+break）
     - report_progress: 报告生成进度
-    - done: 全部完成
-    - error: 出错
+    - done: 全部完成（quality 为 audited/degraded）
+    - error: 真致命错误（目前仅"拿不到 LLM client"，router 收到即判 failed+break）
     """
     from ..services import model_router
 
@@ -287,7 +376,15 @@ async def run_research(
             role = roles_by_key[event.node_key]
             error = str(event.error)
             degraded = True
-            yield "error", {"role_key": event.node_key, "error": f"研究 Agent 异常：{error}"}
+            # VS12 P1-3: 此分支本意是"继续"（写占位 + 标降级），但此前同时 yield "error"，
+            # 而 routers/research.py 收到 error 即 _fail_report + break —— 整轮研究被丢弃，
+            # 其余已完成的 Agent 成果全丢。改用非致命的 agent_failed（router 侧已按非致命处理，
+            # 与 G-03 的 LLMError 路径同一语义）。真致命路径是上文"拿不到 LLM client"的
+            # yield "error"，必须保留，不受本次改动影响。
+            yield "agent_failed", {
+                "role_key": event.node_key,
+                "error": f"研究 Agent 异常：{error}",
+            }
             agent_results[event.node_key] = {
                 "content": f"【分析失败】{error}",
                 "name": role["name"],

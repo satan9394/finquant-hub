@@ -49,11 +49,11 @@ class FakeToolCallingClient:
         self.tool_calls = tool_calls
         self.messages = []
 
-    async def chat_with_tools_safe(self, messages, tools):
+    async def chat_with_tools_safe(self, messages, tools, **_kwargs):
         self.messages.append(list(messages))
         if len(self.messages) == 1:
-            return "", self.tool_calls, None
-        return "final answer", [], None
+            return "", self.tool_calls, None, "tool_calls"
+        return "final answer", [], None, "stop"
 
 
 class IntegrationProbeTool(BaseTool):
@@ -86,7 +86,7 @@ class MockLLMClient:
         self.requests: dict[str, list[list[dict]]] = {}
         self.tool_results: dict[str, dict] = {}
 
-    async def chat_with_tools_safe(self, messages, tools):
+    async def chat_with_tools_safe(self, messages, tools, **_kwargs):
         role_key = self.role_by_prompt[messages[0]["content"]]
         self.requests.setdefault(role_key, []).append([dict(message) for message in messages])
         if role_key == "report_lead":
@@ -98,7 +98,7 @@ class MockLLMClient:
                 "long_term_scores": {"business_quality": 8, "moat": 8, "financial_quality": 7, "valuation_safety": 6},
                 "short_term_scores": {"trend": 6, "catalyst": 5, "sentiment": 6, "risk_reward": 5},
                 "scarcity_scores": {"technology_barrier": 8, "supply_chain_control": 7, "substitution_difficulty": 8, "qualification_barrier": 7, "capacity_constraint": 5, "policy_importance": 6},
-            }), [], 20
+            }), [], 20, "stop"
         tool_message = next((message for message in messages if message["role"] == "tool"), None)
         if tool_message is None:
             assert [tool["function"]["name"] for tool in tools] == ["integration_probe"]
@@ -112,10 +112,10 @@ class MockLLMClient:
                     "name": "integration_probe",
                     "arguments": json.dumps({"role_key": role_key}),
                 },
-            }], 10
+            }], 10, "tool_calls"
 
         self.tool_results[role_key] = json.loads(tool_message["content"])
-        return f"{role_key} 的最终分析", [], 20
+        return f"{role_key} 的最终分析", [], 20, "stop"
 
 
 @pytest.fixture
@@ -181,25 +181,56 @@ async def test_mock_llm_runs_complete_four_agent_research_flow(monkeypatch, isol
 
 
 @pytest.mark.asyncio
-async def test_unexpected_agent_failure_emits_error_and_completes(monkeypatch):
+async def test_unexpected_agent_failure_is_non_fatal_and_keeps_other_agents(monkeypatch):
+    """VS12 P1-3: 单个 Agent 抛非 LLMError 异常（node_failed）不得致命。
+
+    修复前该分支 `yield "error"`，router 收到即 fail+break —— 整轮研究被丢弃、
+    其余已完成 Agent 的成果全丢。现应改为非致命 `agent_failed`：
+    事件流无 error、有 done、quality=degraded，且其余 Agent 文本仍在报告内。
+    """
     async def fake_get_client(model_id=None, **_kwargs):
         return object(), {"id": model_id}
 
     async def fake_call_agent(client, role, ticker, company_name, registry, **kwargs):
         if role["role_key"] == "business_analyst":
             raise RuntimeError("agent crashed")
-        return "ok", []
+        return f"{role['role_key']} 的分析内容", []
 
     monkeypatch.setattr(model_router, "get_client", fake_get_client)
     monkeypatch.setattr(research_orch, "_call_agent", fake_call_agent)
 
     events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
 
-    errors = [data for event, data in events if event == "error"]
-    assert errors == [{"role_key": "business_analyst", "error": "研究 Agent 异常：agent crashed"}]
+    event_names = [name for name, _data in events]
+    # 核心判据：不再是致命 error
+    assert "error" not in event_names, "node_failed 不得再发出致命 error 事件"
+    failed = [data for name, data in events if name == "agent_failed"]
+    assert failed == [{"role_key": "business_analyst", "error": "研究 Agent 异常：agent crashed"}]
     assert events[-1][0] == "done"
-    # G-03: 任一 agent 失败 → done 事件必须携带诚实 quality=degraded
-    assert events[-1][1]["quality"] == "degraded"
+    done = events[-1][1]
+    assert done["quality"] == "degraded"
+    assert done["report"]["quality"] == "degraded"
+    # 其余 Agent 的成果仍在报告内（未被整轮丢弃）
+    assert done["report"]["financial_analysis"] == "financial_analyst 的分析内容"
+    assert done["report"]["industry_analysis"] == "industry_researcher 的分析内容"
+    assert done["agent_results"]["business_analyst"]["content"] == "【分析失败】agent crashed"
+    assert done["agent_results"]["financial_analyst"]["content"] == "financial_analyst 的分析内容"
+
+
+@pytest.mark.asyncio
+async def test_missing_llm_client_is_still_fatal(monkeypatch):
+    """VS12 验收 5（致命路径不回归）：拿不到 LLM client 仍必须是致命 error + 直接结束。"""
+    from app.services.llm_client import LLMError
+
+    async def fake_get_client(model_id=None, **_kwargs):
+        raise LLMError("无可用模型")
+
+    monkeypatch.setattr(model_router, "get_client", fake_get_client)
+
+    events = [event async for event in research_orch.run_research("usAAPL", "Apple", user_id=1)]
+
+    assert [name for name, _data in events] == ["error"]
+    assert events[0][1] == {"error": "无可用模型"}
 
 
 @pytest.mark.asyncio
@@ -407,19 +438,22 @@ async def test_lead_unparseable_prose_is_degraded_and_matches_lead_review_status
 
 
 class ExhaustingToolClient:
-    """每轮都请求工具（永不给出最终回答）→ 触发工具循环耗尽。"""
+    """每轮都请求工具（永不给出最终回答）→ 触发工具循环耗尽。
+
+    刻意返回旧 3 元组：覆盖 `_unpack_tool_response` 的 3 元组兼容路径。
+    """
 
     def __init__(self):
         self.rounds = 0
 
-    async def chat_with_tools_safe(self, messages, tools):
+    async def chat_with_tools_safe(self, messages, tools, **_kwargs):
         self.rounds += 1
         return "", [{
             "id": f"call-{self.rounds}",
             "function": {"name": "integration_probe", "arguments": json.dumps({"role_key": "x"})},
         }], None
 
-    async def chat_with_tools(self, messages, tools):
+    async def chat_with_tools(self, messages, tools, **_kwargs):
         return "final answer", [], None
 
 
@@ -544,3 +578,160 @@ async def test_agent_llm_error_is_non_fatal_degraded(monkeypatch):
     assert any(item["role_key"] == "financial_analyst" for item in failed)
     assert events[-1][0] == "done"
     assert events[-1][1]["quality"] == "degraded"
+
+
+# ------------------------------------------------------------------
+# VS12 P1-1: 工具失败 5 种形态都必须判降级（结构化判据）
+# ------------------------------------------------------------------
+
+class FailingTool(BaseTool):
+    """工具真的跑了，但业务上失败（行情源全挂等）→ ToolResult(False, ...)。"""
+
+    name = "failing"
+    description = "Run but fail"
+    parameters = {"type": "object"}
+    auto_register = False
+
+    async def run(self, **kwargs) -> ToolResult:
+        return ToolResult(False, error="行情源全部失败")
+
+
+class ValidatingTool(BaseTool):
+    """声明 integer 参数，用于触发参数校验失败形态。"""
+
+    name = "validating"
+    description = "Requires an integer argument"
+    parameters = {
+        "type": "object",
+        "properties": {"limit": {"type": "integer", "description": "必填整数"}},
+        "required": ["limit"],
+    }
+    auto_register = False
+
+    async def run(self, **kwargs) -> ToolResult:
+        return ToolResult(True, data={"limit": kwargs.get("limit")})
+
+
+TOOL_FAILURE_FORMS = [
+    ("tool_not_found", "missing", "{}"),
+    ("tool_not_authorized", "validating", "{}"),
+    ("argument_validation_failed", "validating", json.dumps({"limit": "not-an-int"})),
+    ("tool_returned_success_false", "failing", "{}"),
+    ("tool_raised_exception", "raising", "{}"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("form", "tool_name", "arguments"),
+    TOOL_FAILURE_FORMS,
+    ids=[form for form, _name, _args in TOOL_FAILURE_FORMS],
+)
+async def test_every_tool_failure_form_marks_degraded(
+    isolated_registry, form, tool_name, arguments
+):
+    """VS12 P1-1（变异敏感）: 5 种工具失败形态都必须记 tool_failed。
+
+    变异敏感说明：把 `_is_tool_failure` 退回"只认 `_TOOL_ERROR_PREFIX` 文本前缀哨兵"
+    时，前四种（工具不存在 / 未授权 / 参数校验失败 / success:false）会全部失败——
+    它们都是 JSON 载荷，旧判据一律当成成功。
+
+    其中 tool_returned_success_false 还额外覆盖"工具跑了但失败"（API Key 失效、
+    行情源全挂）——修复前报告仍会以 audited 落库。
+    """
+    isolated_registry.register(RaisingTool())
+    isolated_registry.register(ValidatingTool())
+    isolated_registry.register(FailingTool())
+    # 未授权形态：只把 validating 授权给"另一个 Agent"
+    allowed_tools = None if form != "tool_not_authorized" else {"raising"}
+    client = FakeToolCallingClient([
+        {"id": "call-1", "function": {"name": tool_name, "arguments": arguments}},
+    ])
+    reasons: list[str] = []
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        allowed_tools=allowed_tools,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "final answer"
+    assert len(logs) == 1
+    assert "tool_failed" in reasons, f"{form} 未被判为降级：reasons={reasons}"
+    # 成功形态绝不能被误判（见下一条 happy-path 零回归测试）
+    if form == "tool_returned_success_false":
+        assert json.loads(logs[0]["result"])["success"] is False, "工具跑了但失败必须带 success:false"
+
+
+@pytest.mark.asyncio
+async def test_empty_agent_content_marks_degraded(isolated_registry):
+    """VS12 P1-2: Agent 返回空内容（无工具调用、无异常）→ 降级（独立于工具判据）。"""
+    client = FakeToolCallingClient([])  # 无工具调用 → 直接返回最终回答
+    reasons: list[str] = []
+
+    content, logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert (content, logs) == ("", [])
+    assert reasons == ["empty_content"]
+
+
+class TruncatedClient:
+    """finish_reason == "length" 的模型替身（max_tokens 截断）。"""
+
+    async def chat_with_tools_safe(self, messages, tools, **_kwargs):
+        return "半截结论……", [], 7, "length"
+
+
+@pytest.mark.asyncio
+async def test_truncated_agent_output_marks_degraded(isolated_registry):
+    """VS12 P1-2: finish_reason == "length"（max_tokens 截断）→ 降级。"""
+    client = TruncatedClient()
+    reasons: list[str] = []
+
+    content, _logs = await research_orch._call_agent(
+        client,
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "半截结论……"
+    assert reasons == ["output_truncated"]
+
+
+class LegacyThreeTupleClient:
+    """接受 `with_finish_reason` 但只返回旧 3 元组（finish_reason 未知）的客户端替身。"""
+
+    async def chat_with_tools_safe(self, messages, tools, **_kwargs):
+        return "旧契约结论", [], 5
+
+
+@pytest.mark.asyncio
+async def test_three_tuple_return_is_still_supported(isolated_registry):
+    """向后兼容：客户端返回旧 3 元组时 finish_reason 视为未知，不得误报截断/崩。"""
+    reasons: list[str] = []
+
+    content, _logs = await research_orch._call_agent(
+        LegacyThreeTupleClient(),
+        {"system_prompt": "test"},
+        "usAAPL",
+        "Apple",
+        isolated_registry,
+        degraded_reasons=reasons,
+    )
+
+    assert content == "旧契约结论"
+    assert reasons == []

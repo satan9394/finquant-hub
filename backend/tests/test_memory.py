@@ -107,7 +107,7 @@ async def test_research_injects_relevant_memory_and_requires_fresh_verification(
         def __init__(self):
             self.requests = []
 
-        async def chat_with_tools_safe(self, messages, tools):
+        async def chat_with_tools_safe(self, messages, tools, **_kwargs):
             self.requests.append(messages)
             return "本次已重新核验", [], None
 

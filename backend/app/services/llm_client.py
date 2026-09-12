@@ -101,6 +101,22 @@ def _retry_delay_seconds(attempt: int, response: httpx.Response | None) -> float
 TOOL_LOOP_EVENTS = ("tool_started", "tool_completed", "tool_failed", "tool_loop_done", "tool_loop_exhausted")
 
 
+def _finish_reason_of(data: JSONDict) -> str | None:
+    """读取首个 choice 的 finish_reason（VS12 P1-2：识别 max_tokens 截断）。
+
+    finish_reason 属于 choice 而不是 message，也不随 usage 回传；缺失或非法
+    结构返回 None（视为未知，不误报截断）。
+    """
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not isinstance(choices, list) or not choices:
+        return None
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None
+    reason = first.get("finish_reason")
+    return reason if isinstance(reason, str) else None
+
+
 class LLMError(Exception):
     """LLM 调用失败，message 面向用户可读。"""
 
@@ -232,12 +248,16 @@ class LLMClient:
         return content, usage.get("total_tokens")
 
     async def chat_with_tools(
-        self, messages: list[JSONDict], tools: list[JSONDict] | None = None
+        self, messages: list[JSONDict], tools: list[JSONDict] | None = None, *,
+        with_finish_reason: bool = False,
     ) -> tuple[str, list[JSONDict], int | None]:
         """调用支持 function_calling，返回 (文本, tool_calls 列表, total_tokens)。
 
         tool_calls 元素格式：{"id": str, "type": "function", "function": {"name": str, "arguments": str}}
         当 LLM 直接回复文本时 tool_calls 为空列表。
+
+        with_finish_reason=True 时（VS12 P1-2）额外返回第 4 项 finish_reason
+        （"length" 即 max_tokens 截断）。默认 False 保持既有 3 元组契约不变。
         """
         payload = {
             "model": self.model,
@@ -268,18 +288,26 @@ class LLMClient:
             })
         usage = data.get("usage") or {}
         record_llm_usage(self.model, usage)
-        return content, tool_calls, usage.get("total_tokens")
+        tokens = usage.get("total_tokens")
+        if with_finish_reason:
+            return content, tool_calls, tokens, _finish_reason_of(data)
+        return content, tool_calls, tokens
 
     async def chat_with_tools_safe(
         self,
         messages: list[JSONDict],
         tools: list[JSONDict] | None = None,
+        *,
+        with_finish_reason: bool = False,
     ) -> tuple[str, list[JSONDict], int | None]:
         """Tool calling with DeepSeek-compatible assistant message recovery.
 
         Thinking-mode models require their ``reasoning_content`` to be returned
         together with a tool-call message.  Dropping it produces a 400 on the
         next tool round, so it is retained only on the assistant tool call.
+
+        with_finish_reason=True 时（VS12 P1-2）额外返回第 4 项 finish_reason，
+        默认 False 保持既有 3 元组契约不变。
         """
         payload = {
             "model": self.model,
@@ -310,7 +338,10 @@ class LLMClient:
             })
         usage = data.get("usage") or {}
         record_llm_usage(self.model, usage)
-        return content, tool_calls, usage.get("total_tokens")
+        tokens = usage.get("total_tokens")
+        if with_finish_reason:
+            return content, tool_calls, tokens, _finish_reason_of(data)
+        return content, tool_calls, tokens
 
     def _sanitize_messages(self, messages: list[JSONDict]) -> list[JSONDict]:
         """Normalize tool-call messages without deleting required reasoning."""
@@ -357,7 +388,9 @@ class LLMClient:
         # Do not add an aggregate row here: that would double-count tool loops.
 
         for _round in range(max_rounds):
-            content, tool_calls, tokens = await self.chat_with_tools_safe(messages, tools)
+            content, tool_calls, tokens, _finish_reason = await self.chat_with_tools_safe(
+                messages, tools, with_finish_reason=True,
+            )
             total_tokens += tokens or 0
 
             if not tool_calls:
@@ -432,7 +465,9 @@ class LLMClient:
 
         # 超出最大轮数，强制要求最终回复
         messages.append({"role": "user", "content": "请基于已有数据输出最终结论。"})
-        content, _, tokens = await self.chat_with_tools_safe(messages, tools)
+        content, _, tokens, _finish_reason = await self.chat_with_tools_safe(
+            messages, tools, with_finish_reason=True,
+        )
         total_tokens += tokens or 0
         if event_sink is not None:
             await event_sink("tool_loop_exhausted", {"tool_calls": all_tool_calls})
