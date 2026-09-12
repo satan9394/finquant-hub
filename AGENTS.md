@@ -95,6 +95,9 @@ frontend/src/
 - **备份目录的 `-Filter` 通配符尾星是承重的**：SQLite 备份写 `foo.db.<pid>.partial` 时会**同时产生伴生件** `…partial-wal` / `…partial-shm` / `…partial-journal`（中断后残留、会**静默累积**）。实测：`-Filter 'finquant-backup-*.partial*'` 能同时匹配 `.partial` **与三个伴生件**；而 `-Filter 'finquant-backup-*.partial'`（**无尾星**）**只**匹配 `.partial`，伴生件全漏——`git diff` 上只是少一个字符。同理，**7 份「有效备份」计数必须继续用 `'finquant-backup-*.db'`**（实测只匹配真正的 `.db`，不受放宽影响）。
 - **PowerShell 双引号串会展开 `$变量`，写提交信息/字符串时当心**：`git commit -m "… DeleteFile(\$dest) …"` 里的 `\$` **不是转义**（PowerShell 用反引号），`$dest` 会被当成变量展开成空，落进历史的是 `DeleteFile(\)`。需要字面 `$` 时用**单引号串**（`'…'`）或在这里用反引号转义；长文本优先用 here-string 单引号形式。
 - **回收含 junction 的目录会失败**：`DeleteDirectory(<沙箱>, …,'SendToRecycleBin')` 对**内含 junction 的目录**常报 `Attempted to perform an unauthorized operation`。正确处理：**先单独回收那个 junction 本身**（回收 junction 只删链接、**不伤目标**——已验证：回收指向 `backend\.venv` 的 junction 后，真实 venv 的 `python.exe` 与 190 个 `site-packages` 目录完好），**若父目录仍失败**，则**逐文件回收 + 由深到浅回收各层目录 + 最后回收顶层**。另外 `.git` 内对象文件是**只读**的，克隆出的沙箱要先 `$_.Attributes='Normal'` 再回收。
+- **用 PowerShell 直接写盘改 Markdown 会静默造成"行拼接"损坏，且不要用行长阈值去查它**：本项目文档大量使用**长段落单行**的写法，因此用"行长 > N 字符"或"一行内多个句号"来检测拼接会**只产生假阳性**（实测对 `PRODUCT_STATE`/`PRODUCT_GAP_MAP`/`CHANGELOG` 一次性报出 60+ 条，逐条看全是正常段落）——**与"把合法键名 `noMutation` 当成变异标记"是同一个毛病：把匹配当事实**。
+  - **真实的损坏长这样**：一行里**出现两个不相干主题**（实测：`PRODUCT_STATE` 末行把"R5 反面约束"与另一处"哨兵只能降级为历史兼容兜底…"的证据要求拼在了一起，前者的收尾与后者的开头直接相连）。可行的判据是**语义**（这一行是否在讲一件事），不是**长度**。
+  - **做法**：①改动 `.md` 优先用编辑工具而非 `ReadAllLines`+`WriteAllText`（后者绕过读取追踪，还会让编辑工具报"文件自读取后已变"）；②**改完必须读回改动处与文件末尾核对**（本次正是收尾时读末尾三行才发现的）；③发现拼接时**拆行并显式标注"上下文疑似脱落、不可考"，不要代为编造归属，也不要删掉**。
 
 详见 `memory/`：`MAIN_SESSION_TOKEN_DISCIPLINE.md`、`SUBAGENT_TIMEOUT_DISCIPLINE.md`、`VERIFICATION_BLIND_SPOT.md`。
 
