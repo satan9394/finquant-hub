@@ -99,6 +99,19 @@
 - F2：对话路径 `chat_with_tools_loop` 拿到 `finish_reason` 未消费（实现者已按卡声明"未做+原因+无回归"）→ LATER。
 - F3：`success is not True` 恒等比较，若未来出现 `success:1` 会误判（当前不可达）→ LATER（可在 VS-13 顺手加 `!= True` 的容错注释，勿扩大）。
 
+**VS-13 已交付并 ACCEPT**（`650ba2a`）：前端补 `case 'agent_failed'`——崩溃 Agent 卡片不再永远停在 running；抽出可测纯函数 `applyAgentEvent`。（**该缺口自 VS-1 起存在**；且实时路径与历史路径（`:207` 已按"【分析失败】"标记）此前**不一致**。）独立 Evaluator **ACCEPT**，其验证力度为本批最高：
+- 它**自建并跑通组件级 SSE 测试**（mock `fetch` 返回真实 `ReadableStream` → 真实渲染 `<Research>` → 驱动完整事件序列），**闭合了编排者主动自认的"纯函数单测 ≠ 接线正确"缺口**；
+- 逐字 diff 确认 `case 'error'` / `case 'done'` **未被触碰**；并**独立追完端到端链路**（`research_orch:345/384` → `routers/research.py:296` 逐字透传 → `services/sse.ts` 无白名单 → `Research.tsx:461` → `AgentStatusCard.tsx:12/42` 支持 failed 并渲染 progress → i18n 键双语齐全）。
+- **F1（已关闭）**：它指出交付的 `ResearchAgentFailed.test.tsx` 只驱动纯函数、**从不渲染页面** ⇒ **删掉 `case 'agent_failed'` 时全部 18 个测试仍全绿**——"本卡要修的缺陷本身没有被常驻测试守住"。并给出**结构性证明**（该测试从未引用页面默认导出）。它同时给出反向判断：**不建议**为可测性再把内联逻辑抽一层（收益低于复杂度）。
+  - **编排者采纳并加固**（`01fcaed`）：新增常驻组件级接线防线 `frontend/tests/ResearchAgentFailedWire.test.tsx`，并做**变异实测**——把 `case 'agent_failed':` 改名为变异体后该测试**真的挂**（`TestingLibraryElementError: Unable to find an element with the text: 研究 Agent 异常：boom`，挂点 `:74`），恢复后转绿；**恢复完整性经 SHA256 与变异前备份逐字核对**。
+  - 另按 F2 修正了"回归防线/缺陷由此逃逸"等**过强表述**（改为"降低逃逸概率但不覆盖接线"），并按 F4 把"消除该不一致"限定为**状态层面**。
+- F3（仅记录）：`report_lead` 的 LLMError 路径先发 `agent_failed` 后**无条件**再发 `agent_completed` ⇒ 卡片按"后到为准"终结为 completed；评估者查证**历史路径同样判 completed，两路径一致**，属既有事件形态，不在本卡范围。
+
+**VS-14 已交付待判定**（`e452a93`，**编排者接管实现**）：把"产物疑似过期"从**硬退出**降级为**警告后照常启动**（新增 `:stale_frontend` / `:stale_frontend_nobun` / `:reuse_frontend`）——修 A3 P1-2 的**假阳性**方向（重打包触碰 `package.json` ⇒ 产物明明可用却被要求先装 Bun）；产物**真缺失**时仍维持硬失败；复用路径**打印产物构建时间**供用户自查（缓解假阴性方向的静默跑旧前端）。
+- **夹具四场景实跑**（决策块逐字抽出 + 镜像真实结构的桩）：缺失→`bun_missing`（硬失败保留）／过期→**`environment`（不再退出，本卡修复）**／新鲜→`environment`／有 Bun + 过期→`build_frontend`。字节级：CRLF 185、LF-only 0、严格 UTF-8。
+- **有意不改的一处（附推理）**：夹具暴露过期路径会遗留 `errorlevel=1` 到脚本末尾，但**真实脚本不可观测**——`:launch` 末行是前台 uvicorn，最终退出码由它决定，泄漏值必在此前被 `:backup` 的 PowerShell 或 uvicorn 覆盖；场景 4 的 1 是**夹具桩假象**（真实 `:build_frontend` 会 `call bun run build` 重置）。**残留风险已记账**：若日后有人在 `:launch` 的 uvicorn **之前**加 `if errorlevel` 判断会踩到陈旧值。
+- **未消除假阴性**：只改源码不改 `package.json` 仍判"新鲜"、静默跑旧前端；真修复（构建指纹）记 LATER。
+
 **VS-11 已交付并 ACCEPT**（`e37412c`）：消除本地模式"不可完成登录页"死胡同——`api.ts` 保留 HTTP `status`、`authStore` 新增 `unavailable` 状态与**可注入的有限重试**（仅 401/403 判需登录）、`AuthGate` 在 unavailable 时渲染重试提示而不跳登录页、`Login` 兜底、i18n +6 键、QUICKSTART FAQ。独立 Evaluator **ACCEPT**（自跑 17/17 + 既有 `Auth.test.tsx` 4/4 无回归；并**独立排除反向风险**——非本地部署下"需要登录"的唯一信号是 401（`auth.py:34-35,84`），且**主动立起并证伪**了"若后端返回字符串 id 会让成功路径全量误判 unavailable"这一致命假设）。
 - **评估者的 5 条非阻断项与编排者裁决**：
   - **F1（登录页本机兜底文案）**：评估者认为 `Login.tsx:86-101` 的 Alert 无条件渲染会让 Docker 用户在登录页看到"错误信息"，建议按 `user?.local_mode` 条件渲染。**编排者核实后削弱该发现**：文案**本已是条件式**（"**若你是**双击 start.bat 启动的本机版本…"），Docker 用户读到的是条件从句、不会被误导；且其建议的修法**在登录页不可行**（未认证时 `user` 为 null，`/api/health` 也不返回该字段）。**故不改代码**（有意克制，非漏修）。可选改进：让 `/api/health` 暴露 `local_mode`，UI 即可按部署形态定制文案 → 记 LATER。
