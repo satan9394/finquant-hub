@@ -64,7 +64,7 @@ if errorlevel 1 goto stale_frontend
 goto reuse_frontend
 
 :stale_frontend
-rem VS-14：产物**存在**但判为偏旧。有 Bun 就重建；**没有 Bun 时不再硬退出**——
+rem VS-14：产物"存在"但判为偏旧。有 Bun 就重建；"没有 Bun"时不再硬退出——
 rem 打包/解压可能让 package.json 的时间晚于 index.html（用户不可控），此时把用户
 rem 挡在门外（要求他先装一个没听说过的工具）比"用稍旧的界面启动"糟糕得多。
 if defined FQ_BUN_MISSING goto stale_frontend_nobun
@@ -155,7 +155,7 @@ echo [进阶] 手动补齐依赖：在 backend 目录运行 .venv\Scripts\python
 goto fail
 
 :venv_failed
-echo [错误] Python 运行环境准备失败：本项目需要 **Python 3.12**。
+echo [错误] Python 运行环境准备失败：本项目需要 Python 3.12。
 rem VS-15：打印"检测到的版本"，避免装了 3.13/3.11 的用户只看到"没装 3.12"而不知问题在版本号上。
 rem 注：python -V 输出到 stdout（已实测），故 2>nul 只抑制"不是内部或外部命令"这类 stderr。
 echo [检测] 当前 PATH 中 python 命令的版本：
@@ -181,7 +181,7 @@ goto fail
 :bun_missing
 echo [错误] 未找到 Bun，而当前需要构建前端页面，无法继续。
 echo [怎么做] 1^) 打开 https://bun.sh 按官网步骤安装 Windows 版本，装完后关闭本窗口，再重新双击 start.bat；
-echo [怎么做] 2^) 如果拿到的是已附带 frontend\dist 页面产物的发行包，产物存在且未过期时本来不需要 Bun；产物被删或过期后仍需按上一步安装。
+echo [怎么做] 2^) 如果拿到的是已附带 frontend\dist 页面产物的发行包，产物存在时启动就不需要 Bun（即使判为偏旧也只提示并照常启动）；出现本提示说明产物已缺失（被删或解压不完整），按上一步装好 Bun 即可。
 echo [文档] 详见 docs\QUICKSTART.md 的"提示没装 Bun / Python，或安装、构建失败"一节。
 
 :fail
