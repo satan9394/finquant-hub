@@ -211,7 +211,7 @@ EXIT=0
 | `gate2_combined_4.log` | 23 passed / 1 failed | `ResearchFollowupPrompt` 首条（**本卡未触碰**） |
 | `C1/C2/C3`、`gate2_combined_2/3/5/6` | **24 passed** | — |
 
-关键判据：**改后所有变红无一例外都是 `Error: Test timed out in 5000ms`，且全部落在本卡未触碰的用例上；本卡改动的 3 条用例在改后的每一次运行中都通过。** 改前的同环境对照（`baseline.log`）则不同：那 3 条是**真断言失败**（`expected '2026-08-20' to be '2026-09-12'` / 找不到 `2026-08-27` 按钮 / 找不到龙虎榜错误文案），**不是超时**。
+关键判据：**改后所有变红无一例外都是 `Error: Test timed out in 5000ms`，且全部落在本卡未触碰的用例上**；对**改后全部 13 次运行**逐次机械核对（`S1`、`C1–C3`、`gate1_single`、`gate1_single_retry1/2`、`gate2_combined_1–6`）：**本卡改动的 3 条用例 13/13 次全部通过**（判定脚本按用例名取 ✓/×）。改前的同环境对照（`baseline.log`）则不同：那 3 条是**真断言失败**（`expected '2026-08-20' to be '2026-09-12'` / 找不到 `2026-08-27` 按钮 / 找不到龙虎榜错误文案），**不是超时**。
 
 ## 5. 未解决问题 / 风险
 1. **【已交回，非本卡缺陷】根因修正：3 条红里只有 1 条是真竞态**（详见 §4.3.4）。第 1 处（`:295` 原行）是**真竞态**——`await screen.findByText(错误条)` 只等到错误条落地，而 AntD `DatePicker` 受控回滚到原日期的**内部输入文本同步还要多走一次**；第 2、3 处的红是**它提前中断后 `mock*Once` 残留导致的级联**。按卡内要求第 2、3 处也改了 `waitFor`（**无害、且不弱化断言**），但**请不要把"3 处竞态"写进档案**——那是本卡前提里的一个不准确处。
@@ -232,4 +232,5 @@ EXIT=0
   - 构建：`gate3_build.log`（`tsc -b && vite build`，EXIT=0）
   - 变异：`MUTANT_C.log`（期望值改错 ⇒ 三处各自变红）、`MUTANT_B.log`/`MUTANT_B_2..5.log`（仅第 1 处回退同步，5 次中 2 次复现原竞态）、`MUTANT_A.log`（三处全回退）
 - **变异副本**（`%TEMP%\vs26-mutant\`，`node_modules` 为 junction；**仓库 worktree 全程未变异**）：`mutantA-frontend`、`mutantB-frontend`、`mutantC-frontend`
+  - ⚠️ **目录共用提示**：本会话进行期间，**另一个 agent（VS-26 验收者）也在使用同一个 `%TEMP%\vs26-gates\` 与 `%TEMP%\vs26-mutant\` 根目录**跑它自己的复核（其产物形如 `retry-combined.txt`、`mutants.txt`、`build.txt`）。**本报告引用的文件名一律是**：`baseline.log`、`S*.log`、`C*.log`、`gate1_*/gate2_*/gate3_*.log`、`MUTANT_*.log`；副本一律是 `*-frontend`。两套产物互不覆盖，请勿混读。
 - **"期望值逐字未变"的机械核对**（本会话实测）：三行改后断言各自剥掉 `await waitFor(() => ` 与收尾 `);` 后，与 `fca8364^` 中对应行**逐字符相等**（`True/True/True`）；不计注释时全文件差异**恰为 3 行删除 + 3 行新增**。
