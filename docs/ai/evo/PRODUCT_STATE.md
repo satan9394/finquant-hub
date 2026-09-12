@@ -314,3 +314,20 @@
 1. **口径更正**：`readStateOf` 的"**全产品唯一**"应收窄为"**族内唯一**"——族外仍有手写三态：`SharePreviewModal.tsx:42-50`、`Research.tsx:892`、`DiscoverResults.tsx:21`（均有 loading 守卫、不在卡面范围）。
 2. **🟠 F1（新发现，列 NEXT，建议单开卡；非阻断）**：`Discussion.tsx:49-50` 的 `detailFailed/detailError` **未按房间作用域**（只有 `scopedDetail:329` 作用域了）。实测 `loading=false error=true staleErrorText=true`——**42 详情失败后切到 43，43 在途时右栏仍显示 42 的错误原文**。**这是 VS-29"不串台"修复漏掉的一维**：作用域了内容与加载态，**未一并作用域"错误原文"**。修法：切房间时一并清（一行）。
 3. **🟡 F3（观察项，非阻断，无需动作）**：`Dashboard.test.tsx` 的 `DecisionInboxPanel` 用例在批量复跑中超时 5528ms——该组件提交前后逐字节相同、不经本卡改动路径，单文件复跑 16/16 且该用例降到 753ms ⇒ **负载诱发假红**，未据改判。**未复现** 4294967295 中断。
+### R439 补二：VS-32～VS-35 四卡收口（全部 ACCEPT）
+
+| 卡 | 内容 | 提交 | 判定 |
+|---|---|---|---|
+| VS-32 | 修 VS-29 的 F1：`Discussion.tsx` 错误原文按房间作用域（`detailErrorId`） | `27233a4` | **ACCEPT**（`e2b9ff9`） |
+| VS-33 | 清 `llm_client.py` 引文陷阱（改指路式） | `7600642` | **ACCEPT**（`1cd908c`） |
+| VS-34 | Chat 静默吞错（O2）→ 可归因 + 真重发 | `92055e0` | **ACCEPT**（`4e836a8`） |
+| VS-35 | swarm 逐 Agent 条目纳入 VS-20 结构化契约 | `92b1b35` | **ACCEPT**（`05073a7`） |
+
+**本批新开的 NEXT 项（均经独立验收确认，不是猜测）**：
+- **🟠 swarm 历史回放不显示逐 Agent 结构化状态**：评估者比实现者走得更远——**`swarmApi.ts` 只有实时 SSE + 团队定义、根本没有历史回放拉取**；唯一回放入口 `deriveAgentOutcomes` 只遍历 research 的 `AGENT_KEYS`。⇒ **新需求**（非 VS-35 缺陷）。
+- **🟠 同族"状态未按实体作用域"**：`Discover.tsx:49` 的 `nameSearchFailed`、`alpha/AlphaResearchPanel.tsx:25` 的 `searchError` **未按查询词作用域**，只靠"发起时清"掩盖（VS-32 评估者发现）。**与 F1 同族**。
+- **🟡 `MonitorToday.test.tsx:30`** 未传已成必填的 `onRetry`。
+- **🟡 VS-34 残留（报告 §8）**：E/F/G 对非 Error rejection 时 `e.message` 为 undefined 会让 toast 无文案；角色失败态在 Chat 有两份（**有意冗余**）。
+- **🟡 VS-33 的替代防护建议**：在 `scripts/audit.py` 加**形态级**规则（代码/契约面出现 `原文为"` 一类"引述旧原文"即告警），并写入 `AGENTS.md`——**锁形态而非锁某句话**。
+
+**编排者本批又错了两次，均由下游纠正**：①**VS-35 的卡里路径与行号双错**（真身 `services/swarm_orch.py`、条目在旧 `242-249`，我写了 `orchestrator/…:272-282`）⇒ 实现者**连门都进不去**（failed before it finished）；②**VS-35 提交信息里把变异基线写成 `a03ac75`，实际 `92b1b35^` = `92055e0`**（评估者纠正）。**两处同属"锚点"这一类**，而 `AGENTS.md` 里"归档一律写显式提交号"的规则**是我在同一时间段刚写下的**——**规则写下来之后，仍需真的去核对它**。
