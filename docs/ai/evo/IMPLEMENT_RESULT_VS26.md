@@ -68,17 +68,91 @@ await waitFor(() => expect(screen.getByText('龙虎榜：龙虎榜接口不可�
 ## 4. 门禁原始输出
 （全部原始日志留在 `$env:TEMP\vs26-gates\`，**未写入仓库目录**；下方为逐条摘录。）
 
-### 4.1 `ResearchWorkspaceEvidence` 单跑
-（待回填）
+### 4.1 `ResearchWorkspaceEvidence` 单跑（改后）
+命令：`cd frontend && bun x vitest run tests/ResearchWorkspaceEvidence.test.tsx`
+原始输出（日志 `$env:TEMP\vs26-gates\S1.log`）：
+```
+### SINGLE attempt 1 ###
 
-### 4.2 与 `ResearchFollowupPrompt.test.tsx` 同跑（稳定性）
-（待回填）
+ RUN  v4.1.10 E:/Code_file/Projects/finquant-hub/frontend
+...
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  01:46:20
+   Duration  39.92s (transform 1.65s, setup 571ms, import 17.90s, tests 18.80s, environment 2.16s)
+EXIT=0
+```
+本卡改动涉及的 3 条用例逐条通过：
+```
+ ✓ keeps historical selection after a failed date and resets after a successful workspace retry  3402ms
+ ✓ resets selection on a real symbol navigation when the same workspace component is reused  1990ms
+ ✓ keeps both cards visible with honest Empty fallbacks when fetchers fail  457ms
+```
+
+### 4.2 与 `ResearchFollowupPrompt.test.tsx` 同跑 ×3（稳定性）
+命令：`bun x vitest run tests/ResearchWorkspaceEvidence.test.tsx tests/ResearchFollowupPrompt.test.tsx`
+**连续 3 次全绿**（`C1.log` / `C2.log` / `C3.log`，均为**连跑不中断**的连续三次）：
+```
+##### C1.log
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  01:47:01
+   Duration  110.24s (transform 4.13s, setup 1.20s, import 68.25s, tests 34.56s, environment 5.23s)
+EXIT=0
+  ✓ keeps historical selection after a failed date and resets after a successful workspace retry  4047ms
+  ✓ resets selection on a real symbol navigation when the same workspace component is reused  1648ms
+  ✓ keeps both cards visible with honest Empty fallbacks when fetchers fail  448ms
+
+##### C2.log
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  01:48:54
+   Duration  92.25s (transform 3.80s, setup 1.22s, import 50.25s, tests 33.18s, environment 6.19s)
+EXIT=0
+
+##### C3.log
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  01:50:28
+   Duration  66.25s (transform 2.41s, setup 1.13s, import 36.49s, tests 22.24s, environment 5.29s)
+EXIT=0
+```
+更早的样本（改后，同一命令）：`gate2_combined_2.log`、`gate2_combined_3.log`、`gate2_combined_5.log`、`gate2_combined_6.log` **也是 24 passed** —— 即改后**共 7 次**该组合跑全绿。
 
 ### 4.3 鉴别力证明（`$env:TEMP` 副本内改回同步断言 ⇒ 变红）
 （待回填）
 
 ### 4.4 串行 `bun run build`（含 `tsc -b`）
-（待回填）
+命令：`cd frontend && bun run build`（= `prebuild` 契约检查 → `tsc -b` → `vite build`）
+原始输出（`$env:TEMP\vs26-gates\gate3_build.log`）：
+```
+### GATE 3: BUILD ###
+$ ../backend/.venv/Scripts/python.exe ../scripts/openapi_tsgen.py --check
+OK: E:\Code_file\Projects\finquant-hub\frontend\src\types\openapi.generated.ts is fresh (60 schemas)
+$ tsc -b && vite build
+vite v6.4.3 building for production...
+transforming...
+✓ 4262 modules transformed.
+...
+✓ built in 1m 5s
+EXIT=0
+```
+`tsc -b` 未报错（`vite build` 只有在 `tsc -b` 成功后才会执行，日志中 `$ tsc -b && vite build` 之后直接进入构建即为此证）。
+
+### 4.5 环境噪声：全部尝试的完整样本（如实记录，未挑选）
+本机在本次作业期间**同时有其它 agent 的 vitest 在跑**（实测：`bun x vitest run tests/Discussion.test.tsx tests/DiscussionRolesUnavailable.test.tsx`，PID 20932/6832），CPU 负载 65%（8 逻辑核）。**在负载窗口内的运行会出现与本次改动无关的 `Test timed out in 5000ms`**：
+
+| 运行 | 结果 | 变红用例（全部为 5s 超时，非断言失败） |
+|---|---|---|
+| `gate1_single.log`（改后单跑，负载中） | 13 passed / 1 failed | `rolls back failed dates without losing rows...`（**本卡未触碰**的第 14 条） |
+| `S1.log`（改后单跑，负载低） | **14 passed** | — |
+| `gate1_single_retry1.log` | 13 passed / 1 failed | `keeps chip snapshots...`（**本卡未触碰**，9177ms > 5000ms） |
+| `gate1_single_retry2.log` | 13 passed / 1 failed | 同上（该用例 9177ms） |
+| `gate2_combined_1.log` | 23 passed / 1 failed | `keeps chip snapshots...`（**本卡未触碰**） |
+| `gate2_combined_4.log` | 23 passed / 1 failed | `ResearchFollowupPrompt` 首条（**本卡未触碰**） |
+| `C1/C2/C3`、`gate2_combined_2/3/5/6` | **24 passed** | — |
+
+关键判据：**改后所有变红无一例外都是 `Error: Test timed out in 5000ms`，且全部落在本卡未触碰的用例上；本卡改动的 3 条用例在改后的每一次运行中都通过。** 改前的同环境对照（`baseline.log`）则不同：那 3 条是**真断言失败**（`expected '2026-08-20' to be '2026-09-12'` / 找不到 `2026-08-27` 按钮 / 找不到龙虎榜错误文案），**不是超时**。
 
 ## 5. 未解决问题 / 风险
 （待回填）
