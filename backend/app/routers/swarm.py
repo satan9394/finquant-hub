@@ -5,11 +5,12 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from .. import database
+from ..services.market_data import normalize_code
 from ..services.notifications import publish_research_status
 from ..services.llm_usage import reset_usage_context, set_usage_context
 from ..services.swarm_orch import (
@@ -43,6 +44,95 @@ async def get_four_masters(_user: CurrentUser) -> dict[str, Any]:
 async def get_earnings_review(_user: CurrentUser) -> dict[str, Any]:
     """返回六 Agent 财报精读团队拓扑和工具权限。"""
     return public_team_definition(get_earnings_review_team())
+
+
+# ------------------------------------------------------------------
+# GET /runs — 历史回放入口（只读）
+#
+# `research_reports` 没有团队/类型字段，归属只能靠事件判定：swarm 运行的
+# **首个**持久化事件是 `team_started`（services/swarm_orch.py 的 `_run_team`
+# 首个 yield，经 routers/swarm.py 的 `_append_event` 落库）。深度研究报告由
+# `research_orch` 产出，从不发 `team_started`（其事件只有 agent_started /
+# agent_failed / tool_call / agent_completed / report_progress / done / error）。
+# 因此本端点用「该 report 的最小 event id 恰好是 team_started」做归属判定，
+# 不新增表/列，也不改既有列语义。
+# ------------------------------------------------------------------
+
+_RUNS_SQL = (
+    "WITH first_events AS ("
+    "  SELECT research_id, MIN(id) AS first_event_id FROM research_events"
+    "  WHERE user_id = ? GROUP BY research_id"
+    ") "
+    "SELECT r.id AS report_id, r.ticker, r.company_name, r.status, r.created_at, e.payload AS first_payload "
+    "FROM research_reports r "
+    "JOIN first_events f ON f.research_id = r.id "
+    "JOIN research_events e ON e.id = f.first_event_id "
+    "WHERE r.user_id = ? AND e.user_id = ? AND e.event_type = 'team_started' "
+    "AND r.ticker IN ({placeholders}) "
+    "ORDER BY r.created_at DESC, r.id DESC"
+)
+
+
+def _ticker_candidates(raw: str) -> list[str]:
+    """把用户输入映射为待匹配的 ticker 形式（纯字符串处理，不触网）。
+
+    同时保留规范化形式与原始输入：前者匹配现行写入路径（`resolve_research_target`
+    落库的是规范化代码），后者兜住规范化迁移之前的历史行。
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return []
+    candidates: list[str] = []
+    try:
+        normalized = normalize_code(stripped)
+    except ValueError:
+        normalized = ""
+    if normalized:
+        candidates.append(normalized)
+    if stripped not in candidates:
+        candidates.append(stripped)
+    return candidates
+
+
+def _team_metadata(payload: str) -> tuple[str | None, str | None]:
+    """从 `team_started` 的 payload 里取 team key/name；异常载荷降级为 None，不抛错。"""
+    try:
+        data = json.loads(payload)
+    except (TypeError, ValueError):
+        return None, None
+    team = data.get("team") if isinstance(data, dict) else None
+    if not isinstance(team, dict):
+        return None, None
+    key = team.get("key")
+    name = team.get("name")
+    return (key if isinstance(key, str) else None, name if isinstance(name, str) else None)
+
+
+@router.get("/runs")
+async def list_swarm_runs(user: CurrentUser, ticker: str = Query(min_length=1, max_length=32)) -> dict[str, Any]:
+    """列出当前用户在某个 ticker 下的 swarm 团队运行，按时间倒序。只读，不触发任何 LLM 调用。"""
+    candidates = _ticker_candidates(ticker) or [ticker]
+    placeholders = ", ".join("?" for _ in candidates)
+    user_id = int(user["id"])
+    rows = await database.query_all(
+        _RUNS_SQL.format(placeholders=placeholders),
+        (user_id, user_id, user_id, *candidates),
+    )
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        team_key, team_name = _team_metadata(row["first_payload"])
+        items.append(
+            {
+                "report_id": row["report_id"],
+                "ticker": row["ticker"],
+                "company_name": row["company_name"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "team_key": team_key,
+                "team_name": team_name,
+            }
+        )
+    return {"items": items, "total": len(items)}
 
 
 async def _analyze_with_team(

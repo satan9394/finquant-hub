@@ -323,8 +323,11 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 |------|------|------|------|
 | `/api/swarm/teams/four-masters` | GET | 四专家 + 投研主编的团队拓扑与工具权限 | 新增 |
 | `/api/swarm/teams/earnings-review` | GET | 财报精读团队拓扑与工具权限 | 新增 |
+| `/api/swarm/runs` | GET | 某 ticker 下当前用户的 swarm 团队运行列表（历史回放入口，只读） | 新增 |
 | `/api/swarm/analyze` | POST | **SSE 流**运行四大师研究并持久化报告 | 新增 |
 | `/api/swarm/teams/earnings-review/run` | POST | **SSE 流**运行财报精读团队并持久化报告 | 新增 |
+
+`GET /api/swarm/runs?ticker=<code>` 只读、无副作用、不触发任何 LLM 调用，仅返回当前用户的数据。`research_reports` 没有团队/类型字段，归属只能由事件流判定：swarm 运行的**首个持久化事件**是 `team_started`（`payload.team` 含 `key/name/description/agents`，由 `services/swarm_orch.py` 首个 yield、经 `_append_event` 落库），而深度研究报告由 `research_orch` 产出、从不发 `team_started`。因此该端点只返回「最小 event id 恰为 `team_started`」的报告，零事件的历史报告与深度研究报告都不会出现；响应按 `created_at DESC, id DESC` 排序，每项含 `report_id / ticker / company_name / status / created_at / team_key / team_name`（载荷异常时 team 字段降级为 `null`，不让整个列表失败）。`ticker` 同时接受裸代码与规范化代码（`AAPL` 与 `usAAPL` 等价；`600519` 与 `sh600519` 等价），未命中时返回 `{"items": [], "total": 0}`。
 
 ---
 
@@ -468,7 +471,7 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 14 | `/api/instruments` | instruments.py | 0 | 10 |
 | 15 | `/api/screening` | screening.py | 0 | 1 |
 | 16 | `/api/wq` | wq.py | 0 | 10 |
-| 17 | `/api/swarm` | swarm.py | 0 | 4 |
+| 17 | `/api/swarm` | swarm.py | 0 | 5 |
 | 18 | `/api/notifications` | notifications.py | 0 | 4 |
 | 19 | `/api/alerts` | alerts.py | 0 | 8 |
 | 20 | `/api/mcp` | mcp.py | 0 | 8 |
@@ -476,6 +479,6 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 22 | `/api/usage` | usage.py | 0 | 4 |
 | 23 | `/api/thesis` | thesis.py | 0 | 14 |
 | 24 | `/api/model-pricing` | model_pricing.py | 0 | 4 |
-| | **合计** | | **39** | **132** |
+| | **合计** | | **39** | **133** |
 
-合计为 23 个 APIRouter 加 1 个内联健康检查，运行时生成 140 个 `/api/*` 路径、176 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 23 个 APIRouter 加 1 个内联健康检查。2026-09-13 实测 `app.openapi()`：含内联健康检查为 142 个 `/api/*` 路径、178 个 HTTP 操作；不含内联健康检查为 141 / 177。本次新增 `/api/swarm/runs` 贡献 1 个路径 / 1 个操作（新增前实测：含健康检查 141 / 177）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
