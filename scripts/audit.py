@@ -420,7 +420,6 @@ def audit(root):
 
     # 约束层
     constr_items = []
-    hooks_dir = os.path.join(root, ".claude", "hooks")
     ci_dir = os.path.join(root, ".github", "workflows")
     always_include = os.path.join(root, ".claude", "settings.local.json")
     hooks_cfg = os.path.join(root, ".claude", "settings.json")

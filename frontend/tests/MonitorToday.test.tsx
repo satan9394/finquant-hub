@@ -27,7 +27,7 @@ describe('Monitor and Today workspaces', () => {
     render(<>
       <TodayNeedAttention attention={2} running={1} changes={1} events="UNKNOWN"><div>queue</div></TodayNeedAttention>
       <TodayUniverse onOpen={vi.fn()} />
-      <ResearchRuns runs={[{ id: 1, title: '600519 Review', state: 'running', progress: null }]} />
+      <ResearchRuns runs={[{ id: 1, title: '600519 Review', state: 'running', progress: null }]} onRetry={vi.fn()} />
     </>);
     expect(screen.getByText('需要处理')).toBeTruthy();
     expect(screen.getByText('My Universe · 我的对象')).toBeTruthy();
