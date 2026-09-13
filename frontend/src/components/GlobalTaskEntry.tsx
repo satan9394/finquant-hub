@@ -36,6 +36,14 @@ interface TaskSearchFailure {
   error: string;
 }
 
+/**
+ * W1：「已保存研究」(`saved`) 读取的失败态。**对象存在即代表失败** —— 不用"错误文案非空"当判据
+ * （VS-29 契约写明：底层错误可能没有 message），字段是原样带出的底层原文。
+ */
+interface SavedLoadFailure {
+  error: string;
+}
+
 // BACKLOG-032 Step A：全局提问弹窗收敛为单实例（header 常驻的那一个）。
 // 任何来源（⌘K 由 App 层注册、hero 触发按钮、其他入口）都 dispatch 本事件，
 // 唯一监听者是 header 内嵌的这个 GlobalTaskEntry。组件自身不再注册 ⌘K，
@@ -76,15 +84,43 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
   const [selected, setSelected] = useState<GlobalTaskTarget | null>(null);
   const [recent, setRecent] = useState<GlobalTaskTarget[]>(readRecentTargets);
   const [saved, setSaved] = useState<GlobalTaskTarget[]>([]);
+  // W1：「已保存研究」的读取**单独**持有失败态 / 结论 / 请求序号。修前这里是
+  // `.catch(() => setSaved([]))` —— 读取失败被归约成空数组，而 `targetList` 在为空时整块渲染
+  // `false` ⇒ **"读取失败"与"确实没有已保存研究"在屏幕上完全同形**（VS-29 要消灭的正是这种假象）。
+  // 这里的 `savedRequestId` 是新起的序号，**不复用**检索流的 `requestId`：那个序号属于
+  // "当前查询词"，两件事共用一个会让彼此的迟到响应互相改写。
+  const [savedFailure, setSavedFailure] = useState<SavedLoadFailure | null>(null);
+  const [savedResolved, setSavedResolved] = useState(false);
+  const savedRequestId = useRef(0);
   // VS-38：迟到的响应不得改写"当前查询词"的产出/失败（同族：VS-36 在 Discover/AlphaPanel 的 requestId 守卫）。
   const requestId = useRef(0);
+
+  /**
+   * W1：「已保存研究」的读取。失败**不再**被归约为空数组 —— 记为失败态并原样带出底层原文，
+   * 交给族内唯一三态实现（`readStateOf` / `LoadStateView`）呈现；重试**真的重发本函数**。
+   * VS-32 口径：**发起时不清理失败态**（"发起时清"会抹掉"这条失败是谁的"，并让重试在途闪一次空态）；
+   * 只有真的成功之后才清 —— 见下方成功分支里的 `setSavedFailure(null)`。
+   */
+  const loadSaved = () => {
+    const id = ++savedRequestId.current;
+    void listResearchWorkspaces()
+      .then((items) => {
+        // 迟到的响应（重开面板 / 连点重试）不得改写新状态。
+        if (id !== savedRequestId.current) return;
+        setSaved(items.slice(0, 5).map((item) => ({ code: item.symbol, name: item.name ?? item.symbol })));
+        setSavedResolved(true);
+        setSavedFailure(null);
+      })
+      .catch((error: unknown) => {
+        if (id !== savedRequestId.current) return;
+        setSavedFailure({ error: error instanceof Error ? error.message : String(error) });
+      });
+  };
 
   const show = () => {
     setOpen(true);
     setRecent(readRecentTargets());
-    void listResearchWorkspaces()
-      .then((items) => setSaved(items.slice(0, 5).map((item) => ({ code: item.symbol, name: item.name ?? item.symbol }))))
-      .catch(() => setSaved([]));
+    loadSaved();
   };
 
   useEffect(() => {
@@ -182,6 +218,18 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
   // 既不摆空态也不摆转圈（修前输入框空着就显示空态，那才是"把没查过说成没有结果"）。
   const searchStarted = Boolean(scopedOutcome || scopedFailure || scopedPending);
 
+  // W1：`saved` 的三态事实同样交给族内唯一判据（`readStateOf`），这里只交事实：它自己失败了吗、
+  // 成功读到过吗、手上几条、原文是什么 —— **优先级不在这里编排**。
+  const savedState = readStateOf({
+    failed: savedFailure !== null,
+    resolved: savedResolved,
+    count: saved.length,
+    error: savedFailure?.error,
+  });
+  // W1：失败文案必须说清"是什么东西读不出来"。本卡只允许改这一个文件（不得新增 i18n 词条），
+  // 因此复用产品里既有的参数化文案 `comparison.loadError.research`（`已保存研究：{error}`）。
+  const savedFailureMessage = t('comparison.loadError.research', { error: t('research.error.loadFailed') });
+
   return (
     <>
       {!hideTrigger ? (
@@ -261,7 +309,25 @@ export default function GlobalTaskEntry({ onNavigate, hideTrigger = false }: Glo
         </Button>
 
         {targetList(t('command.recent'), recent)}
-        {targetList(t('command.saved'), saved)}
+        {/* W1：`saved` 不再走 `targetList` —— "为空就整块渲染 false"正是"失败与空同形"的另一半。
+            这里交给族内唯一三态实现：失败 ⇒ 失败文案 + 底层原文 + 真的重发 `listResearchWorkspaces()`
+            的重试按钮；成功且确实为空 ⇒ 只有空态图标，**绝不出现任何失败文案**。 */}
+        <div className="global-task-entry__history global-task-entry__saved">
+          <Text type="secondary">{t('command.saved')}</Text>
+          <LoadStateView
+            state={savedState}
+            failureMessage={savedFailureMessage}
+            onRetry={loadSaved}
+          >
+            <Space wrap>
+              {saved.map((item) => (
+                <Button key={`saved-${item.code}`} size="small" onClick={() => choose(item)}>
+                  {item.name} · {item.code}
+                </Button>
+              ))}
+            </Space>
+          </LoadStateView>
+        </div>
         <Text className="global-task-entry__note" type="secondary">{t('command.note')}</Text>
       </Modal>
     </>
