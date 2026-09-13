@@ -3,6 +3,7 @@
 > **唯一清单**。用户裁决：NEXT / NIT / 待办收敛为这一份，不新建 `tasks/`，不改项目既有 `task/`。
 > **生成时间**：2026-09-13 01:44（本机时间 `-07:00`，`Get-Date` 实测）。
 > **基线锚点**：`main` @ `264648d8619f759b222cced6583169e6432d04d6`（显式 40 位提交号；不使用 `HEAD~1` 这类相对锚点）。本仓无 remote，不推送。
+> **2026-09-13 Mission 2 更新**：本清单中经用户裁决进入 Mission 2 的四项已处置完毕——**P1-1 / P2-1 / P2-5 已修复并入库**（`a4882add`、`0d564286`），**P1-2 已出只读评估结论**（`docs/ai/evo/SWARM_REPLAY_EVALUATION.md`，建议「有条件做」，**未实现**）。本次只改本条目的**状态行**与本节锚点，其余条目一字未动。
 > **权威来源**：`finquant-mission-01/recon-report.md` §4.2（"下一步证据"）与 §4.3（明确拒绝/暂缓），叠加下列文档；本清单只按侦察结论收敛，不新增未在任何文档/源码中出现过的条目。
 > **收录口径**：只收「尚未解决」或「只登记不动手」的项。凡已被独立验收 **ACCEPT** 的卡所解决的问题一律不入清单；相关字样仅在 §5「已解决、勿重开」以注解身份出现并**显式标注**。
 > **状态取值（四值，逐条必填）**：`未开始` / `进行中` / `已否决` / `待评估`。
@@ -24,7 +25,7 @@
 
 ### P1-1 `GlobalTaskEntry.tsx` 的 `saved` / `recent` 读取失败仍与"确实为空"同形
 
-- **状态**：未开始
+- **状态**：**已解决（部分）** —— `saved` 已修复并入库（提交 **`a4882add`**）；**`recent` 仍未处理**（本轮裁决：localStorage 同步读、无真重试语义，硬套三态会造出无意义的重试按钮 ⇒ 留在本清单）
 - **严重度**：🟠
 - **来源**：`docs/ai/evo/EVALUATION_RESULT_VS38.md` §7 NIT-1（第 284 行）；`task/CHANGELOG.md` 附五 NIT②（第 812 行）；`DSH_RECOVERY_REPORT.md` §8.3-2（第 100 行）与 §8.5 NIT②（第 128 行）
 - **本轮核实（基线 `264648d`）**：`frontend/src/components/GlobalTaskEntry.tsx:87` 仍为 `.catch(() => setSaved([]))`；`:77` `recent` 由 `readRecentTargets` 初始化、`:84` 重新读取（其内部同样把失败归约为空数组）。渲染侧 `targetList` 在 `items.length === 0` 时整块不渲染 ⇒ 读取失败与"确实没有已保存研究"在屏幕上同形。
@@ -33,7 +34,7 @@
 
 ### P1-2 `swarmApi.ts` 没有历史回放拉取（新需求，非缺陷）
 
-- **状态**：待评估（**须先出只读评估卡，不直接实现**）
+- **状态**：**已评估（结论：有条件做）** —— 报告见 `docs/ai/evo/SWARM_REPLAY_EVALUATION.md`；**未实现**（按 personal-dev-workflow「评估/审计无执行权」，实现须用户另行授权）
 - **严重度**：🟠
 - **来源**：`docs/ai/evo/PRODUCT_STATE.md` R439 补二 🟠（第 327 行）；`DSH_RECOVERY_REPORT.md` §6-3（第 56 行，判定"暂缓，需先单独评估是否值得做"）
 - **本轮核实（基线 `264648d`）**：`frontend/src/services/swarmApi.ts` 全文 59 行，只有两个团队定义拉取（`fetchFourMastersTeam` / `fetchEarningsReviewTeam`）+ 实时 SSE 流（`streamFourMasters` / `streamEarningsReview`），**没有任何历史回放接口**；唯一回放入口 `deriveAgentOutcomes` 在 `frontend/src/pages/Research.tsx:269`，只遍历 research 的 `AGENT_KEYS`。
@@ -45,7 +46,7 @@
 
 ### P2-1 `MonitorToday.test.tsx:30` 渲染 `ResearchRuns` 未传必填 `onRetry`
 
-- **状态**：未开始｜**严重度**：🟡
+- **状态**：**已完成**（提交 **`0d564286`**；补 `onRetry={vi.fn()}`，并全仓自证无第二处同类缺参）｜**严重度**：🟡
 - **来源**：`docs/ai/evo/PRODUCT_STATE.md` R439 补二 🟡（第 329 行）；`docs/ai/evo/PRODUCT_GAP_MAP.md:197`（LATER 段）与 `:221`（测试卫生段）
 - **本轮核实（基线 `264648d`）**：`frontend/src/components/ResearchRuns.tsx:8-21` 的 props 中 `onRetry: () => void` 为**必填**；`frontend/tests/MonitorToday.test.tsx:30` 只传了 `runs`。`frontend/tsconfig.json` 的 `include` 仅 `["src","vite-env.d.ts"]` ⇒ `tsc -b` 不检查 `tests/`，所以**这不是构建红，而是潜伏的类型缺口**（一旦 tests 被纳入 tsc，或该 prop 在运行时被调用即暴露）。
 - **建议动作**：补 `onRetry`（如 `vi.fn()`），并全仓核对是否存在同类缺参调用点；**零生产代码改动**。
@@ -73,7 +74,7 @@
 
 ### P2-5 `scripts/audit.py:423` 未使用变量（F841）
 
-- **状态**：未开始｜**严重度**：🟡
+- **状态**：**已完成**（提交 **`0d564286`**；仅删除该死赋值，`ruff --select F --isolated scripts/audit.py` exit 0，零行为变更已用输出逐字节比对证明）｜**严重度**：🟡
 - **来源**：`DSH_RECOVERY_REPORT.md` §4-3（第 41 行）与 §8.3-5（第 103 行）；`recon-report.md` §4.2-3（附**口径更正**）
 - **本轮复核（基线 `264648d`）**：`.\backend\.venv\Scripts\python.exe -m ruff check --no-cache --select F --isolated scripts\audit.py` → `F841 Local variable 'hooks_dir' is assigned to but never used --> scripts\audit.py:423:5`，`Found 1 error`，exit 1。
 - **口径（勿误用）**：项目门禁是 `cd backend && ruff check .`，该作用域实测 `All checks passed!`；本错误只在**根作用域 / 单文件作用域**下可见 ⇒ `scripts/audit.py` **不在 backend 门禁作用域内**。
