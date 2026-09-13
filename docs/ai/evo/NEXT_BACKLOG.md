@@ -10,13 +10,13 @@
 > **严重度**：🟠 真实缺陷或高价值新需求｜🟡 需评估或需人裁决｜NIT 观感 / 技术债，明确非阻塞。
 > **纪律**：本清单不改写任何历史档案（`docs/ai/evo/*` 既有评估文件、`task/CHANGELOG.md` 历史条目一字未动）；**未在任何原文档添加指针行**（故 `git diff --name-only` 为空，见交付证据）。
 
-## 0. 条目总览（共 16 条）
+## 0. 条目总览（共 18 条）
 
 | 组 | 条目 | 数量 |
 |---|---|---|
 | 🟠 P1 | P1-1 ~ P1-2 | 2 |
 | 🟡 P2 | P2-1 ~ P2-5 | 5 |
-| NIT | NIT-1 ~ NIT-6（观感 4 条 + 同组追加 2 条） | 6 |
+| NIT | NIT-1 ~ NIT-8（观感 4 条 + 同组追加 4 条） | 8 |
 | 文档类 | D-1 ~ D-3（只登记不修改） | 3 |
 
 ---
@@ -34,7 +34,7 @@
 
 ### P1-2 `swarmApi.ts` 没有历史回放拉取（新需求，非缺陷）
 
-- **状态**：**已评估（结论：有条件做）** —— 报告见 `docs/ai/evo/SWARM_REPLAY_EVALUATION.md`；**未实现**（按 personal-dev-workflow「评估/审计无执行权」，实现须用户另行授权）
+- **状态**：**已实现**（Mission 3，用户授权后执行）—— 回放数据层 `4e031979`、只读列表端点 `011e4e9f`、前端接线 `e2450115`。实现路径与 `SWARM_REPLAY_EVALUATION.md` 的建议一致（先做可用回看、归属靠 `team_started` 事件判定、**未做 schema 迁移**）。**取消态回放**仍未支持（见 NIT-7 旁的说明）
 - **严重度**：🟠
 - **来源**：`docs/ai/evo/PRODUCT_STATE.md` R439 补二 🟠（第 327 行）；`DSH_RECOVERY_REPORT.md` §6-3（第 56 行，判定"暂缓，需先单独评估是否值得做"）
 - **本轮核实（基线 `264648d`）**：`frontend/src/services/swarmApi.ts` 全文 59 行，只有两个团队定义拉取（`fetchFourMastersTeam` / `fetchEarningsReviewTeam`）+ 实时 SSE 流（`streamFourMasters` / `streamEarningsReview`），**没有任何历史回放接口**；唯一回放入口 `deriveAgentOutcomes` 在 `frontend/src/pages/Research.tsx:269`，只遍历 research 的 `AGENT_KEYS`。
@@ -122,6 +122,20 @@
 - **状态**：进行中（滚动跟踪，不单独立卡）｜**严重度**：NIT
 - **来源**：`docs/ai/evo/PRODUCT_STATE.md` §技术债 / 风险（第 213-218 行）
 - **内容**：无内置模型单价、历史费用无快照、UTC 时区提示、用量面板多请求、`AlphaSimulationWorkbench` 负载 flake；另有"全量 pytest 在特定沙箱 `no_proxy` 下挂起"——属**环境问题**，非产品缺陷。
+
+### NIT-7 `ResearchReportDetail` 类型声明不带 `events`（运行时却有）
+
+- **状态**：未开始｜**严重度**：🟡（类型欠账，非运行时缺陷）
+- **来源**：Mission 3 / W1 现状核实时**实测发现**（并记于 `RUN_STATE.md` Deferred Backlog）
+- **事实**：`frontend/src/types/research.ts:204-207` 的 `ResearchReportDetail` **不含 `events`**，而后端 `GET /api/research/{id}`（`backend/app/routers/research.py:469-482`）**确实**注入 `report["events"]`（行字段 `id / event_type / agent_role_key / payload / created_at`，`payload` 已 `json.loads`）⇒ **运行时可见、类型层不可见**。后果是各消费方只能自建局部类型：`Research.tsx:59-77`（`StoredAgentEvent`/`StoredReportDetail`）与 `features/swarm/replay.ts:38-45`（`StoredSwarmEventRow`），同一份契约被描述了三遍。
+- **建议动作**：把 `events` 补进 `ResearchReportDetail`，再让两处局部类型收敛到它。**属独立小卡**，Mission 3 未做（不在其允许文件清单内）。
+
+### NIT-8 被取消的 swarm 运行回放出来仍是 `running`
+
+- **状态**：未开始（**已知边界，非缺陷**）｜**严重度**：NIT
+- **来源**：Mission 3 / W1 现状核实时发现（记于 `RUN_STATE.md` Deferred Backlog）
+- **事实**：`frontend/src/features/swarm/state.ts:199` 的 `cancelSwarmRun` 是**客户端状态迁移**，不产生事件、也不落库 ⇒ 回放只能忠实于 `research_events`，被取消的运行回放后 `status` 仍是 `running`。**回放不臆造未落库的状态**是刻意取舍。
+- **若要支持**：需后端在取消时也写一条事件（属产品语义变更，须单独裁决）。
 
 ---
 
