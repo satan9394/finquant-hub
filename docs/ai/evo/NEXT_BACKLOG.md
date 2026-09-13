@@ -172,7 +172,11 @@
 1. **未收录已 ACCEPT 的问题**：已解决项只在 §5 以「勿重开」注解出现，**不以待办身份出现**（grep 自证见交付证据）。
 2. **未改动任何历史档案**：`docs/ai/evo/*` 既有评估文件、`task/CHANGELOG.md` 历史条目、`docs/ai/EXEC_PLAN.md`、`HANDOFF.md`、`README.md`、`AGENTS.md` **均一字未动**；**未添加任何指针行**（因此 `git diff --name-only` 为空）。若后续确需指针行，必须整句替换 + 读回核对 + grep 复核旧句不残留。
 3. **未凭空新增**：条目全部来自 `recon-report.md` §4.2 / §4.3 与上列文档。侦察报告未登记、仅在其他文档滚动出现的项——例如 `PRODUCT_GAP_MAP.md:237` 的 O1（在途窗口点"创建"提示不准确）、`:241` 的 `ResearchFollowupPrompt.test.tsx` 首条用例逼近 5s 超时——**本轮未独立核实，故未登记**；如需纳入，请先核实现状再新增条目，不要凭文档自述排期。
-4. **本轮未做的验证**（如实声明）：前端 `bun run test` / `bun run build`、后端全量 `pytest`（本机沙箱会挂起）、OpenAPI 导出均未跑；「约 40 处」计数与 `/api/*` 路径数 / HTTP 操作数未复核；D-1 的 133 vs 135 口径未裁决。
+4. **本轮验证的覆盖范围**（如实声明，**严格区分「聚焦」与「全量」**）：
+   - **已跑（exit 0）**：前端**聚焦** vitest——只跑 **15 个测试文件 / 83 个用例**，`Test Files 15 passed (15)` / `Tests 83 passed (83)`，退出码 **0**（实测记录 `BASELINE_VERIFICATION.md:22`；命令原文见 `:299`）。该结果**仅覆盖 151 个前端测试文件中的 15 个**，**不代表前端全量绿**。
+   - **已跑（exit 0）**：前端 `bun run build`——`openapi … fresh (60 schemas)` → `tsc -b` 无错 → `built in 39.33s`，退出码 **0**（实测记录 `BASELINE_VERIFICATION.md:23`；构建输出见 `:340-386`）。
+   - **未跑**：前端**全量** vitest（`frontend/tests/` 共 151 个 `*.test.ts*`）、后端**全量** `pytest`（本机沙箱会挂起）、E2E、Docker `up`、`mypy`、OpenAPI 导出（`prebuild` 只校验生成物新鲜度，不做导出/生成）。
+   - **未复核**：「约 40 处」计数与 `/api/*` 路径数 / HTTP 操作数未复核；D-1 的 133 vs 135 口径未裁决。
 5. **证据时效**：本清单所有行号与文件内容锚定在 `264648d8619f759b222cced6583169e6432d04d6`；后续提交会使部分行号漂移，引用时请以显式提交号复核。
 
 ---
