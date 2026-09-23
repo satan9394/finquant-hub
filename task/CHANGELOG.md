@@ -812,3 +812,9 @@
 - **NIT（非阻塞，仅记录）**：①`IMPLEMENT_RESULT_VS38.md` §2 的 `:219-239` 被 Reviewer 读作 `:219-238`（区间歧义，收尾轮**未回改**——验收归档已引用该句，事后改会让两份档案互相矛盾）；②`GlobalTaskEntry.tsx` 的 `saved`/`recent` 仍为同族未修（卡面只点名 `results`）；③`Discover.tsx:130` 与 `GlobalTaskEntry` 失败时仍留瞬时 `message.warning` toast，与内联失败态并存（冗余观感）；④因子重试会连带重跑整个 `run()`（多 2 个请求，无用例覆盖）。
 - **门禁（提交前在真实树最终态复跑）**：vitest 12 passed / 44 passed、exit 0；`bun run build` exit 0（`4263 modules transformed`，built in 20.82s）。
 - **Risk**：低。纯前端、无新依赖、未改 schema、无 API 变更；既有测试文件零改动；变异与探针全部在 `$env:TEMP` 副本内完成且副本与 junction 已回收进回收站，真实 `node_modules` 完好。
+
+## 2026-09-23
+- What changed: `backend/app/routers/swarm.py`, `frontend/src/services/swarmApi.ts`, `frontend/src/pages/Portfolio.tsx`, `frontend/src/features/globalTaskEntry.ts`, `start.bat`, `scripts/audit-request-error-resets.mjs`, related tests and API/task documentation; implementation commit `93e7563`; merged the existing GitHub private import without force-push.
+- Why: complete Mission 1/2 reliability work and upload the full project while preserving the existing private repository contents.
+- Docs updated: `README.md`, `docs/API_CONTRACT.md`, `docs/ROUTER_MAP.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, `docs/ai/evo/P2-2_REQUEST_ERROR_RESET_AUDIT.md`, `HANDOFF.md`, `task/CHANGELOG.md`.
+- Risk: medium; unrelated histories were merged with local verified files selected for same-path conflicts, and the remote-only manifest was preserved. GitHub repository visibility verified as PRIVATE.
