@@ -30,18 +30,7 @@ import {
   type SwarmRunState,
   type SwarmTeamDefinition,
 } from './state';
-
-/**
- * `research_events` 的一行（后端 `routers/research.py:474-481` 的形状）。
- * `payload` 已被后端 `json.loads`，故此处是对象而非字符串。
- */
-export interface StoredSwarmEventRow {
-  id: number;
-  event_type: string;
-  agent_role_key?: string | null;
-  payload?: unknown;
-  created_at?: string;
-}
+import type { ResearchReportEvent } from '../../types/research';
 
 /** 回放成功的产物：终态 + 从数据里取出的团队定义。 */
 export interface SwarmReplayResult {
@@ -117,7 +106,7 @@ function readTeamDefinition(payload: unknown): SwarmTeamDefinition | null {
 }
 
 /** 落库行 → 实时同形的事件帧。**这是唯一的映射点**（`{ event: row.event_type, data: row.payload }`）。 */
-function toFrame(row: StoredSwarmEventRow): SwarmEvent {
+function toFrame(row: ResearchReportEvent): SwarmEvent {
   return { event: row.event_type, data: isRecord(row.payload) ? row.payload : {} };
 }
 
@@ -129,7 +118,7 @@ function toFrame(row: StoredSwarmEventRow): SwarmEvent {
  * 与 `createSwarmRunState` 的初态幂等，所以"包含它"不会引入任何实时路径没有的语义；
  * 反过来，若把它排除在外，"回放 = 把同一批帧喂给实时"这条同源判据就无法逐字成立。
  */
-export function replaySwarmRun(events: StoredSwarmEventRow[]): SwarmReplayOutcome {
+export function replaySwarmRun(events: ResearchReportEvent[]): SwarmReplayOutcome {
   if (!Array.isArray(events) || events.length === 0) {
     return { ok: false, reason: 'empty_stream', detail: '事件流为空：没有可回放的 research_events 行' };
   }

@@ -117,6 +117,8 @@ export function applySwarmEvent(state: SwarmRunState, frame: SwarmEvent): SwarmR
       return { ...state, reportId: numberValue(frame.data.report_id) ?? state.reportId };
     case 'team_started':
       return { ...state, status: 'running', error: undefined };
+    case 'team_canceled':
+      return cancelSwarmRun(state);
     case 'agent_started':
       return updateAgent(state, roleKey, (agent) => ({ ...agent, status: 'running', error: undefined }));
     case 'tool_call':

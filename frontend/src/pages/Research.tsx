@@ -11,6 +11,7 @@ import {
   PlayCircleOutlined, ReloadOutlined, DownloadOutlined, FileTextOutlined,
 } from '@ant-design/icons';
 import type { AgentStatus, ResearchAgent } from '../types';
+import type { ResearchReportDetail, ResearchReportEvent } from '../types/research';
 import apiClient from '../services/api';
 import { readSSE } from '../services/sse';
 import { useModelStore } from '../store/modelStore';
@@ -56,24 +57,8 @@ export type StoredAgentResult = {
   degraded_reasons?: string[];
 };
 
-/** VS20：落库的 SSE 事件行（GET /api/research/{id} 会带上 payload）。 */
-export type StoredAgentEvent = {
-  event_type?: string;
-  agent_role_key?: string | null;
-  payload?: {
-    role_key?: string;
-    agent?: string;
-    error?: string;
-    message?: string;
-    degraded_reasons?: string[];
-  } | null;
-  created_at?: string;
-};
-
-type StoredReportDetail = StoredReport & {
-  report_data: Record<string, unknown>;
+type StoredReportDetail = ResearchReportDetail & {
   agent_results?: Record<string, StoredAgentResult>;
-  events?: StoredAgentEvent[];
 };
 
 type HistoryGroup = {
@@ -195,7 +180,7 @@ export function describeOutcomeReason(outcome: AgentReplayOutcome, t: Translate)
 type AgentEventSignal = { failed?: string; degradedReasons?: string[] };
 
 /** 从落库事件中提取每个 Agent 的失败/降级信号（历史报告的兜底来源）。 */
-function collectAgentEventSignals(events?: StoredAgentEvent[] | null): Record<string, AgentEventSignal> {
+function collectAgentEventSignals(events?: ResearchReportEvent[] | null): Record<string, AgentEventSignal> {
   const signals: Record<string, AgentEventSignal> = {};
   for (const event of events ?? []) {
     const payload = event?.payload ?? undefined;
@@ -268,7 +253,7 @@ function deriveAgentOutcome(result: StoredAgentResult | undefined, signal: Agent
 /** 回放判据入口：结构化优先，事件/哨兵仅作历史兜底。 */
 export function deriveAgentOutcomes(
   results?: Record<string, StoredAgentResult> | null,
-  events?: StoredAgentEvent[] | null,
+  events?: ResearchReportEvent[] | null,
 ): Record<string, AgentReplayOutcome> {
   const signals = collectAgentEventSignals(events);
   const outcomes: Record<string, AgentReplayOutcome> = {};

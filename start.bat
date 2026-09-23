@@ -9,6 +9,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
+if /I "%~1"=="--check-only" goto check_only
+
 rem 优先使用 PATH 中的 Bun，其次使用本机已知安装位置。
 rem 这里只探测、不拦截：发行包可能已带 frontend\dist 产物，那种情况下全程不需要 Bun。
 rem 没有 Bun 时只记标记，等确认"确实需要构建"时再给出安装指引并退出（见 :build_frontend / :bun_missing）。
@@ -33,8 +35,8 @@ if errorlevel 1 (
     goto fail
 )
 
-rem 仅在缺少项目 Python 环境时创建，并安装 requirements.txt 中的现有依赖。
-if exist "backend\.venv\Scripts\python.exe" goto frontend
+rem 仅在缺少项目 Python 环境时创建；依赖清单变化时会按哈希增量同步。
+if exist "backend\.venv\Scripts\python.exe" goto sync_backend
 echo [准备] 正在创建 Python 3.12 环境，首次安装可能需要几分钟。
 where py >nul 2>&1
 if errorlevel 1 goto python_path
@@ -49,8 +51,26 @@ call python -m venv "backend\.venv"
 if errorlevel 1 goto venv_failed
 
 :install_backend
-"backend\.venv\Scripts\python.exe" -m pip install -r "backend\requirements.txt"
+call :get_requirements_hash
+if errorlevel 1 goto requirements_hash_failed
+"backend\.venv\Scripts\python.exe" -m pip install -r "backend\requirements.txt" --quiet
 if errorlevel 1 goto pip_failed
+>"backend\.venv\.requirements.sha256" echo %REQUIREMENTS_HASH%
+if errorlevel 1 goto requirements_hash_failed
+goto frontend
+
+:sync_backend
+call :get_requirements_hash
+if errorlevel 1 goto requirements_hash_failed
+set "INSTALLED_REQUIREMENTS_HASH="
+if exist "backend\.venv\.requirements.sha256" set /p INSTALLED_REQUIREMENTS_HASH=<"backend\.venv\.requirements.sha256"
+if /I "%REQUIREMENTS_HASH%"=="%INSTALLED_REQUIREMENTS_HASH%" goto frontend
+echo [准备] 正在同步后端 Python 依赖。
+"backend\.venv\Scripts\python.exe" -m pip install -r "backend\requirements.txt" --quiet
+if errorlevel 1 goto pip_failed
+>"backend\.venv\.requirements.sha256" echo %REQUIREMENTS_HASH%
+if errorlevel 1 goto requirements_hash_failed
+goto frontend
 
 :frontend
 rem ponytail: 只按 package.json 与 index.html 的时间判断过期；源码更新后需手动重建。
@@ -158,6 +178,10 @@ echo [怎么做] 3^) 仍失败请把本窗口最后几行错误截图，对照 d
 echo [进阶] 手动补齐依赖：在 backend 目录运行 .venv\Scripts\python.exe -m pip install -r requirements.txt
 goto fail
 
+:requirements_hash_failed
+echo [错误] 无法计算或保存 requirements.txt 的 SHA256，已停止依赖同步以免误判环境状态。
+goto fail
+
 :venv_failed
 echo [错误] Python 运行环境准备失败：本项目需要 Python 3.12。
 rem VS-15：打印"检测到的版本"，避免装了 3.13/3.11 的用户只看到"没装 3.12"而不知问题在版本号上。
@@ -192,3 +216,22 @@ echo [文档] 详见 docs\QUICKSTART.md 的"提示没装 Bun / Python，或安�
 pause
 popd
 exit /b 1
+
+:check_only
+call :get_requirements_hash
+if errorlevel 1 (
+    echo [检查失败] 无法解析依赖哈希检查流程。
+    popd
+    exit /b 1
+)
+echo [检查通过] start.bat 命令解析正常，requirements SHA256=%REQUIREMENTS_HASH%
+popd
+exit /b 0
+
+:get_requirements_hash
+set "REQUIREMENTS_HASH="
+for /f "usebackq delims=" %%H in (`powershell.exe -NoProfile -Command "[System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes('backend\requirements.txt'))).Replace('-', '').ToLowerInvariant()"`) do set "REQUIREMENTS_HASH=%%H"
+if not defined REQUIREMENTS_HASH exit /b 1
+if "%REQUIREMENTS_HASH:~63,1%"=="" exit /b 1
+if not "%REQUIREMENTS_HASH:~64,1%"=="" exit /b 1
+exit /b 0

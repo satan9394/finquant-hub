@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import GlobalTaskEntry, { GLOBAL_TASK_OPEN_EVENT } from '../src/components/GlobalTaskEntry';
-import { globalCommandIntent, globalTaskPath, isLikelyTicker } from '../src/features/globalTaskEntry';
+import { globalCommandIntent, globalTaskPath, isLikelyTicker, RECENT_TARGETS_KEY } from '../src/features/globalTaskEntry';
 import { searchStocks } from '../src/services/stockApi';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 
@@ -54,6 +54,20 @@ describe('global task entry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '分析股票' }));
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('/analysis/600519?autorun=0'));
+  }, 15_000);
+
+  it('clears corrupt recent history and keeps the command search usable', async () => {
+    localStorage.setItem(RECENT_TARGETS_KEY, '{broken json');
+    const onNavigate = vi.fn();
+    render(<LanguageProvider><GlobalTaskEntry onNavigate={onNavigate} /></LanguageProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开全局命令栏' }));
+    expect(localStorage.getItem(RECENT_TARGETS_KEY)).toBeNull();
+    const input = screen.getByLabelText('证券代码、公司名称或研究任务');
+    fireEvent.change(input, { target: { value: '茅台' } });
+    fireEvent.click(screen.getByRole('button', { name: '识别意图' }));
+    expect(await screen.findByRole('button', { name: '选择 贵州茅台 600519' })).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
   }, 15_000);
 
   it('opens from the single global event and no longer self-registers the ⌘K listener', () => {

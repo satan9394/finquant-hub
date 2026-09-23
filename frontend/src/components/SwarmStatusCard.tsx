@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Segmented, Skeleton, Space, Spin, Tag, Typography,
+  Alert, Button, Card, Segmented, Skeleton, Space, Spin, Tag, Typography, message,
 } from 'antd';
 import { CloseCircleOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import SwarmRunView from './SwarmRunView';
@@ -14,7 +14,6 @@ import {
 } from '../features/swarm/state';
 import {
   replaySwarmRun,
-  type StoredSwarmEventRow,
   type SwarmReplayFailureReason,
   type SwarmReplayOutcome,
 } from '../features/swarm/replay';
@@ -22,12 +21,13 @@ import {
   fetchEarningsReviewTeam,
   fetchFourMastersTeam,
   fetchSwarmRuns,
+  requestSwarmRunCancellation,
   streamEarningsReview,
   streamFourMasters,
   type SwarmRunSummary,
 } from '../services/swarmApi';
 import { fetchResearchReport } from '../services/researchApi';
-import type { ResearchReportDetail } from '../types/research';
+import type { ResearchReportDetail, ResearchReportEvent } from '../types/research';
 import { useModelStore } from '../store/modelStore';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -79,29 +79,16 @@ interface RunsFact {
   error: string;
 }
 
-/**
- * `ResearchReportDetail` 的**声明类型上不带 `events`**（W2 卡里记的 Deferred Backlog 类型欠账），
- * 但 `GET /api/research/{id}` 的响应运行时确实带着 `research_events` 的行
- * （`routers/research.py` 把它们与报告本体一并返回）。
- *
- * **处理选择：不改 `types/research.ts`**（它不在本卡允许改动的文件集内），
- * 改为在使用点做**一次结构收窄**，并把收窄失败当成**读取失败**。
- *
- * 为什么不写 `(report as { events: StoredSwarmEventRow[] }).events`：`as` 只骗编译器，
- * 运行时字段缺失会得到 `undefined`，接着 `replaySwarmRun(undefined)` 会抛错——
- * 更糟的写法是退化成 `?? []`，把"响应里根本没有这个字段"渲染成"这次运行没有事件"。
- * 这里要求**每一行都合法**（`id` 是数字、`event_type` 是字符串），任一行不合法即整份不可信：
- * 与 `replay.ts` 对名册的态度一致——少一行和多一行伪造的行都是"这份数据不足以判定"。
- */
-function readStoredEvents(report: ResearchReportDetail): StoredSwarmEventRow[] | null {
-  const raw = (report as { events?: unknown }).events;
+/** 缺失或损坏的事件字段仍按读取失败处理，不归约成空历史。 */
+function readStoredEvents(report: ResearchReportDetail): ResearchReportEvent[] | null {
+  const raw: unknown = report.events;
   if (!Array.isArray(raw)) return null;
-  const rows: StoredSwarmEventRow[] = [];
+  const rows: ResearchReportEvent[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) return null;
     const candidate = entry as { id?: unknown; event_type?: unknown };
     if (typeof candidate.id !== 'number' || typeof candidate.event_type !== 'string') return null;
-    rows.push(entry as StoredSwarmEventRow);
+    rows.push(entry as ResearchReportEvent);
   }
   return rows;
 }
@@ -111,6 +98,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
   const currentModelId = useModelStore((state) => state.currentModelId);
   const [team, setTeam] = useState<SwarmTeamDefinition | null>(null);
   const [run, setRun] = useState<SwarmRunState | null>(null);
+  const [cancelReady, setCancelReady] = useState(false);
   const [loadingTeam, setLoadingTeam] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [teamKind, setTeamKind] = useState<'four-masters' | 'earnings-review'>('four-masters');
@@ -162,6 +150,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
 
   useEffect(() => {
     abortRef.current?.abort();
+    setCancelReady(false);
     if (team) setRun(createSwarmRunState(team));
   }, [team, ticker]);
 
@@ -175,6 +164,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
     if (!team || run?.status === 'running') return;
     const controller = new AbortController();
     abortRef.current = controller;
+    setCancelReady(false);
     setRun({ ...createSwarmRunState(team), status: 'running' });
 
     try {
@@ -182,7 +172,10 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       const terminal = await streamTeam(
         ticker,
         currentModelId,
-        (event) => setRun((current) => current ? applySwarmEvent(current, event) : current),
+        (event) => {
+          if (event.event === 'team_started') setCancelReady(true);
+          setRun((current) => current ? applySwarmEvent(current, event) : current);
+        },
         controller.signal,
       );
       if (!terminal && !controller.signal.aborted) {
@@ -205,10 +198,22 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
     }
   }, [currentModelId, run?.status, t, team, teamKind, ticker]);
 
-  const stop = useCallback(() => {
-    abortRef.current?.abort();
-    setRun((current) => current ? cancelSwarmRun(current) : current);
-  }, []);
+  const stop = useCallback(async () => {
+    const reportId = run?.reportId;
+    if (reportId == null) return;
+    try {
+      const result = await requestSwarmRunCancellation(reportId);
+      if (result.status !== 'canceled') return;
+      setRun((current) => current ? applySwarmEvent(current, {
+        event: 'team_canceled',
+        data: { report_id: reportId },
+      }) : current);
+      abortRef.current?.abort();
+    } catch (error) {
+      const detail = error instanceof Error ? `：${error.message}` : '';
+      message.error(`${t('research.swarm.cancelFailed')}${detail}`);
+    }
+  }, [run?.reportId, t]);
 
   /**
    * W3：点选一次历史运行 ⇒ 读该报告的落库事件 ⇒ 用 W1 的纯函数折叠成 `SwarmRunState`。
@@ -319,7 +324,7 @@ export default function SwarmStatusCard({ ticker }: SwarmStatusCardProps) {
       extra={replay
         ? <Button onClick={closeReplay}>{t('research.swarm.replayBack')}</Button>
         : run.status === 'running'
-          ? <Button danger icon={<CloseCircleOutlined />} onClick={stop}>{t('research.swarm.stop')}</Button>
+          ? <Button danger icon={<CloseCircleOutlined />} disabled={run.reportId == null || !cancelReady} onClick={() => void stop()}>{t('research.swarm.stop')}</Button>
           : <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()}>{t('research.swarm.start')}</Button>}
     >
       {/* W3：历史运行入口。三态事实交给族内唯一的 readStateOf / LoadStateView。 */}

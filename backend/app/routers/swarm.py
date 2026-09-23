@@ -1,11 +1,12 @@
 """Swarm 团队元数据与 SSE 执行入口。"""
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -27,6 +28,7 @@ from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/swarm", tags=["swarm"], dependencies=[Depends(authenticated_context)])
 LOGGER = logging.getLogger(__name__)
+_SWARM_EVENT_LOCK = asyncio.Lock()
 
 
 class SwarmRunRequest(BaseModel):
@@ -135,6 +137,47 @@ async def list_swarm_runs(user: CurrentUser, ticker: str = Query(min_length=1, m
     return {"items": items, "total": len(items)}
 
 
+@router.post("/runs/{report_id:int}/cancel")
+async def cancel_swarm_run(report_id: int, user: CurrentUser) -> dict[str, Any]:
+    """Persist cancellation for one running, owner-scoped swarm report."""
+    user_id = int(user["id"])
+    async with _SWARM_EVENT_LOCK:
+        report = await database.query_one(
+            "SELECT status FROM research_reports WHERE id=? AND user_id=?",
+            (report_id, user_id),
+        )
+        if report is None:
+            raise HTTPException(status_code=404, detail="Swarm 运行不存在")
+        first_event = await database.query_one(
+            "SELECT event_type FROM research_events WHERE research_id=? AND user_id=? ORDER BY id LIMIT 1",
+            (report_id, user_id),
+        )
+        if first_event is None or first_event["event_type"] != "team_started":
+            raise HTTPException(status_code=404, detail="Swarm 运行不存在")
+        if report["status"] == "canceled":
+            return {"report_id": report_id, "status": "canceled"}
+        if report["status"] != "running":
+            return {"report_id": report_id, "status": report["status"]}
+
+        async with database.exclusive_transaction():
+            current = await database.query_one(
+                "SELECT status FROM research_reports WHERE id=? AND user_id=?",
+                (report_id, user_id),
+            )
+            if current is None:
+                raise HTTPException(status_code=404, detail="Swarm 运行不存在")
+            if current["status"] != "running":
+                return {"report_id": report_id, "status": current["status"]}
+            await _append_event(report_id, "team_canceled", {"report_id": report_id}, user_id)
+            await database.execute(
+                "UPDATE research_reports SET status='canceled', updated_at=datetime('now') "
+                "WHERE id=? AND user_id=? AND status='running'",
+                (report_id, user_id),
+            )
+
+    return {"report_id": report_id, "status": "canceled"}
+
+
 async def _analyze_with_team(
     body: SwarmRunRequest,
     request: Request,
@@ -161,19 +204,29 @@ async def _analyze_with_team(
             }
             swarm_stream = run_with_user()
             async for event, data in swarm_stream:
-                if event == "done":
-                    report = report_builder(ticker, company_name, data)
-                    data = {**data, "report_id": report_id, "report": report}
-                await _append_event(report_id, event, data, user_id)
+                status_message: str | None = None
+                async with _SWARM_EVENT_LOCK:
+                    current = await database.query_one(
+                        "SELECT status FROM research_reports WHERE id=? AND user_id=?",
+                        (report_id, user_id),
+                    )
+                    if current is None or current["status"] != "running":
+                        break
+                    if event == "done":
+                        report = report_builder(ticker, company_name, data)
+                        data = {**data, "report_id": report_id, "report": report}
+                    await _append_event(report_id, event, data, user_id)
+                    if event == "error":
+                        status_message = data.get("error") or data.get("message") or "Swarm 运行异常"
+                        await _fail_report(report_id, status_message, user_id, record_event=False)
+                    elif event == "done":
+                        await _complete_report(report_id, data["report"], data.get("agent_results", {}), user_id)
+                        completed = True
                 if event == "error":
-                    message = data.get("error") or data.get("message") or "Swarm 运行异常"
-                    await _fail_report(report_id, message, user_id, record_event=False)
-                    await publish_research_status(report_id, "failed", message, user_id=user_id)
+                    await publish_research_status(report_id, "failed", status_message, user_id=user_id)
                     yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
                     break
                 if event == "done":
-                    await _complete_report(report_id, data["report"], data.get("agent_results", {}), user_id)
-                    completed = True
                     await publish_research_status(report_id, "completed", user_id=user_id)
                 yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
         except Exception as exc:

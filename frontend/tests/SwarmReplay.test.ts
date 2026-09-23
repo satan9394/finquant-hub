@@ -10,9 +10,9 @@ import {
 } from '../src/features/swarm/state';
 import {
   replaySwarmRun,
-  type StoredSwarmEventRow,
   type SwarmReplayOutcome,
 } from '../src/features/swarm/replay';
+import type { ResearchReportEvent } from '../src/types/research';
 
 /* ============================================================
  * W1 回放数据层单测（**纯单元**：不渲染 React、零 I/O）
@@ -80,9 +80,10 @@ const earningsReviewTeam: SwarmTeamDefinition = {
 const AGENT_KEYS = ['business_analyst', 'financial_analyst', 'industry_researcher', 'risk_assessor', 'report_lead'];
 
 /** 按 id 升序补上行字段；`payload` 走 JSON 往返，确保拿到的是"数据"而不是共享引用。 */
-function rows(entries: Array<[string, unknown]>): StoredSwarmEventRow[] {
+function rows(entries: Array<[string, unknown]>): ResearchReportEvent[] {
   return entries.map(([event, payload], index) => ({
     id: index + 1,
+    research_id: 4242,
     event_type: event,
     agent_role_key: null,
     payload: JSON.parse(JSON.stringify(payload)) as unknown,
@@ -212,6 +213,25 @@ describe('replaySwarmRun：正常回放', () => {
     // 没有 report_started ⇒ 不猜，保持 undefined（未持久化）
     const none = expectOk(replaySwarmRun(rows([['team_started', teamStarted(fourMastersTeam)]])));
     expect(none.state.reportId).toBeUndefined();
+  });
+
+  test('⑥ team_canceled 落库回放为取消态，并与实时归约逐字段相同', () => {
+    const source: Array<[string, unknown]> = [
+      ['report_started', { report_id: 4242, ticker: 'usAAPL' }],
+      ['team_started', teamStarted(fourMastersTeam)],
+      ['agent_started', { role_key: 'value_investor', name: '价值投资官' }],
+      ['team_canceled', { report_id: 4242 }],
+    ];
+    const persisted = expectOk(replaySwarmRun(rows(source)));
+    const live = liveFold(fourMastersTeam, rows(source).map((row) => ({
+      event: row.event_type,
+      data: row.payload as Record<string, unknown>,
+    })));
+
+    expect(persisted.state).toEqual(live);
+    expect(persisted.state.status).toBe('cancelled');
+    expect(persisted.state.agents.value_investor.status).toBe('cancelled');
+    expect(persisted.state.agents.risk_manager.status).toBe('pending');
   });
 });
 

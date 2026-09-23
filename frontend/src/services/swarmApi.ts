@@ -44,6 +44,11 @@ export async function fetchSwarmRuns(ticker: string): Promise<SwarmRunSummary[]>
   return items as SwarmRunSummary[];
 }
 
+export async function requestSwarmRunCancellation(reportId: number): Promise<{ report_id: number; status: string }> {
+  const response = await apiClient.post(`/swarm/runs/${reportId}/cancel`);
+  return response.data;
+}
+
 async function streamSwarmTeam(
   path: string,
   ticker: string,

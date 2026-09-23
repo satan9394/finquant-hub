@@ -18,7 +18,7 @@ import SwarmStatusCard from '../src/components/SwarmStatusCard';
 import { LanguageProvider } from '../src/i18n/LanguageContext';
 import { useModelStore } from '../src/store/modelStore';
 import type { SwarmTeamDefinition } from '../src/features/swarm/state';
-import type { StoredSwarmEventRow } from '../src/features/swarm/replay';
+import type { ResearchReportEvent } from '../src/types/research';
 
 const mocks = vi.hoisted(() => ({
   fetchFour: vi.fn(),
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   streamEarnings: vi.fn(),
   fetchRuns: vi.fn(),
   fetchReport: vi.fn(),
+  cancelRun: vi.fn(),
 }));
 
 vi.mock('../src/services/swarmApi', () => ({
@@ -35,6 +36,7 @@ vi.mock('../src/services/swarmApi', () => ({
   streamFourMasters: mocks.streamFour,
   streamEarningsReview: mocks.streamEarnings,
   fetchSwarmRuns: mocks.fetchRuns,
+  requestSwarmRunCancellation: mocks.cancelRun,
 }));
 
 vi.mock('../src/services/researchApi', () => ({
@@ -72,9 +74,10 @@ const SOURCE: Array<[string, unknown]> = [
 ];
 
 /** 每次调用都造一份**独立**的数据（避免两条路径共享同一个对象而让对照失去意义）。 */
-function storedRows(source: Array<[string, unknown]> = SOURCE): StoredSwarmEventRow[] {
+function storedRows(source: Array<[string, unknown]> = SOURCE): ResearchReportEvent[] {
   return source.map(([event, payload], index) => ({
     id: index + 1,
+    research_id: 4242,
     event_type: event,
     agent_role_key: null,
     payload: JSON.parse(JSON.stringify(payload)) as unknown,
@@ -118,6 +121,7 @@ describe('W3：SwarmStatusCard 历史运行入口与回放', () => {
     mocks.streamFour.mockResolvedValue('done');
     mocks.fetchRuns.mockResolvedValue([RUN_ITEM]);
     mocks.fetchReport.mockResolvedValue({ id: 4242, ticker: '600519', status: 'completed', created_at: '', report_data: {}, events: storedRows() });
+    mocks.cancelRun.mockResolvedValue({ report_id: 4242, status: 'canceled' });
   });
 
   // ---------------------------------------------------------------- ②
@@ -239,6 +243,53 @@ describe('W3：SwarmStatusCard 历史运行入口与回放', () => {
     // 若两条路径各写一份渲染，这里的整段子树不可能逐字相同
     expect(screen.getByTestId('swarm-run-view').textContent).toBe(liveText);
     expect(liveText).toContain('工具 1 次 · 42 tokens');
+  });
+
+  it('⑥ 取消态同源：确认后持久化请求成功，实时与历史回放徽章完全一致', async () => {
+    const canceledSource: Array<[string, unknown]> = [
+      ['report_started', { report_id: 4242, ticker: '600519' }],
+      ['team_started', { team, ticker: '600519' }],
+      ['agent_started', { role_key: 'value_investor' }],
+      ['team_canceled', { report_id: 4242 }],
+    ];
+    const initialLiveFrames = liveFrames(canceledSource.slice(0, 3));
+    mocks.streamFour.mockImplementation(async (
+      _ticker: string,
+      _model: number | null,
+      onEvent: (event: { event: string; data: Record<string, unknown> }) => void,
+      signal: AbortSignal,
+    ) => {
+      initialLiveFrames.forEach(onEvent);
+      return await new Promise<string | null>((resolve) => {
+        signal.addEventListener('abort', () => resolve(null), { once: true });
+      });
+    });
+    mocks.fetchRuns.mockResolvedValue([{ ...RUN_ITEM, status: 'canceled' }]);
+    mocks.fetchReport.mockResolvedValue({
+      id: 4242,
+      ticker: '600519',
+      status: 'canceled',
+      created_at: '',
+      report_data: {},
+      events: storedRows(canceledSource),
+    });
+
+    renderCard();
+    fireEvent.click(await screen.findByRole('button', { name: /启动团队/ }));
+    const stopButton = await screen.findByRole('button', { name: /停止/ });
+    expect(stopButton.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(stopButton);
+
+    expect(mocks.cancelRun).toHaveBeenCalledWith(4242);
+    await waitFor(() => {
+      expect(screen.getByTestId('swarm-run-view').textContent).toContain('已停止');
+    });
+    const liveText = screen.getByTestId('swarm-run-view').textContent;
+    expect(liveText).toContain('已停止');
+
+    fireEvent.click(await screen.findByTestId('swarm-history-item-4242'));
+    expect(await screen.findByText(REPLAY_HINT_TEXT)).toBeTruthy();
+    expect(screen.getByTestId('swarm-run-view').textContent).toBe(liveText);
   });
 
   // ---------------------------------------------------------------- ⑦

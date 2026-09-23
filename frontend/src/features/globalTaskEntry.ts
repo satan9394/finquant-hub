@@ -59,8 +59,19 @@ export function globalCommandIntent(value: string): { intent: GlobalCommandInten
 
 export function readRecentTargets(): GlobalTaskTarget[] {
   try {
-    const stored = JSON.parse(localStorage.getItem(RECENT_TARGETS_KEY) || '[]') as unknown;
-    if (!Array.isArray(stored)) return [];
+    const raw = localStorage.getItem(RECENT_TARGETS_KEY);
+    if (!raw) return [];
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw) as unknown;
+    } catch {
+      try { localStorage.removeItem(RECENT_TARGETS_KEY); } catch { /* Storage may be unavailable; continue without history. */ }
+      return [];
+    }
+    if (!Array.isArray(stored)) {
+      try { localStorage.removeItem(RECENT_TARGETS_KEY); } catch { /* Storage may be unavailable; continue without history. */ }
+      return [];
+    }
     return stored.filter((item): item is GlobalTaskTarget => Boolean(
       item && typeof item === 'object'
       && typeof (item as GlobalTaskTarget).code === 'string'
@@ -73,6 +84,6 @@ export function readRecentTargets(): GlobalTaskTarget[] {
 
 export function rememberRecentTarget(target: GlobalTaskTarget): GlobalTaskTarget[] {
   const next = [target, ...readRecentTargets().filter((item) => item.code !== target.code)].slice(0, 5);
-  localStorage.setItem(RECENT_TARGETS_KEY, JSON.stringify(next));
+  try { localStorage.setItem(RECENT_TARGETS_KEY, JSON.stringify(next)); } catch { /* Recent history is optional; navigation must remain usable. */ }
   return next;
 }

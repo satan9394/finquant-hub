@@ -254,6 +254,8 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | `/api/research/{id}` | GET | 获取单份报告详情（含事件时间线、工具调用日志） | 新增 |
 | `/api/research/{id}/export?format=` | GET | 按格式导出（md/html/pdf/docx），即时生成 | 新增 |
 
+`GET /api/research/{id}` 返回的 `events` 每项包含 `id`、`research_id`、`event_type`、`agent_role_key`、已解析为对象的 `payload` 与 `created_at`。
+
 ---
 
 ## 11. 回测 v2（异步）`/api/backtests`
@@ -324,10 +326,13 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | `/api/swarm/teams/four-masters` | GET | 四专家 + 投研主编的团队拓扑与工具权限 | 新增 |
 | `/api/swarm/teams/earnings-review` | GET | 财报精读团队拓扑与工具权限 | 新增 |
 | `/api/swarm/runs` | GET | 某 ticker 下当前用户的 swarm 团队运行列表（历史回放入口，只读） | 新增 |
+| `/api/swarm/runs/{id}/cancel` | POST | owner-scoped 取消运行；事件与 `research_reports.status=canceled` 一起落库 | 新增 |
 | `/api/swarm/analyze` | POST | **SSE 流**运行四大师研究并持久化报告 | 新增 |
 | `/api/swarm/teams/earnings-review/run` | POST | **SSE 流**运行财报精读团队并持久化报告 | 新增 |
 
 `GET /api/swarm/runs?ticker=<code>` 只读、无副作用、不触发任何 LLM 调用，仅返回当前用户的数据。`research_reports` 没有团队/类型字段，归属只能由事件流判定：swarm 运行的**首个持久化事件**是 `team_started`（`payload.team` 含 `key/name/description/agents`，由 `services/swarm_orch.py` 首个 yield、经 `_append_event` 落库），而深度研究报告由 `research_orch` 产出、从不发 `team_started`。因此该端点只返回「最小 event id 恰为 `team_started`」的报告，零事件的历史报告与深度研究报告都不会出现；响应按 `created_at DESC, id DESC` 排序，每项含 `report_id / ticker / company_name / status / created_at / team_key / team_name`（载荷异常时 team 字段降级为 `null`，不让整个列表失败）。`ticker` 同时接受裸代码与规范化代码（`AAPL` 与 `usAAPL` 等价；`600519` 与 `sh600519` 等价），未命中时返回 `{"items": [], "total": 0}`。
+
+`POST /api/swarm/runs/{id}/cancel` 仅允许当前 owner 取消首个事件为 `team_started` 且仍为 `running` 的运行。一次 SQLite 写事务内追加 `team_canceled` 事件并将报告状态改为 `canceled`；重复请求幂等，已结束运行返回其现有状态，非 owner 或非 swarm 报告统一返回 404。响应为 `{"report_id": 42, "status": "canceled"}`。
 
 ---
 

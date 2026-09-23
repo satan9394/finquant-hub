@@ -22,7 +22,7 @@ Dashboard endpoint additions: `GET /api/dashboard/news`（综合财经搜索，�
 | /api/instruments | instruments.py | New |
 | /api/screening | screening.py | New（两阶段动量发现 + 价值评分） |
 | /api/wq | wq.py | New（真实字段搜索 + 因子模板 + 本地多空模拟/横截面 IC + BRAIN 桥接） |
-| /api/swarm | swarm.py | New (`POST /analyze` + `POST /teams/earnings-review/run` SSE，报告持久化) |
+| /api/swarm | swarm.py | New (`POST /analyze` + `POST /teams/earnings-review/run` SSE、`POST /runs/{id}/cancel` 持久化取消) |
 | /api/notifications | notifications.py | New |
 | /api/alerts | alerts.py | New（技术信号规则 + Thesis/Portfolio/Strategy monitor 草稿/显式确认） |
 | /api/mcp | mcp.py | New（已发现服务器/工具目录 + 运行时启停；http 远程与 stdio 本地 command 两种 transport） |

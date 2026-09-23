@@ -201,9 +201,19 @@ export type ResearchReportVersion = {
   updated_at?: string | null;
 };
 
+export type ResearchReportEvent = {
+  id: number;
+  research_id: number;
+  event_type: string;
+  agent_role_key: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
 export type ResearchReportDetail = ResearchReportVersion & {
   report_data: Record<string, unknown>;
   agent_results?: Record<string, unknown>;
+  events: ResearchReportEvent[];
 };
 
 export type ResearchHistoryGroup = {

@@ -472,7 +472,7 @@ async def get_report(report_id: int, user: CurrentUser) -> dict[str, Any]:
     user_id = int(user["id"])
     report = await _load_report(report_id, user_id)
     report["events"] = await database.query_all(
-        "SELECT id, event_type, agent_role_key, payload, created_at FROM research_events "
+        "SELECT id, research_id, event_type, agent_role_key, payload, created_at FROM research_events "
         "WHERE research_id=? AND user_id=? ORDER BY id",
         (report_id, user_id),
     )

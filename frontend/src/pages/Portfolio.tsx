@@ -21,6 +21,7 @@ import TaskPageHeader from '../components/TaskPageHeader';
 import PortfolioRiskWorkbench from '../components/portfolio/PortfolioRiskWorkbench';
 import FinancialMetric from '../components/FinancialMetric';
 import PortfolioOverview from '../components/PortfolioOverview';
+import { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
@@ -60,10 +61,12 @@ export default function Portfolio() {
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
   const [allocation, setAllocation] = useState<PortfolioAllocation[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null);
+  const [holdingsResolved, setHoldingsResolved] = useState(false);
+  const [holdingsResolvedGroupId, setHoldingsResolvedGroupId] = useState<number | null>(null);
+  const [holdingsErrorGroupId, setHoldingsErrorGroupId] = useState<number | null>(null);
 
   // Loading state.
   const [loading, setLoading] = useState(true);
-  const [holdingLoading, setHoldingLoading] = useState(false);
   const [loadErrors, setLoadErrors] = useState<Partial<Record<PortfolioLoadArea, string>>>({});
 
   // Portfolio modals.
@@ -109,13 +112,20 @@ export default function Portfolio() {
 
   // Load portfolio groups.
   const loadGroups = useCallback(async () => {
-    setLoadError('groups');
     try {
       const g = await fetchPortfolioGroups();
       setGroups(g);
       if (g.length > 0 && activeGroupId == null) {
         setActiveGroupId(g[0].id);
+      } else if (g.length === 0) {
+        setActiveGroupId(null);
+        setHoldings([]);
+        setHoldingsResolved(true);
+        setHoldingsResolvedGroupId(null);
+        setHoldingsErrorGroupId(null);
+        setLoadError('holdings');
       }
+      setLoadError('groups');
     } catch (error) {
       setLoadError('groups', error);
     }
@@ -123,10 +133,10 @@ export default function Portfolio() {
 
   // Load summary.
   const loadSummary = useCallback(async () => {
-    setLoadError('summary');
     try {
       const s = await fetchPortfolioSummary();
       setSummary(s);
+      setLoadError('summary');
     } catch (error) {
       setLoadError('summary', error);
     }
@@ -134,23 +144,25 @@ export default function Portfolio() {
 
   // Load holdings.
   const loadHoldings = useCallback(async (groupId?: number) => {
-    setHoldingLoading(true);
-    setLoadError('holdings');
     try {
       const h = await fetchPortfolioHoldings(groupId);
       setHoldings(h);
+      setHoldingsResolved(true);
+      setHoldingsResolvedGroupId(groupId ?? null);
+      setHoldingsErrorGroupId(null);
+      setLoadError('holdings');
     } catch (error) {
+      setHoldingsErrorGroupId(groupId ?? null);
       setLoadError('holdings', error);
     }
-    finally { setHoldingLoading(false); }
   }, [setLoadError]);
 
   // Load allocation.
   const loadAllocation = useCallback(async () => {
-    setLoadError('allocation');
     try {
       const a = await fetchPortfolioAllocation();
       setAllocation(a);
+      setLoadError('allocation');
     } catch (error) {
       setLoadError('allocation', error);
     }
@@ -486,6 +498,13 @@ export default function Portfolio() {
   ];
 
   const activeGroupName = groups.find((group) => group.id === activeGroupId)?.name;
+  const holdingsGroupKey = activeGroupId ?? null;
+  const holdingsState = readStateOf({
+    failed: loadErrors.holdings != null && holdingsErrorGroupId === holdingsGroupKey,
+    resolved: holdingsResolved && holdingsResolvedGroupId === holdingsGroupKey,
+    count: holdingsResolvedGroupId === holdingsGroupKey ? holdings.length : 0,
+    error: loadErrors.holdings,
+  });
   const portfolioHeader = (
     <TaskPageHeader
       eyebrow={t('portfolio.eyebrow')}
@@ -519,7 +538,7 @@ export default function Portfolio() {
     <div style={{ padding: 24 }}>
       {portfolioHeader}
 
-      {Object.entries(loadErrors).map(([area, error]) => (
+      {Object.entries(loadErrors).filter(([area]) => area !== 'holdings').map(([area, error]) => (
         <Alert
           key={area}
           type="error"
@@ -810,16 +829,24 @@ export default function Portfolio() {
               </Button>
             }
           >
-            <Table
-              dataSource={holdings}
-              columns={columns}
-              rowKey="id"
-              size="small"
-              loading={holdingLoading}
-              pagination={false}
-              locale={{ emptyText: <Empty description={t('portfolio.noHoldings')} /> }}
-              scroll={{ x: 700 }}
-            />
+            <LoadStateView
+              state={holdingsState}
+              failureMessage={t('portfolio.holdingsLoadFailed')}
+              onRetry={() => { void loadHoldings(activeGroupId ?? undefined); }}
+              loadingText={t('portfolio.holdingsLoading')}
+              announceLoading
+              emptyContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('portfolio.noHoldings')} />}
+            >
+              <Table
+                dataSource={holdings}
+                columns={columns}
+                rowKey="id"
+                size="small"
+                pagination={false}
+                locale={{ emptyText: <Empty description={t('portfolio.noHoldings')} /> }}
+                scroll={{ x: 700 }}
+              />
+            </LoadStateView>
           </Card>
         </Col>
 

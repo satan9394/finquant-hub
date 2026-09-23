@@ -15,6 +15,7 @@
 ## [DONE] BACKLOG-047: 死代码收口——移除 mcp_runtime.connect_http_mcp_server（零调用点）
 
 **优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-047.md`
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `9cbe1d4215661063de24d9c09689688c88e20db3`。
 **范围**: 042 重构为 `connect_mcp_server(config)` 统一分派后，`connect_http_mcp_server(name,url)` 薄封装零调用点（指挥实测仅剩定义）。本卡移除该函数 + 全仓 grep 确认 0 命中 + 全量 backend 门禁。**禁止**：动 `connect_mcp_server` 或其他生产行为、动 database.py、前端/依赖/E2E config、删文件、commit。门禁：backend `pytest -q` 0 failed + ruff + diff --check。
 **证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: `mcp_runtime.py` 仅删 `connect_http_mcp_server` 薄封装（函数 + docstring，-5 行），`connect_mcp_server`/`restore_enabled_mcp_servers`/imports 一字未动；删除 diff 见 `docs/ai/tasks/BACKLOG-047.md` §1。**移除后代码全仓 grep 0 命中**：`backend/app`、`backend/tests`、`frontend/src`、`frontend/e2e`、`frontend/e2e-8000`、`scripts/`、`memory/` 均无引用（含变体 connect_http/connectHttp 也 0）；仅 docs 历史证据（042/042b 卡及 tasks 证据）保留函数名描述，按卡 §目标 3 如实注明已收口（历史证据文件不在本卡 §允许清单，未改）。**测试零改动**（042b 已把 patch 目标改为 connect_mcp_server，无任何测试引用该符号）。门禁：全量 `pytest -q` **909 passed / 0 failed**（与 045 基线一致，总数未变证明未删/未跳测试）；`ruff check .` exit 0；`git diff --check` exit 0；删除 0；未 commit。**环境说明（诚实声明）**：隔离沙箱默认环境 `no_proxy` 含 `[::1]`，httpx 0.28.1 `URLPattern` 构造报 `Invalid port: ':1]'`（12 failed + 89 errors 全同根因，与删除无关，本地复现可证）；按项目既有惯例以 Python 进程内 `no_proxy` 覆盖（取 `localhost,127.0.0.1,::1`）重跑门禁，不改任何代码/测试。详见 `docs/ai/tasks/BACKLOG-047.md`。
 
@@ -23,6 +24,7 @@
 ## [DONE] BACKLOG-046: 文档收尾——HANDOFF 顶部过时项勾清 + EXEC_PLAN 历史 BLOCKED 卡片如实复核
 
 **优先级**: P3 ｜ **任务卡**: `docs/ai/BACKLOG-046.md`
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `bc0d59c9d78e876550e0d5745bc7d5b139ae2fa6`。
 **范围**: 指挥实测 HANDOFF 顶部三项"未完成"均已完成（LICENSE 存在、PRD L151 / PRODUCT_MAP L23 已有 TECH_STACK 引用）但文档未勾；EXEC_PLAN 历史卡 AIOS-004/034/071（Graphiti/Mem0 等）需按 ADR-005（2026-08-24 定 Native FTS5）追加如实注释。本卡**只改文档**：HANDOFF 勾选 + 三张历史卡各加一行注释，**不改状态标签、不删历史**。**禁止**：backend/frontend 代码、改历史证据内容、删文件、commit。门禁：git diff --check、删除 0。
 **证据（2026-09-13，DSH Worker，纯文档完成）**: HANDOFF 顶部三项 `[x]` 勾选 + 2026-09-13 指挥实测核实行；「不阻塞发布（长期）」Graphiti/Mem0 行内补注 ADR-005 定 Native FTS5 事实口径（原记录未删）；EXEC_PLAN AIOS-004/034/071 三张历史卡各追加一行 `> 注（2026-09-13）：ADR-005 已于 2026-08-24 采纳 Native FTS5 为生产 memory 方案；本卡保持 [BLOCKED]/[PARKED] 历史状态，不再视为待办。`（状态标签与卡史未动）；README.md grep（`(?i)graphiti|mem0|memory|fts5|待定|未定`）0 命中无需改动；复核实测 `Test-Path LICENSE`=True、PRD L151 / PRODUCT_MAP L23 引用命中。门禁：`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-046.md`。
 
@@ -31,6 +33,7 @@
 ## [DONE] BACKLOG-042b: BACKLOG-042 回归修复（backend 5 项测试未跟上 v25/分派改动）
 
 **优先级**: P0 ｜ **任务卡**: `docs/ai/BACKLOG-042b.md` ｜ **依赖**: BACKLOG-042（commit ed02b20）
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `c8735c3c1e71483a3c1ebf30caa0d9f6b0f80c80`。
 **范围**: 042 合入时只补跑新增 `test_mcp_transport.py`、未跑全量 backend 套件，遗留 5 项既有测试回归（3 项迁移测试硬编码 v24；2 项 MCP 测试 patch 旧符号 `connect_http_mcp_server`）。本卡**只改测试**修这 5 项，且不得放宽断言语义。**禁止**：改 `backend/app/**` 迁就测试、动 `frontend/**`（含 043 未提交改动）、加依赖、删除。
 **证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 5 项逐条修复——①迁移列表断言改为「v1..v24 字面量 + v25 起从 `_MIGRATION_NAMES` 派生并要求真落库」+ 尾项锚定 `_SCHEMA_VERSION`；②③`== _SCHEMA_VERSION == 24` 改为 `== _SCHEMA_VERSION` + 显式断言 v23/v24 在 `schema_version` 中已记录且名字正确（原核心断言"遗留表被删/备份可恢复/append-only/四列"一字未动）；④⑤patch 目标改为实际分派入口 `connect_mcp_server`，fake 改收 `(config)`，新增 `config.command is None`（HTTP 不走 stdio）与成功行 `last_error is None`（成功需清错误），"单服务器失败不阻断其他恢复 + 记录失败"原断言保留。**变异验证**（`%TEMP%` 进程内插件，生产零改动）：漏登记版本 → 用例1 `KeyError`；历史迁移改名 → 用例1 `AssertionError`；restore 去掉 per-server try/except → 用例5 `TimeoutError`，证明断言仍有效。门禁：全量 `pytest -q` **876 passed / 0 failed，覆盖率 92.57%**（修复前 871+5=876，总数不变）；聚焦 67 passed；`ruff check .` exit 0；`git diff --check` exit 0；删除 0；未 commit。**生产代码零改动，未发现生产缺陷**（附观察：`connect_http_mcp_server` 已无生产调用点，是否收口待维护者裁决）。详见 `docs/ai/tasks/BACKLOG-042b.md`。
 
@@ -39,6 +42,7 @@
 ## [DONE] BACKLOG-045: 使用统计详情模块（对齐 CC Switch Usage：范围选择 + 汇总卡 + 维度统计表）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-045.md` ｜ **依赖**: BACKLOG-044（费用列）
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `3718cee78d14eaf4023057089cea49c034841898`。
 **范围**: 用户质问"使用统计详情做了没有"——核实只做了极小子集（UsageTrendChart 1.4KB + UsageRecordsPanel 3.1KB + 固定 days=30），CC Switch `src/components/usage/` 有 7 个组件。本卡补：日期范围选择器（预设 7/30/90 + 自定义，后端 start/end 兼容 days）+ 汇总卡 UsageHero（总 token/调用次数/日均/最活跃模型/费用）+ 维度统计表（按模型 + 会话类型聚合可排序）+ 既有两组件零回归。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、动 044 计价域、E2E config、删除、臆造数据。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
 **证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 范围选择 `UsageDateRangePicker.tsx`（预设 7/30/90 + 自定义起止 + 应用/非法本地报错不发请求）+ 后端 `resolve_range()`/`parse_iso_date()`（`start`/`end` 与 `days` 并存，半参/倒置/格式错/跨度>366 一律 400，响应回显解析后的 start/end/days）+ 汇总卡 `UsageHero.tsx` + `buildUsageHero()` 纯函数（总 token/输入/输出/调用次数/日均/窗口天数/最活跃模型/费用，费用**复用 044** `cost_status`，缺价「未配置单价」、混合币种不换算、断言不出现 `CNY 0`）+ 新增 `GET /api/usage/stats?dimension=model|session_type`（每行 token/次数/占比/`cost_status`，按会话类型维度逐模型折算出 partial 诚实态）+ `UsageStatsTable.tsx` 六列、其中五列可排序（`sortUsageStatsRows()` 纯函数，未知费用恒排末尾）+ `usageRange.ts`/`usageStats.ts` 纯函数 + 新增测试（后端 `test_usage_range.py` 21 例、前端 `UsageDetail.test.tsx` 19 例含 Settings 集成用例）；**零回归**：`UsageTrendChart.tsx`/`UsageRecordsPanel.tsx` 零 diff，`UsageComponents.test.tsx` 7/7、`Settings.test.tsx` 4/4（断言未改）、`PricingConfigPanel.test.tsx` 8/8 全绿；契约同步 API_CONTRACT（+`/api/usage/stats`、窗口参数与 400 明细、usage.py 0/3→0/4、139/175→140/176）+ ROUTER_MAP；i18n +24 key **2439/2439 parity 0**；CC Switch file:line 引用表 15 条（含 2 处诚实出入：参考目录实为 14 文件且无 UsageFooter/UsageScriptModal、CC Switch 用量表本身不带排序）。门禁：backend **909 passed / 0 failed，覆盖率 92.67%**（基线 888/92.62%）；ruff exit 0；build ✓（4261 modules）；聚焦 Vitest 38 passed；全量 Vitest **134 files/470 passed**（基线 133/451）；4173 E2E **50/50**；8000 E2E **21/21**；`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-045.md`。
 
@@ -47,6 +51,7 @@
 ## [DONE] BACKLOG-044: 计价模块（全新：模型单价配置 + 按 token 估算费用，对齐 CC Switch Pricing）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-044.md`
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `693ede6dcedb8629a40cbea9e7ebc8a30f806624`。
 **范围**: 用户质问"计价模块做了没有"——核实**完全为零**（llm_usage 只有 token，无任何 cost/price 字段）。CC Switch 有 `usage/PricingConfigPanel.tsx`+`PricingEditModal.tsx`+`lib/modelsDevPricing.ts`+`src-tauri/src/services/model_pricing.rs`。本卡从零建：`model_pricing` 表（SAVEPOINT 迁移 + `_SCHEMA_VERSION` 提升）+ CRUD 端点（用户隔离/校验）+ `/api/usage/cost` 费用估算（缺单价诚实 unpriced 不猜价）+ Settings 计价面板与编辑弹窗 + 用量区显示估算费用 + 契约同步。**禁止**：加依赖、改 llm_usage 表/链路、动 context.py、E2E config、臆造单价、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
 **证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: schema v26 `model_pricing`（`_MODEL_PRICING_VERSION=26` + SAVEPOINT `install_model_pricing` + `_OWNER_TABLES` 追加；v25 库补建实测，`llm_usage` 记录零改动）+ `/api/model-pricing` CRUD（owner 隔离 404、同 owner 重复 409、422 校验非空模型名/非负有限单价/非空币种）+ `/api/usage/cost` 与 records 派生费用（缺价 `priced:false`+`estimated_cost:null` 绝不返回 0；`cost_by_currency` 分币种、混合币种合计 null、不做汇率换算）+ Settings 用量区计价面板/编辑弹窗（step 0.0001、min 0）/费用段/明细费用列；**无内置单价**（无官方定价页直证，仅手工配置入口，UI 与文档如实声明）；CC Switch file:line 引用表 16 条（含 3 处有意分歧：显式 409 替代静默 upsert、formatCost 保留极小非零、读取时派生不回填）；唯一键 `(user_id, model_name)` 而非字面「唯一 model_name」（为满足用户隔离，已在 API_CONTRACT §21 说明）。门禁：backend **888 passed / 0 failed，覆盖率 92.62%**（基线 876/92.57%）；ruff exit 0；build exit 0；聚焦 Vitest 15 passed；全量 Vitest 133 files/451 passed；4173 E2E 50/50；8000 E2E 21/21；i18n 2415/2415 parity 0；`git diff --check` exit 0；删除 0；未 commit。详见 `docs/ai/tasks/BACKLOG-044.md`。
 
@@ -55,6 +60,7 @@
 ## [DONE] BACKLOG-043: 供应商管理模块（对齐 CC Switch providers，从静态预设升级为可管理供应商）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-043.md`
+> 提交状态校准（2026-09-23）：原证据记录的是当时尚未提交；本条已合入当前 `main`，实际 commit 为 `3f1e5a1a0e885a768db7823063988e4d71167b83`。
 **范围**: 用户质问"供应商模块做了没有"——核实**没有**（只有 36 行 8 条静态预设 + 简单表单）。CC Switch 有 `components/providers/` 顶层 10 文件 + `providers/forms/` 约 60 文件（含 `EndpointSpeedTest.tsx` 测试连接）+ `components/universal/` 3 文件 + `src/config/` 12 个预设文件。本卡补：预设库 8→≥15（每条 base_url 官方直证，拿不准不加）+ 供应商卡片管理 UI（列表/新增/编辑/删除/启停）+ 健康状态徽章（三态+最后检查时间）+ 分组预设选择器 + i18n/测试。**禁止**：加依赖、E2E config、臆造 base_url、改 036/037 契约、动用量/计价/context/MCP 域、删除。门禁：backend pytest + ruff + build + Vitest + 4173 50 + 8000 21 + parity 0。
 **证据（2026-09-13，DSH Worker，代码完成待维护者复核）**: 预设库 8→**15 条**（国内 7：dashscope/glm/kimi/minimax/hunyuan/siliconflow/stepfun；国际 8：openai/deepseek/openrouter/together/fireworks/cerebras/deepinfra/nebius），每条 base_url 附官方文档 URL + 关键行（证据表在 `docs/ai/tasks/BACKLOG-043.md` §1），新增 `category`/`docsUrl` 字段 + `presetById`/`groupPresetsByCategory`/`filterPresets`；新增 `components/models/` 四件套（ProviderCard 卡片信息层级、ProviderHealthBadge 三态+最后检查时间、ProviderPresetSelector 分组+搜索、providerState 健康/启停/搜索纯函数）+ Models.tsx 卡片列表（默认，单列 Table 以保 `system-pages.spec.ts:35` 的 `tbody tr` 断言）+ 表格视图切换 + 供应商搜索 + 显示已停用 + 弹窗内分组预设选择器（custom 不覆盖手动值，036/037 契约未动）；健康检测复用既有 `POST /api/models/{id}/test`（**零新端点、零后端改动**），失败展示后端原文不 5xx；i18n zh/en 各 +36 key **2371/2371 parity 0**；CC Switch 源码 file:line 引用表 19 条（§2）。**诚实声明**：doubao 因官方文档客户端渲染无法直证已从预设库移除（041 来源声明已于 2026-09-13 撤回）；ollama 已官方直证但被现有 `type:'url'` 校验拒绝故未加；groq/mistral/xAI/Perplexity/baichuan/千帆/sambanova 均列未加入清单+原因。门禁：build ✓（tsc+vite 21.79s）；聚焦 Vitest 7 files/39 tests ✓；全量 Vitest 132 files/443 tests → 441 passed（2 项环境性超时 FundamentalMetricsPanel/ProfessionalPreferences，隔离复跑 11/11 全绿）；4173 E2E 50/50；8000 E2E 21/21（--retries=0）；backend ruff ✓、pytest 871 passed/5 项**预存**失败（042 的 v25/mcp 遗留，本卡零后端改动）；git diff --check ✓、删除 0、未 commit。详见 `docs/ai/tasks/BACKLOG-043.md`。
 
