@@ -15,7 +15,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 ├─────────────────────────────────────────────────────────┤
 │                    Vite 开发代理 (5173 → 8000)            │
 ├─────────────────────────────────────────────────────────┤
-│                     路由层 (22 个 APIRouter)              │
+│                     路由层 (23 个 APIRouter)              │
 │  /api/auth  /api/me/credentials  /api/models  /api/agents│
 │  /api/chat  /api/discussion  /api/market  /api/dashboard │
 │  /api/analysis  /api/portfolio  /api/wq  /api/research   │
@@ -158,6 +158,8 @@ prefetch_quotes() → 有界并发，保留逐 ticker 错误
 
 6 条 SSE 管线承载 7 个公开端点；Swarm 四大师另保留 1 个不进入 OpenAPI 的兼容别名。它们共享同一架构模式：
 
+Swarm 取消使用独立的 `POST /api/swarm/runs/{id}/cancel`：只允许报告 owner 取消首事件为 `team_started` 且状态为 `running` 的运行；同一 SQLite 写事务追加 `team_canceled` 到 `research_events` 并把报告标为 `canceled`。实时流与历史回放折叠同一事件，再由同一个前端视图渲染；不新增表或 schema 迁移。
+
 ```
 请求 → 创建数据库记录 → 异步生成器 yield (event, data) →
 EventSourceResponse 包装 → 前端逐事件消费
@@ -196,7 +198,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 **实现位置**：`backend/app/routers/backtests.py` + `backend/app/backtest/ma_crossover.py`，组合回测复用 `backtest/portfolio.py`。
 
-BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；2026-09-07 新增模型列表发现接口后，全应用 OpenAPI 为 136 路径、170 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
+BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；2026-09-07 的全应用 OpenAPI 计数 136/170 为历史快照，2026-09-23 当前 `app.openapi()` 实测为 143 个 `/api/*` 路径、179 个 HTTP 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
 
 Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，解析工具文件保留；无外部引用的 `BacktestResultCard` 及其同名测试已在 BACKLOG-022 回收至回收站。
 

@@ -114,6 +114,12 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 - Full 4,367-field catalogue remains available from `/api/wq/fields` → ✅
 - Search defaults to 10 and is hard-capped at 100 results → ✅
 
+### Mission 1/2 reliability closures (Sep 23)
+- `GlobalTaskEntry` removes malformed recent-history JSON and keeps the command search usable; `GlobalTaskEntry.test.tsx` verifies recovery and selection.
+- `GET /api/research/{id}` now returns the complete stored event row shape; `ResearchReportEvent` is the shared frontend contract for both Research and Swarm replay.
+- Owner-scoped Swarm cancellation persists `team_canceled` with `research_reports.status=canceled`; live and replay states use the same reducer and `SwarmRunView`.
+- Portfolio holdings render mutually exclusive loading, empty, error, and ready states; retry issues a fresh holdings request. Focused tests cover the state transitions.
+
 ---
 
 ## Broken, Incorrect, or Half-Baked (🔥)
@@ -176,10 +182,6 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 - `Research.tsx` renders progress stages for `agent_started`/`agent_completed` events. But these events currently carry errors immediately.
 - The markdown report rendering area exists but will never receive non-error content.
 - **Fix needed**: Fix backend first, then verify frontend renders the report markdown correctly.
-
-### 🔥 Frontend Portfolio: Async loading hangs
-- Snapshot shows "加载中..." text for loading states. If the backend portfolio endpoints return data correctly, probably fine. But if any endpoint hangs or throws, the page stays in loading state.
-- **Fix needed**: Add error boundaries and timeout UI.
 
 ### 🔥 Frontend Bundle: 1.6MB (1 file)
 - `assets/index-DimkJVTb.js` 1.6MB / 530KB gzip — AntD is fully included. No code-splitting, no lazy loading.

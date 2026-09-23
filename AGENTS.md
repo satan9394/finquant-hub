@@ -50,7 +50,7 @@ backend/app/
   main.py           → FastAPI entrypoint (lifespan init, 23 APIRouters)
   config.py         → env vars from backend/.env
   database.py       → 52-table schema v23, query helpers
-  routers/          → 23 APIRouters (133 /api/* paths)
+  routers/          → 23 APIRouters (143 /api/* paths, 179 HTTP operations)
   services/         → market_data, llm_client, indicators, scoring, **research_orch, swarm_orch** 等
   agent/            → 13 local tools (ToolRegistry singleton)
   backtest/         → v1 sync + v2 async backtest engines

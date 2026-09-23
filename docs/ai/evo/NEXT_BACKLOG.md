@@ -7,9 +7,9 @@
 > **2026-09-23 Mission 1/2 更新**：P1-1 的 `recent` 缓存恢复已实现并随 `93e7563` 提交；P2-2 首轮只读审计已完成，确认 46 个待逐项评估的请求开始清失败态调用点，并先收敛 Portfolio 真实持仓读取状态。详见 `docs/ai/evo/P2-2_REQUEST_ERROR_RESET_AUDIT.md`。
 > **权威来源**：`finquant-mission-01/recon-report.md` §4.2（"下一步证据"）与 §4.3（明确拒绝/暂缓），叠加下列文档；本清单只按侦察结论收敛，不新增未在任何文档/源码中出现过的条目。
 > **收录口径**：只收「尚未解决」或「只登记不动手」的项。凡已被独立验收 **ACCEPT** 的卡所解决的问题一律不入清单；相关字样仅在 §5「已解决、勿重开」以注解身份出现并**显式标注**。
-> **状态取值（四值，逐条必填）**：`未开始` / `进行中` / `已否决` / `待评估`。
+> **状态取值（逐条必填）**：`未开始` / `进行中` / `已否决` / `待评估` / `已完成` / `已解决` / `已实现`。
 > **严重度**：🟠 真实缺陷或高价值新需求｜🟡 需评估或需人裁决｜NIT 观感 / 技术债，明确非阻塞。
-> **纪律**：本清单不改写任何历史档案（`docs/ai/evo/*` 既有评估文件、`task/CHANGELOG.md` 历史条目一字未动）；**未在任何原文档添加指针行**（故 `git diff --name-only` 为空，见交付证据）。
+> **纪律**：清单创建阶段（2026-09-13）未改写历史评估档案或 `task/CHANGELOG.md` 既有条目，当时也未添加原文档指针行；2026-09-23 按 D-1～D-3 的核实结果更新了本清单状态与相关当前文档。
 
 ## 0. 条目总览（共 18 条）
 
@@ -18,7 +18,7 @@
 | 🟠 P1 | P1-1 ~ P1-2 | 2 |
 | 🟡 P2 | P2-1 ~ P2-5 | 5 |
 | NIT | NIT-1 ~ NIT-8（观感 4 条 + 同组追加 4 条） | 8 |
-| 文档类 | D-1 ~ D-3（只登记不修改） | 3 |
+| 文档类 | D-1 ~ D-3（已完成） | 3 |
 
 ---
 
@@ -26,7 +26,7 @@
 
 ### P1-1 `GlobalTaskEntry.tsx` 的 `saved` / `recent` 读取失败仍与"确实为空"同形
 
-- **状态**：**已解决** —— `saved` 已修复并入库（提交 **`a4882add`**）；`recent` 缓存损坏后的恢复已实现并入库（提交 **`93e7563`**）。
+- **状态**：**已完成** —— `saved` 已修复并入库（提交 **`a4882add`**）；`recent` 缓存损坏后的恢复已实现并入库（提交 **`93e7563`**）。
 - **严重度**：🟠
 - **来源**：`docs/ai/evo/EVALUATION_RESULT_VS38.md` §7 NIT-1（第 284 行）；`task/CHANGELOG.md` 附五 NIT②（第 812 行）；`DSH_RECOVERY_REPORT.md` §8.3-2（第 100 行）与 §8.5 NIT②（第 128 行）
 - **本轮核实（基线 `264648d`）**：`frontend/src/components/GlobalTaskEntry.tsx:87` 仍为 `.catch(() => setSaved([]))`；`:77` `recent` 由 `readRecentTargets` 初始化、`:84` 重新读取（其内部同样把失败归约为空数组）。渲染侧 `targetList` 在 `items.length === 0` 时整块不渲染 ⇒ 读取失败与"确实没有已保存研究"在屏幕上同形。
@@ -35,7 +35,7 @@
 
 ### P1-2 `swarmApi.ts` 没有历史回放拉取（新需求，非缺陷）
 
-- **状态**：**已实现**（Mission 3，用户授权后执行）—— 回放数据层 `4e031979`、只读列表端点 `011e4e9f`、前端接线 `e2450115`。实现路径与 `SWARM_REPLAY_EVALUATION.md` 的建议一致（先做可用回看、归属靠 `team_started` 事件判定、**未做 schema 迁移**）。**取消态回放**仍未支持（见 NIT-7 旁的说明）
+- **状态**：**已实现**（Mission 3，用户授权后执行）—— 回放数据层 `4e031979`、只读列表端点 `011e4e9f`、前端接线 `e2450115`。实现路径与 `SWARM_REPLAY_EVALUATION.md` 的建议一致（先做可用回看、归属靠 `team_started` 事件判定、**未做 schema 迁移**）。取消态落库与回放现已由 NIT-8 / MISSION-PHASE-2 补齐。
 - **严重度**：🟠
 - **来源**：`docs/ai/evo/PRODUCT_STATE.md` R439 补二 🟠（第 327 行）；`DSH_RECOVERY_REPORT.md` §6-3（第 56 行，判定"暂缓，需先单独评估是否值得做"）
 - **本轮核实（基线 `264648d`）**：`frontend/src/services/swarmApi.ts` 全文 59 行，只有两个团队定义拉取（`fetchFourMastersTeam` / `fetchEarningsReviewTeam`）+ 实时 SSE 流（`streamFourMasters` / `streamEarningsReview`），**没有任何历史回放接口**；唯一回放入口 `deriveAgentOutcomes` 在 `frontend/src/pages/Research.tsx:269`，只遍历 research 的 `AGENT_KEYS`。
@@ -68,10 +68,10 @@
 
 ### P2-4 A5-P3-6 `start.bat` 在 `.venv` 存在时跳过依赖安装
 
-- **状态**：未开始（原「状态存疑」——**本轮已复核：仍成立**）｜**严重度**：🟡
+- **状态**：**已完成**（`start.bat` 以 requirements SHA-256 驱动增量依赖同步）｜**严重度**：🟡
 - **来源**：`docs/ai/evo/PRODUCT_GAP_MAP.md:196` 与 `:213`（A5 P3-6）；`DSH_RECOVERY_CHECKPOINT.md` §4-3；`recon-report.md` §7-7（列为**待复核项**）
-- **本轮复核（基线 `264648d`）**：`start.bat:37` = `if exist "backend\.venv\Scripts\python.exe" goto frontend` ⇒ 只要 venv 已存在就**跳过后端依赖安装**（安装只在新建分支执行）⇒ "更新代码后不补依赖、把补依赖交给用户手打 CLI"这一现象**仍然成立**，不是过期陈述。
-- **风险提示**：`start.bat` 是承重脚本（CRLF、引号、续行缩进、`-Filter` 尾星等，见 `AGENTS.md:97-105`），动它必须逐字复制原行并经 `cmd.exe` 实跑。
+- **历史基线（`264648d`）**：原脚本在 venv 存在时跳过依赖更新；本项已通过 requirements 文件 SHA-256 比对收敛，缺失或不匹配时执行 pip 同步并成功后写入哈希记录。
+- **完成证据**：`cmd.exe /c "start.bat --check-only"` exit 0；工作副本 237 行 CRLF、0 行孤立 LF，`.gitattributes` 继续声明 `*.bat text eol=crlf`；实现提交 **`93e7563`**。
 
 ### P2-5 `scripts/audit.py:423` 未使用变量（F841）
 
@@ -126,45 +126,43 @@
 
 ### NIT-7 `ResearchReportDetail` 类型声明不带 `events`（运行时却有）
 
-- **状态**：未开始｜**严重度**：🟡（类型欠账，非运行时缺陷）
+- **状态**：**已完成**（实现提交 **`93e7563`**）｜**严重度**：🟡（类型欠账，非运行时缺陷）
 - **来源**：Mission 3 / W1 现状核实时**实测发现**（并记于 `RUN_STATE.md` Deferred Backlog）
-- **事实**：`frontend/src/types/research.ts:204-207` 的 `ResearchReportDetail` **不含 `events`**，而后端 `GET /api/research/{id}`（`backend/app/routers/research.py:469-482`）**确实**注入 `report["events"]`（行字段 `id / event_type / agent_role_key / payload / created_at`，`payload` 已 `json.loads`）⇒ **运行时可见、类型层不可见**。后果是各消费方只能自建局部类型：`Research.tsx:59-77`（`StoredAgentEvent`/`StoredReportDetail`）与 `features/swarm/replay.ts:38-45`（`StoredSwarmEventRow`），同一份契约被描述了三遍。
-- **建议动作**：把 `events` 补进 `ResearchReportDetail`，再让两处局部类型收敛到它。**属独立小卡**，Mission 3 未做（不在其允许文件清单内）。
+- **完成证据**：`ResearchReportEvent` 已统一声明 `id / research_id / event_type / agent_role_key / payload / created_at`，`ResearchReportDetail.events` 与后端响应契约对齐；`Research.tsx` 和 `features/swarm/replay.ts` 复用权威类型。NIT-7 仅收敛类型，不改既有解析逻辑；另行加入的取消事件状态迁移见 NIT-8。
 
 ### NIT-8 被取消的 swarm 运行回放出来仍是 `running`
 
-- **状态**：未开始（**已知边界，非缺陷**）｜**严重度**：NIT
+- **状态**：**已完成**（`team_canceled` 事件与报告终态持久化；实现提交 **`93e7563`**）｜**严重度**：NIT
 - **来源**：Mission 3 / W1 现状核实时发现（记于 `RUN_STATE.md` Deferred Backlog）
-- **事实**：`frontend/src/features/swarm/state.ts:199` 的 `cancelSwarmRun` 是**客户端状态迁移**，不产生事件、也不落库 ⇒ 回放只能忠实于 `research_events`，被取消的运行回放后 `status` 仍是 `running`。**回放不臆造未落库的状态**是刻意取舍。
-- **若要支持**：需后端在取消时也写一条事件（属产品语义变更，须单独裁决）。
+- **完成证据**：owner-scoped `POST /api/swarm/runs/{report_id}/cancel` 在事务中追加 `team_canceled` 并更新 `research_reports.status=canceled`；实时和历史均折叠为相同 `SwarmRunState` 并交给同一 `SwarmRunView`。后端定向测试、回放纯函数测试和实时/回放联动测试已通过。
 
 ---
 
-## 4. 文档类（3 条，**只登记不修改**，本轮未动一个字节）
+## 4. 文档类（3 条，原登记为只登记项；D-1～D-3 已于 2026-09-23 完成）
 
-### D-1 `README.md` 路由计数漂移（写 22，实测 23）
+### D-1 `README.md` 路由计数漂移（已更正为 23 个路由器、143/179）
 
-- **状态**：未开始｜**严重度**：🟡
+- **状态**：**已完成**（实现提交 **`93e7563`**）｜**严重度**：🟡
 - **来源**：`recon-report.md` §4.2-13、§6 R8；`README.md:5` 与 `:104`；对照 `AGENTS.md:50`、`:53`
 - **本轮实测（基线 `264648d`）**：`backend/app/routers/*.py` 共 **23** 个 `APIRouter(` 定义（23 个文件各 1 个）；`backend/app/main.py:16` import 的 router 模块**恰为 23 个**，`:135` 显式挂载 1 个 + `:136-140` 循环挂载 22 个 = **23 个全部挂载**。而 `README.md:5` / `:104` 仍写「**22** 个 APIRouter、135 个 `/api/*` 路径、169 个 HTTP 操作」，`AGENTS.md:50` / `:53` 写「**23** APIRouters、133 个 `/api/*` 路径」。
 - **历史张力（需人工裁决口径）**：`HANDOFF.md:228` 记载 2026-09-04 的 BACKLOG-025 曾把三处计数统一为 22/135/169 并声称"与运行时 OpenAPI 一致" ⇒ 该结论在当时可能成立，但在其后新增 router 后**已过期**。路径数 / 操作数（135 / 169 vs 133）本轮**未核对**（需跑 OpenAPI 导出，会产生构建产物）。
-- **处置**：**只登记不修改**（避免顺手扩卡）。`README:104` 自己已声明"运行时 OpenAPI 是最终校验来源"。
+- **处置**：README、`AGENTS.md` 已按源码与运行时 OpenAPI 更正为 **23 个 APIRouter、143 个 `/api/*` 路径、179 个 HTTP 操作**；`docs/API_CONTRACT.md` 保留 2026-09-13 的 142/178 历史快照并追加当前计数；`app.openapi()` 当前实测为 143/179，23 个路由器均挂载。
 
 ### D-2 `docs/ai/EXEC_PLAN.md` 的「未 commit」声明与 git 事实不符
 
-- **状态**：未开始｜**严重度**：🟡
+- **状态**：**已完成**（2026-09-23 校准 EXEC_PLAN 记录）｜**严重度**：🟡
 - **来源**：`recon-report.md` §4.1、§6 R11；`docs/ai/EXEC_PLAN.md:19`（BACKLOG-047）与 `:27`（BACKLOG-046）
 - **事实**：上述 `[DONE]` 条目正文写「未 commit」，但对应提交**早已是 `main` 的祖先**——本轮 `git merge-base --is-ancestor <c> main` 对下列提交逐条 exit 0：BACKLOG-046 → `bc0d59c`（2026-09-10）、BACKLOG-047 → `9cbe1d4`（2026-09-10）、BACKLOG-048 → `37cbd4b`、BACKLOG-049 → `d249644`（另核 042b `c8735c3` / 043 `3f1e5a1` / 044 `693ede6` / 045 `3718cee` 同为祖先）。
 - **⚠️ 本轮更正一处卡面 / 侦察报告的轻微失真**：卡面与侦察报告均称 BACKLOG-046/047/**048** 正文写「未 commit」；本轮逐行核对，`EXEC_PLAN.md:7-11` 的 BACKLOG-048 条目**不含**「未 commit」（其正文写的是"维护者独立复核合入"）。「未 commit」实际见于 046、047 及其前后多张（042b / 043 / 044 / 045）的 `[DONE]` 正文。
-- **口径**：**任何"是否已提交 / 是否已完成"的判断以 git 为准**，不采信文档自述；本清单只登记，不回改历史条目。
+- **处置**：`docs/ai/EXEC_PLAN.md` 已为 BACKLOG-042b、043、044、045、046、047 补充各自真实提交 SHA；本轮逐项确认相关提交均为当前 `main` 祖先，未改写任务卡的历史验证记录。
 
 ### D-3 `HANDOFF.md` 相对 HEAD 过期
 
-- **状态**：未开始｜**严重度**：🟡
+- **状态**：**已完成**（2026-09-23 刷新 HANDOFF 当前状态）｜**严重度**：🟡
 - **来源**：`recon-report.md` §4.1、§6 R8
 - **本轮核实（基线 `264648d`）**：`HANDOFF.md:4` 写"最近更新 2026-08-21"（比 HEAD 早约 3 周）；`:8` 当前目标仍是「**Local OSS v1 发布就绪**……发布前收尾」；`:96` 仍写「LICENSE 文件创建……根目录未创建。发布前必须完成」，而根目录 `LICENSE` 实测存在（`Test-Path LICENSE` → `True`）且 `:28` 的勾选项已是 `[x]`、`:31` 已有 2026-09-13 核实说明 ⇒ **同一文件内自相矛盾**。
 - **⚠️ 本轮更正一处侦察失真**：侦察 §4.1 称"DoD 三项已完成却仍标着未勾选"；本轮实测 `:28`-`:30` 三项**均已 `[x]`**（BACKLOG-046 已勾清）。残留问题因此是**正文与更新日期过期**（`:8` 的目标、`:96` 的"未创建"、`:4` 的日期），**不是勾选状态**。
-- **处置**：只登记。若将来要改，必须**整句替换 + 读回核对 + grep 复核旧句不残留**（元教训：子串替换只换半句已犯过两次）。
+- **处置**：`HANDOFF.md` 顶部目标已刷新为「Mission 3 完工及技术债演进阶段」，修订日期更新为 2026-09-23，并将当前 P2-2 与已关闭发布收尾项写明；旧会话记录保留为历史证据。
 
 ---
 
@@ -186,13 +184,13 @@
 ## 6. 本清单的边界声明
 
 1. **未收录已 ACCEPT 的问题**：已解决项只在 §5 以「勿重开」注解出现，**不以待办身份出现**（grep 自证见交付证据）。
-2. **未改动任何历史档案**：`docs/ai/evo/*` 既有评估文件、`task/CHANGELOG.md` 历史条目、`docs/ai/EXEC_PLAN.md`、`HANDOFF.md`、`README.md`、`AGENTS.md` **均一字未动**；**未添加任何指针行**（因此 `git diff --name-only` 为空）。若后续确需指针行，必须整句替换 + 读回核对 + grep 复核旧句不残留。
+2. **清单创建阶段（2026-09-13）的改动边界**：当时未改动 `docs/ai/evo/*` 既有评估档案、`task/CHANGELOG.md` 历史条目、`docs/ai/EXEC_PLAN.md`、`HANDOFF.md`、`README.md`、`AGENTS.md`，也未添加原文档指针行；这些是初版交付记录，不代表当前工作树状态。若后续确需指针行，必须整句替换 + 读回核对 + grep 复核旧句不残留。
 3. **未凭空新增**：条目全部来自 `recon-report.md` §4.2 / §4.3 与上列文档。侦察报告未登记、仅在其他文档滚动出现的项——例如 `PRODUCT_GAP_MAP.md:237` 的 O1（在途窗口点"创建"提示不准确）、`:241` 的 `ResearchFollowupPrompt.test.tsx` 首条用例逼近 5s 超时——**本轮未独立核实，故未登记**；如需纳入，请先核实现状再新增条目，不要凭文档自述排期。
-4. **本轮验证的覆盖范围**（如实声明，**严格区分「聚焦」与「全量」**）：
+4. **原始清单验证覆盖范围（截至 2026-09-13）**（如实声明，**严格区分「聚焦」与「全量」**）：
    - **已跑（exit 0）**：前端**聚焦** vitest——只跑 **15 个测试文件 / 83 个用例**，`Test Files 15 passed (15)` / `Tests 83 passed (83)`，退出码 **0**（实测记录 `BASELINE_VERIFICATION.md:22`；命令原文见 `:299`）。该结果**仅覆盖 151 个前端测试文件中的 15 个**，**不代表前端全量绿**。
    - **已跑（exit 0）**：前端 `bun run build`——`openapi … fresh (60 schemas)` → `tsc -b` 无错 → `built in 39.33s`，退出码 **0**（实测记录 `BASELINE_VERIFICATION.md:23`；构建输出见 `:340-386`）。
    - **未跑**：前端**全量** vitest（`frontend/tests/` 共 151 个 `*.test.ts*`）、后端**全量** `pytest`（本机沙箱会挂起）、E2E、Docker `up`、`mypy`、OpenAPI 导出（`prebuild` 只校验生成物新鲜度，不做导出/生成）。
-   - **未复核**：「约 40 处」计数与 `/api/*` 路径数 / HTTP 操作数未复核；D-1 的 133 vs 135 口径未裁决。
+    - **当时未复核**：「约 40 处」计数与 `/api/*` 路径数 / HTTP 操作数；D-1 的 133 vs 135 口径未裁决。2026-09-23 已按 D-1 复核 `app.openapi()`，当前为 143 个路径 / 179 个操作，并同步更正 README、`AGENTS.md` 与本契约的当前计数说明。
 5. **证据时效**：本清单所有行号与文件内容锚定在 `264648d8619f759b222cced6583169e6432d04d6`；后续提交会使部分行号漂移，引用时请以显式提交号复核。
 
 ---
