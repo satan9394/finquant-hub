@@ -1,0 +1,45 @@
+import { Alert, Card, Empty, List, Space, Tag, Typography } from 'antd';
+import { useLanguage } from '../i18n/LanguageContext';
+
+const { Text } = Typography;
+
+export interface LatestNewsItem {
+  title: string;
+  source?: string | null;
+  published_at?: string | null;
+  url?: string | null;
+  snippet?: string | null;
+  provider?: string | null;
+}
+
+export interface LatestNewsResponse {
+  queried_at: string;
+  as_of: string;
+  providers_attempted: string[];
+  providers_used: string[];
+  errors: Record<string, string>;
+  data_status: 'OK' | 'PARTIAL' | 'UPSTREAM_ERROR' | 'UNKNOWN';
+  news: LatestNewsItem[];
+}
+
+function safeUrl(value?: string | null): value is string {
+  return Boolean(value && /^https?:\/\//i.test(value));
+}
+
+export default function LatestNews({ data, loading = false, error = '' }: { data: LatestNewsResponse | null; loading?: boolean; error?: string }) {
+  const { lang, t } = useLanguage();
+  return (
+    <Card className="latest-news" title={<span id="latest-news-title">{t('today.news.title')}</span>} loading={loading}>
+      {error ? <Alert type="warning" showIcon message={t('today.news.unavailable')} description={error} /> : null}
+      {data ? (
+        <>
+          <div className="latest-news__meta">
+            <Space wrap size={8}><Tag color={data.data_status === 'OK' ? 'green' : data.data_status === 'PARTIAL' ? 'orange' : 'default'}>{data.data_status}</Tag><Text type="secondary">as_of <span data-testid="latest-news-as-of">{data.as_of || data.queried_at || 'UNKNOWN'}</span></Text><Text type="secondary">{t('today.news.source')}{data.providers_used.length ? data.providers_used.map((provider) => <Tag key={provider}>{provider}</Tag>) : 'UNKNOWN'}</Text></Space>
+          </div>
+          {data.news.length ? <List size="small" dataSource={data.news.slice(0, 6)} renderItem={(item) => <List.Item><div className="latest-news__item">{safeUrl(item.url) ? <a href={item.url} target="_blank" rel="noreferrer noopener">{item.title}</a> : <Text strong>{item.title}</Text>}<Text type="secondary">{[item.source, item.published_at, item.provider].filter(Boolean).join(' · ')}</Text>{item.snippet ? <Text type="secondary" ellipsis={{ tooltip: item.snippet }}>{item.snippet}</Text> : null}</div></List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('today.news.empty')} />}
+          {Object.keys(data.errors).length ? <Text type="secondary" className="latest-news__errors">{t('today.news.partial', { providers: Object.keys(data.errors).join(lang === 'zh' ? '、' : ', ') })}</Text> : null}
+        </>
+      ) : <Text type="secondary">{t('today.news.none')}</Text>}
+    </Card>
+  );
+}

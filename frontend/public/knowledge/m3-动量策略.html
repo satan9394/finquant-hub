@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略 03 · 动量策略</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#f5f4f1;color:#1a1a1a;padding:32px 20px;display:flex;flex-direction:column;align-items:center}
+.page{max-width:860px;width:100%}
+.back{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:#666;text-decoration:none;margin-bottom:24px}
+.back:hover{color:#eb6834}
+header{margin-bottom:32px}
+header .tag{font-size:12px;font-weight:600;color:#eb6834;background:#fde8d6;padding:3px 10px;border-radius:12px;display:inline-block;margin-bottom:8px}
+header h1{font-size:28px;font-weight:700;margin-bottom:8px}
+header .sub{font-size:15px;color:#666;line-height:1.7}
+.analogy{background:#fff3e0;border-left:3px solid #eb6834;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:14px;line-height:1.7;color:#663c00}
+.analogy strong{color:#eb6834}
+.viz-box{background:#fff;border-radius:14px;padding:20px 20px 16px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:24px}
+.viz-box svg{width:100%;height:auto;display:block}
+.controls{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.controls button{background:#f0efec;border:1px solid #ddd;border-radius:8px;padding:6px 16px;font-size:13px;cursor:pointer;font-weight:500;color:#333}
+.controls button:hover{background:#e1e0d9}
+.controls button.playing{background:#eb6834;color:#fff;border-color:#eb6834}
+.controls label{font-size:13px;color:#666;display:flex;align-items:center;gap:6px}
+.controls input[type=range]{width:90px}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.info-card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.info-card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:#eb6834}
+.info-card p{font-size:14px;color:#555;line-height:1.7}
+.steps{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:24px}
+.steps h3{font-size:15px;font-weight:600;margin-bottom:12px}
+.steps ol{padding-left:20px}
+.steps li{font-size:14px;color:#555;line-height:1.8;margin-bottom:4px}
+.momentum-bar{height:30px;background:#f0efec;border-radius:15px;overflow:hidden;margin-top:12px;position:relative}
+.momentum-fill{height:100%;background:#eb6834;border-radius:15px;transition:width .15s;width:50%}
+.momentum-label{position:absolute;top:0;left:0;right:0;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#333}
+@media(max-width:600px){header h1{font-size:22px}.info-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<a class="back" href="index.html">← 返回全部策略</a>
+
+<header>
+<div class="tag">策略 03 · 趋势跟踪</div>
+<h1>动量策略</h1>
+<div class="sub">"强者恒强，弱者恒弱"——资产价格的趋势一旦形成，往往会延续一段时间。顺势而为，不做逆势判断。</div>
+</header>
+
+<div class="analogy">
+<strong>🚗 生活类比：</strong>
+想象你在高速公路上开车。一辆大卡车一旦加速到 100km/h，不会立刻停下来——它有巨大的"动量"。
+股票也一样，当它开始持续上涨，会吸引更多买家入场，推动价格继续走高。
+动量策略就是在卡车刚加速时跳上车，在减速前跳下来。
+</div>
+
+<div class="viz-box">
+<svg id="chart" viewBox="0 0 740 370" xmlns="http://www.w3.org/2000/svg">
+  <defs><clipPath id="clip"><rect x="60" y="20" width="640" height="270"/></clipPath></defs>
+  <g stroke="#e8e7e2" stroke-width="0.5">
+    <line x1="60" y1="35" x2="700" y2="35"/><line x1="60" y1="70" x2="700" y2="70"/>
+    <line x1="60" y1="105" x2="700" y2="105"/><line x1="60" y1="140" x2="700" y2="140"/>
+    <line x1="60" y1="175" x2="700" y2="175"/><line x1="60" y1="210" x2="700" y2="210"/>
+    <line x1="60" y1="245" x2="700" y2="245"/><line x1="60" y1="280" x2="700" y2="280"/>
+  </g>
+  <line x1="60" y1="20" x2="60" y2="290" stroke="#bbb" stroke-width="1"/>
+  <line x1="60" y1="290" x2="700" y2="290" stroke="#bbb" stroke-width="1"/>
+  <text x="55" y="18" text-anchor="end" font-size="11" fill="#999">价格</text>
+  <text x="700" y="308" text-anchor="end" font-size="11" fill="#999">时间</text>
+  <rect x="560" y="28" width="10" height="3" fill="#333" rx="1.5"/>
+  <text x="574" y="33" font-size="11" fill="#666">价格</text>
+  <rect x="630" y="28" width="10" height="3" fill="#eb6834" rx="1.5"/>
+  <text x="644" y="33" font-size="11" fill="#666">动量</text>
+
+  <g clip-path="url(#clip)">
+    <polyline id="priceLine" fill="none" stroke="#333" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline id="momLine" fill="none" stroke="#eb6834" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4,3"/>
+    <line id="zeroLine" x1="0" y1="210" x2="640" y2="210" stroke="#ccc" stroke-width="0.8" stroke-dasharray="3,3"/>
+    <g id="signals"/>
+  </g>
+  <text id="signalText" x="400" y="160" text-anchor="middle" font-size="18" font-weight="700" opacity="0"/>
+</svg>
+
+<div class="controls">
+<button id="playBtn" class="playing">⏸ 暂停</button>
+<button id="resetBtn">↺ 重放</button>
+<label>速度 <input type="range" id="speedRange" min="1" max="10" value="4"></label>
+<span style="font-size:12px;color:#999"><span id="barIdx">0</span> / <span id="barTotal">200</span></span>
+</div>
+<div class="momentum-bar">
+<div class="momentum-fill" id="momFill" style="width:50%"></div>
+<div class="momentum-label" id="momLabel">动量值: 0.0</div>
+</div>
+</div>
+
+<div class="info-grid">
+<div class="info-card">
+<h3>💡 策略思想</h3>
+<p>趋势自相关——过去一段时间涨得好的资产，接下来一段往往继续涨。动量策略通过测量价格变化率（N日收益率或 RSI 等指标），买入强势资产、卖出/避开弱势资产。</p>
+</div>
+<div class="info-card">
+<h3>⚙️ 实现方式</h3>
+<p>计算过去 N 天的收益率作为动量信号（如过去 12 个月的收益率）。动量大于 0 且超过阈值时买入，动量转负时卖出。也可以做多动量最强的几只股票，同时做空最弱的几只。</p>
+</div>
+</div>
+
+<div class="steps">
+<h3>📋 执行步骤</h3>
+<ol>
+<li>选定资产池，确定动量计算周期（如 60 天收益率）</li>
+<li>每天计算各资产的动量值 = (今天价格 - N天前价格) / N天前价格</li>
+<li>动量超过阈值（如 +5%）→ 买入；动量跌破 0 → 卖出</li>
+<li>也可以构建多空组合：做多动量最强的前 20%，做空最弱的后 20%</li>
+<li>动量策略在市场趋势明显时效果极佳，剧烈反转时容易回撤</li>
+</ol>
+</div>
+
+</div>
+
+<script>
+const N = 200;
+const p = [{x:0,y:145}];
+for (let i = 1; i < N; i++) {
+  let t = i / N;
+  let trend = Math.sin(t * Math.PI * 1.8) * 50;
+  let noise = (Math.random() - 0.5) * 10;
+  let prev = p[i-1].y;
+  let inertia = (prev - 145) * 0.08;
+  let val = 145 + trend * 0.5 + noise + inertia;
+  p.push({x:i, y:val});
+}
+
+const W=640,H=270;
+const xS=i=>60+(i/(N-1))*W;
+const yS=v=>20+(1-(v-40)/270)*H;
+
+let idx=0,playing=true,speed=4,timer=null;
+const priceEl=document.getElementById('priceLine');
+const momEl=document.getElementById('momLine');
+const sigEl=document.getElementById('signals');
+const sigT=document.getElementById('signalText');
+const mi=document.getElementById('barIdx');
+const mt=document.getElementById('barTotal');
+const mf=document.getElementById('momFill');
+const ml=document.getElementById('momLabel');
+mt.textContent=N;
+
+function mom(i){if(i<10)return 0;return(p[i].y-p[i-10].y)/p[i-10].y;}
+
+function momScale(v){return Math.max(-1,Math.min(1,v*5));}
+
+function draw(upTo){
+  let pts=[];
+  for(let i=Math.max(0,upTo-80);i<=upTo;i++){
+    let px=xS(i),py=yS(p[i].y);
+    pts.push(`${px},${py}`);
+  }
+  priceEl.setAttribute('points',pts.join(' '));
+
+  let momPts=[];
+  for(let i=Math.max(5,upTo-60);i<=upTo;i++){
+    let v=mom(i);
+    let my=210-momScale(v)*(70);
+    momPts.push(`${xS(i)},${my}`);
+  }
+  momEl.setAttribute('points',momPts.join(' '));
+
+  sigEl.innerHTML='';
+  for(let i=5;i<=upTo;i++){
+    let v=mom(i),pv=mom(i-1);
+    if(v>0.03&&pv<=0.03){
+      let px=xS(i),py=yS(p[i].y);
+      sigEl.innerHTML+=`<text x="${px}" y="${py-12}" text-anchor="middle" font-size="11" font-weight="600" fill="#1aaf7a">↑ 买入</text>`;
+    }
+    if(v<-0.03&&pv>=-0.03){
+      let px=xS(i),py=yS(p[i].y);
+      sigEl.innerHTML+=`<text x="${px}" y="${py+18}" text-anchor="middle" font-size="11" font-weight="600" fill="#d03b3b">↓ 卖出</text>`;
+    }
+  }
+
+  let curMom=mom(upTo);
+  let mw=Math.max(5,Math.min(95,(curMom*8+0.5)*100));
+  mf.style.width=mw+'%';
+  let col=curMom>0?'#eb6834':'#888';
+  mf.style.background=col;
+  ml.textContent=`动量值: ${(curMom*100).toFixed(1)}%  ${curMom>0?'🚀 趋势向上':'📉 趋势向下'}`;
+
+  sigT.setAttribute('opacity','0');
+  if(Math.abs(curMom)>0.05){
+    sigT.textContent=curMom>0?'📈 动量为正 · 持仓':'📉 动量为负 · 空仓';
+    sigT.setAttribute('fill',curMom>0?'#eb6834':'#888');
+    sigT.setAttribute('opacity','1');
+  }
+  mi.textContent=upTo;
+}
+
+function step(){if(idx<N-1){idx++;draw(idx);}else{
+  playing=false;document.getElementById('playBtn').textContent='▶ 播放';document.getElementById('playBtn').classList.remove('playing');
+  setTimeout(()=>{idx=0;draw(0);playing=true;document.getElementById('playBtn').textContent='⏸ 暂停';document.getElementById('playBtn').classList.add('playing');schedule();},2000);}}
+function schedule(){if(timer)clearTimeout(timer);if(playing)timer=setTimeout(()=>{step();schedule();},Math.max(16,120/speed));}
+
+document.getElementById('playBtn').addEventListener('click',()=>{
+  playing=!playing;document.getElementById('playBtn').textContent=playing?'⏸ 暂停':'▶ 播放';document.getElementById('playBtn').classList.toggle('playing',playing);
+  if(playing){if(idx>=N-1){idx=0;draw(0);}schedule();}else if(timer)clearTimeout(timer);
+});
+document.getElementById('resetBtn').addEventListener('click',()=>{
+  if(timer)clearTimeout(timer);idx=0;draw(0);
+  if(!playing){playing=true;document.getElementById('playBtn').textContent='⏸ 暂停';document.getElementById('playBtn').classList.add('playing');}schedule();
+});
+document.getElementById('speedRange').addEventListener('input',e=>{speed=parseInt(e.target.value);});
+draw(0);schedule();
+</script>
+</body>
+</html>

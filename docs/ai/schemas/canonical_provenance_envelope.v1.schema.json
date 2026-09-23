@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://finquant.local/schemas/canonical-provenance-envelope-v1.json",
+  "title": "CanonicalProvenanceEnvelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "evidence_id", "kind", "data_status", "subject", "metric", "value", "unit",
+    "source", "vendor", "document_id", "as_of", "published_at", "retrieved_at", "period_type",
+    "market", "currency", "adjustment", "frequency", "inputs", "formula", "method_version",
+    "quality_flags", "confidence", "license_scope"
+  ],
+  "properties": {
+    "schema_version": {"const": "canonical-provenance-envelope-v1"},
+    "evidence_id": {"type": "string", "pattern": "^ev_[A-Za-z0-9._:-]{8,120}$"},
+    "kind": {"enum": ["observed_fact", "computed_result", "document_excerpt"]},
+    "data_status": {"enum": ["OK", "UNKNOWN", "PARTIAL", "UPSTREAM_ERROR"]},
+    "subject": {
+      "type": "object", "additionalProperties": false, "required": ["type", "id"],
+      "properties": {"type": {"enum": ["instrument", "portfolio", "strategy", "market", "document"]}, "id": {"type": "string", "minLength": 1}}
+    },
+    "metric": {"type": ["string", "null"]},
+    "value": {"type": ["number", "string", "boolean", "object", "array", "null"]},
+    "unit": {"type": ["string", "null"]},
+    "source": {"type": ["string", "null"]},
+    "vendor": {"type": ["string", "null"]},
+    "document_id": {"type": ["string", "null"]},
+    "as_of": {"type": ["string", "null"]},
+    "published_at": {"type": ["string", "null"]},
+    "retrieved_at": {"type": "string", "minLength": 1},
+    "period_type": {"type": ["string", "null"]},
+    "market": {"type": ["string", "null"]},
+    "currency": {"type": ["string", "null"]},
+    "adjustment": {"type": ["string", "null"]},
+    "frequency": {"type": ["string", "null"]},
+    "inputs": {"type": "array", "items": {"type": "string", "pattern": "^ev_[A-Za-z0-9._:-]{8,120}$"}, "uniqueItems": true},
+    "formula": {"type": ["string", "null"]},
+    "method_version": {"type": ["string", "null"]},
+    "quality_flags": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "license_scope": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"data_status": {"const": "UNKNOWN"}}, "required": ["data_status"]},
+      "then": {"properties": {"value": {"type": "null"}, "quality_flags": {"contains": {"const": "UNKNOWN"}}}}
+    },
+    {
+      "if": {"properties": {"data_status": {"const": "UPSTREAM_ERROR"}}, "required": ["data_status"]},
+      "then": {"properties": {"value": {"type": "null"}, "quality_flags": {"contains": {"const": "UPSTREAM_ERROR"}}}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "computed_result"}}, "required": ["kind"]},
+      "then": {
+        "properties": {
+          "inputs": {"minItems": 1}, "formula": {"type": "string", "minLength": 1}, "method_version": {"type": "string", "minLength": 1}
+        }
+      },
+      "else": {"properties": {"inputs": {"maxItems": 0}, "formula": {"type": "null"}, "method_version": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "observed_fact"}}, "required": ["kind"]},
+      "then": {"properties": {"source": {"type": "string", "minLength": 1}, "metric": {"type": "string", "minLength": 1}}}
+    }
+  ]
+}

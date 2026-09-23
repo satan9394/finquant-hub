@@ -1,0 +1,40 @@
+name: finquant-hub-local
+
+services:
+  backend:
+    build:
+      context: .
+      target: backend
+    environment:
+      APP_ENV: development
+      LOCAL_ONLY_MODE: "true"
+      MASTER_KEY: ${MASTER_KEY:?Run scripts/local.ps1 once to create .env.local}
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEFAULT_MODEL: ${DEFAULT_MODEL:-deepseek-v4-flash}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
+    expose:
+      - "8000"
+    volumes:
+      - finquant-local-data:/app/backend/data
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      target: frontend-local
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LOCAL_PORT:-5173}:80"
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  finquant-local-data:

@@ -1,0 +1,276 @@
+"""单 Agent 对话：会话管理 + SSE 流式聊天。"""
+import json
+import logging
+from collections.abc import AsyncIterator
+from typing import Any, cast
+
+from fastapi import APIRouter, Depends, HTTPException
+from sse_starlette.sse import EventSourceResponse
+
+from .. import database
+from ..agent import tools_definitions as _tools_definitions  # noqa: F401
+from ..agent.tools import ToolRegistry
+from ..models import MessageIn, SessionCreate, SessionUpdate
+from ..services.context import estimate_tokens
+from ..services import model_router
+from ..services.llm_client import DEFAULT_TOOL_LOOP_DEADLINE_SECONDS, LLMError
+from ..services.llm_usage import reset_usage_context, set_usage_context
+from ..services.memory import native_memory_provider
+from ..services.memory_rollout import MemoryRollout, finalize_memory_rollout, prepare_memory_rollout
+from .auth import CurrentUser, authenticated_context
+
+router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(authenticated_context)])
+LOGGER = logging.getLogger(__name__)
+
+HISTORY_LIMIT = 20
+DEFAULT_SYSTEM = (
+    "你是 FinQuant Hub 的金融研究助手，专注 A 股/港股/美股的量化与投资讨论。"
+    "回答直接、有数据支撑、有明确观点。此内容由 AI 生成，不构成投资建议。"
+)
+
+# VS23/VS28：整轮截止的**正文提示**文案。写入端（stream，截断时前置进正文与落库内容）
+# 与读取端（list_messages 的历史回放）共用这**同一个常量**——历史行里没有结构化标记列，
+# 回放只能由这条提示反推；两端同源才不会漂移（`用户所见 == 已保存内容`）。
+DEADLINE_TRUNCATION_NOTICE = "（因超过总时长上限提前结束，以下为已完成部分）"
+
+
+def _marked_truncated(content: Any) -> bool:
+    """该条落库内容是否为整轮截止的产出（与 stream() 的写入端判据同源）。"""
+    return isinstance(content, str) and content.startswith(DEADLINE_TRUNCATION_NOTICE)
+
+
+async def _execute_tool(name: str, arguments: str) -> str:
+    """类型驱动执行工具：ToolRegistry.dispatch 负责 JSON 解析 + schema 前置校验。"""
+    result = await ToolRegistry().dispatch(name, arguments)
+    return json.dumps(
+        {"success": result.success, "data": result.data, "error": result.error},
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+async def _get_session(session_id: int, user_id: int) -> dict[str, Any]:
+    session = await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?", (session_id, user_id)
+    )
+    if session is None:
+        raise HTTPException(404, f"会话不存在：id={session_id}")
+    return session
+
+
+@router.post("/sessions", status_code=201)
+async def create_session(body: SessionCreate, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    new_id = await database.execute(
+        "INSERT INTO conversations (title, mode, role_preset, model_id, user_id) VALUES (?, 'single', ?, ?, ?)",
+        (body.title, body.role_preset, body.model_id, user_id),
+    )
+    return cast(dict[str, Any], await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?",
+        (new_id, user_id),
+    ))
+
+
+@router.get("/sessions")
+async def list_sessions(user: CurrentUser) -> dict[str, Any]:
+    return {
+        "items": await database.query_all(
+            """
+            SELECT c.*,
+                   (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id AND m.user_id=c.user_id) AS message_count,
+                   (SELECT substr(m.content, 1, 50) FROM messages m
+                     WHERE m.conversation_id=c.id AND m.user_id=c.user_id ORDER BY m.id DESC LIMIT 1) AS last_message
+            FROM conversations c WHERE c.mode='single' AND c.status='active' AND c.user_id=?
+            ORDER BY c.updated_at DESC
+            """,
+            (user["id"],),
+        )
+    }
+
+
+@router.put("/sessions/{session_id}")
+async def update_session(session_id: int, body: SessionUpdate, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if updates:
+        sets = ", ".join(f"{k}=?" for k in updates)
+        await database.execute(
+            f"UPDATE conversations SET {sets}, updated_at=datetime('now') WHERE id=? AND user_id=?",
+            (*updates.values(), session_id, user_id),
+        )
+    return cast(dict[str, Any], await database.query_one(
+        "SELECT * FROM conversations WHERE id=? AND user_id=?",
+        (session_id, user_id),
+    ))
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: int, user: CurrentUser) -> dict[str, bool]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
+    await database.execute("DELETE FROM messages WHERE conversation_id=? AND user_id=?", (session_id, user_id))
+    await database.execute("DELETE FROM conversations WHERE id=? AND user_id=?", (session_id, user_id))
+    return {"ok": True}
+
+
+@router.get("/sessions/{session_id}/messages")
+async def list_messages(session_id: int, user: CurrentUser) -> dict[str, Any]:
+    user_id = int(user["id"])
+    await _get_session(session_id, user_id)
+    rows = await database.query_all(
+        "SELECT * FROM messages WHERE conversation_id=? AND user_id=? ORDER BY id", (session_id, user_id)
+    )
+    for row in rows:
+        # VS28：让"这条回答被整轮截止截断过"在**回放**时同样拿得到结构化字段，前端由此
+        # 渲染与实时路径**同一条**持久提示（而不是只在刚生成的那一次看得见）。
+        # 只对 assistant 行判定：用户自己打出这句提示词不该把自己的消息标成"被截断"。
+        row["truncated_by_deadline"] = row.get("role") == "assistant" and _marked_truncated(row.get("content"))
+    return {"items": rows}
+
+
+@router.post("/sessions/{session_id}/messages")
+async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> EventSourceResponse:
+    user_id = int(user["id"])
+    session = await _get_session(session_id, user_id)
+    content = body.content.strip()
+
+    # 落库用户消息；首条消息自动生成标题
+    user_msg_id = await database.execute(
+        "INSERT INTO messages (conversation_id, role, content, token_count, user_id) VALUES (?, 'user', ?, ?, ?)",
+        (session_id, content, estimate_tokens(content), user_id),
+    )
+    if not session.get("title"):
+        await database.execute(
+            "UPDATE conversations SET title=? WHERE id=? AND user_id=?", (content[:30], session_id, user_id)
+        )
+
+    async def stream() -> AsyncIterator[dict[str, str]]:
+        full = ""
+        rollout = MemoryRollout()
+        usage_token = set_usage_context("chat", session_id, user_id)
+        try:
+            client, _ = await model_router.get_client(session.get("model_id"), user_id=user_id)
+
+            system = DEFAULT_SYSTEM
+            if session.get("role_preset"):
+                preset = await database.query_one(
+                    "SELECT * FROM agent_presets WHERE role_key=?", (session["role_preset"],)
+                )
+                if preset:
+                    system = preset["system_prompt"]
+
+            rows = await database.query_all(
+                "SELECT role, content FROM messages WHERE conversation_id=? AND user_id=? AND role IN ('user','assistant') "
+                "ORDER BY id DESC LIMIT ?",
+                (session_id, user_id, HISTORY_LIMIT),
+            )
+            llm_messages = [{"role": "system", "content": system}]
+            memory_hits = await native_memory_provider.search(
+                content,
+                user_id=user_id,
+                exclude_conversation_id=session_id,
+            )
+            memory_context = native_memory_provider.render_context(memory_hits)
+            if memory_context:
+                llm_messages.append({"role": "system", "content": memory_context})
+            rollout = await prepare_memory_rollout(
+                content,
+                user_id=user_id,
+                surface="chat",
+                native_candidate_count=len(memory_hits),
+            )
+            if rollout.context:
+                llm_messages.append({"role": "system", "content": rollout.context})
+            llm_messages += [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+            registry = ToolRegistry()
+            tool_events: list[dict[str, Any]] = []
+
+            async def _event_sink(event: str, data: dict[str, Any]) -> None:
+                # 受控工具循环事件 → 收集后统一转发 SSE（事件枚举见 llm_client.TOOL_LOOP_EVENTS）。
+                # 保持"每工具调用一个 tool_call 事件"契约：仅在 completed 时发（含执行结果）。
+                # VS28 事实澄清：本白名单**刻意只放行 `tool_completed`** ⇒ `tool_loop_truncated`
+                # 等事件**不会**到客户端（客户端事件序列只有 tool_call/token/done）。
+                # "整轮截断"的用户可见通道因此只有两条，且都已接线：
+                #   ① 正文前缀 `DEADLINE_TRUNCATION_NOTICE`（同时落库，回放可见）；
+                #   ② `done.truncated_by_deadline`（前端消费并渲染持久提示；回放由
+                #      list_messages 用同一常量回填）。
+                if event == "tool_completed":
+                    tool_events.append({
+                        "event": "tool_call",
+                        "data": json.dumps({
+                            "tool_name": data.get("tool_name"),
+                            "arguments": data.get("arguments"),
+                            "result": data.get("result"),
+                        }, ensure_ascii=False),
+                    })
+
+            full, tool_calls, llm_tokens, loop_status = await client.chat_with_tools_loop(
+                llm_messages,
+                registry.to_openai_tools(),
+                _execute_tool,
+                event_sink=_event_sink,
+                # VS23：整轮（多轮工具调用累加）的聚合等待上界。"每次调用最多等 N 秒"不等于
+                # "用户最多等 N 秒"——轮数上限只约束轮数，不约束时长。
+                deadline_seconds=DEFAULT_TOOL_LOOP_DEADLINE_SECONDS,
+            )
+            # VS23/VS28：因截止提前结束必须**显式**透出——既不伪装成正常回答（回落文案进正文与
+            # done 载荷），也不静默丢弃已完成的工具调用记录。用户可见通道为「正文前缀 + done 字段」
+            # 两条，二者共用同一常量、与落库内容同源；事件通道不外发（见 _event_sink 注释）。
+            truncated_by_deadline = bool(loop_status["truncated_by_deadline"])
+            if truncated_by_deadline:
+                full = f"{DEADLINE_TRUNCATION_NOTICE}\n\n{full}" if full else DEADLINE_TRUNCATION_NOTICE
+            for ev in tool_events:
+                yield ev
+            if full:
+                yield {"event": "token", "data": json.dumps({"delta": full}, ensure_ascii=False)}
+
+            msg_id = await database.execute(
+                "INSERT INTO messages (conversation_id, role, content, token_count, user_id) "
+                "VALUES (?, 'assistant', ?, ?, ?)",
+                (session_id, full, estimate_tokens(full), user_id),
+            )
+            await database.execute(
+                "UPDATE conversations SET updated_at=datetime('now') WHERE id=? AND user_id=?", (session_id, user_id)
+            )
+            await finalize_memory_rollout(rollout, response=full)
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {"message_id": msg_id, "token_count": estimate_tokens(full),
+                     "llm_token_count": llm_tokens, "tool_call_count": len(tool_calls),
+                     "truncated_by_deadline": truncated_by_deadline,
+                     "user_message_id": user_msg_id},
+                    ensure_ascii=False,
+                ),
+            }
+        except LLMError as e:
+            await finalize_memory_rollout(rollout, response=None, outcome="upstream_error")
+            LOGGER.exception(
+                "Chat SSE LLM request failed",
+                extra={"event": "chat.stream.llm_error", "session_id": session_id},
+            )
+            message = str(e)
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
+        except Exception as e:  # 兜底：任何异常都要以 error 事件收尾，不能静默断流
+            await finalize_memory_rollout(rollout, response=None, outcome="upstream_error")
+            LOGGER.exception(
+                "Chat SSE pipeline failed",
+                extra={"event": "chat.stream.error", "session_id": session_id},
+            )
+            message = f"服务内部错误：{e}"
+            yield {
+                "event": "error",
+                "data": json.dumps({"error": message, "message": message}, ensure_ascii=False),
+            }
+            return
+        finally:
+            # SSE lifecycle boundary stays explicit even though tool calling is non-streaming upstream.
+            reset_usage_context(usage_token)
+
+    return EventSourceResponse(stream())
