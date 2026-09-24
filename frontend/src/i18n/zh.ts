@@ -2387,6 +2387,7 @@ const zh: Record<string, string> = {
   'models.provider.together': 'Together AI（OpenAI 兼容）',
   'models.provider.fireworks': 'Fireworks AI（OpenAI 兼容）',
   'models.provider.cerebras': 'Cerebras（OpenAI 兼容）',
+  'models.provider.commandcode': 'CommandCode AI（OpenAI 兼容）',
   'models.provider.deepinfra': 'DeepInfra（OpenAI 兼容）',
   'models.provider.nebius': 'Nebius Token Factory（OpenAI 兼容）',
   'models.provider.siliconflow': '硅基流动 SiliconFlow（OpenAI 兼容）',

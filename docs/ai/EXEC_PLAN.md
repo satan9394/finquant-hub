@@ -4,6 +4,64 @@
 
 ---
 
+## [DONE] BACKLOG-058: 模型流式遥测与预算条的浏览器自动化交互与 E2E 验证
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-058.md`
+**范围**: Chat/Research/Settings 页面遥测与缓存的真实浏览器交互模拟；Playwright E2E 测试脚本 `frontend/e2e/model-telemetry.spec.ts`；验证徽章展开、TTFT/速率数值、预算条百分比及用量面板。
+**门禁**: `cd frontend && bun run test:e2e e2e/model-telemetry.spec.ts`，控制台 0 异常。
+**证据（2026-09-23）**: focused Chromium E2E 3/3 passed（10.0s，1 worker、无 retry），页面异常与 console error 断言均为 0；每例保留最终页面截图。Research 按 SSE `role_key` 将不同 Agent 指标独立展示（含缺失速率 UNKNOWN），状态卡改为 3 列以保持文本可读；Settings 覆盖 7/30 天与自定义日期、USD 节省金额及 MIXED 状态。发现并修复自定义按钮未显示日期字段的问题；`UsageDetail.test.tsx` 19/19、Research agent focused suites 19/19 passed。E2E 的模型/API 事件使用确定性 fixture。
+
+---
+
+## [DONE] BACKLOG-059: 专业 K 线终端与多周期指标联动的浏览器 E2E 交互测试
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-059.md`
+**范围**: 研报工作区 K 线终端日/周/月及 API 支持的 60m/30m/15m/5m 多周期切换；主图 MA/EMA/BOLL 勾选、MACD/KDJ/RSI 切换、成交量面板、十字光标 OHLCV Tooltip、研报锚点抽屉；Playwright 脚本 `frontend/e2e/pro-candlestick.spec.ts`。
+**门禁与证据（2026-09-23）**: focused Chromium E2E 4/4 passed（21.3s，1 worker，无 retry）；pageerror/console error assertions empty，4 个场景均附最终截图。`ProCandlestickChart.test.tsx` 4/4 passed；`bun run build` passed（OpenAPI 60 schemas fresh、4,278 modules）；`git diff --check` passed。按 `/api/market/kline` 真实周期白名单测试，未加入不受支持的 `1m`。图表 Tooltip 引用 `--fq-*`，浏览器实测浅色→深色→浅色主题 token 恢复。
+
+---
+
+## [DONE] BACKLOG-060: Alpha 量化实验室数据录入与分位数图表浏览器 E2E 交互测试
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-060.md`
+**范围**: Discover Alpha 实验室数据录入、提交计算、加载态与 Rank IC / Q1~Q5 分位数累计收益曲线图表交互；异常输入与重试容错；Playwright E2E 测试脚本 `frontend/e2e/alpha-factor.spec.ts`。
+**门禁与证据（2026-09-23）**: `bun run test:e2e e2e/alpha-factor.spec.ts` passed 1/1 in Chromium (8.2s, 1 worker, no retry); pageerror and unexpected console-error assertions empty. The one console message from the deliberate fixture 503 is counted separately and asserted exactly once. The run verifies `/alpha` redirect, blank/no-autofill input, malformed CSV rejected without POST, valid CSV POST and cached GET, retry after one mocked 503, all seven displayed summary metrics, IC/Rank IC tooltip values, and Q1 legend filtering (Q1 absent while Q2–Q5 remain). Eight rendered `--fq-*` theme values are present; chart implementations resolve colors via `readChartTokens()`. Final browser screenshot is attached under `frontend/test-results/`; `git diff --check` passed. API responses and CSV are test-memory fixtures; no live data or DB writes.
+
+---
+
+## [DONE] BACKLOG-061: 投资组合风险透视与市场全景图谱浏览器 E2E 交互测试
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-061.md`
+**范围**: Portfolio 量化体检报告（水下/滚动图 crosshair、月度收益 title）与 Discover 市场全景（Treemap 下钻、席位图拖动/Tooltip、连板情绪 Tooltip/图例）的浏览器交互；Playwright E2E 脚本 `frontend/e2e/portfolio-tear-sheet.spec.ts` 与 `frontend/e2e/market-panorama.spec.ts`。
+**门禁**: `cd frontend && bun run test:e2e e2e/portfolio-tear-sheet.spec.ts e2e/market-panorama.spec.ts`，控制台 0 异常。
+**证据（2026-09-23）**: 精确 combined Chromium E2E 2/2 passed、无 retry；两个 spec 当前版本单独运行也各 1/1 passed。Portfolio 覆盖组合切换、量化体检报告、正负月收益 title、风险摘要/HHI/贡献表、水下与滚动图 crosshair；Discover 覆盖市场全景三子 Tab、Treemap Tooltip/下钻、席位图 Tooltip/拖动、情绪 Tooltip/图例过滤。两个 spec 均断言 `pageerror=0`、`console.error=0`；观察到 AntD `destroyOnClose` 弃用、React Router future-flag 和非致命 ECharts `Can't get DOM width or height` warnings，无 Canvas/WebGL 崩溃或实例销毁泄漏警告。Playwright 保存并附加了组合页、Treemap、席位图和最终状态截图；人工检查确认图表可见、Tooltip 与 crosshair 呈现。`MonthlyHeatmap` 正负背景由 `color-mix()` 使用 `--fq-price-up/down`，文本色亦取自对应 token；浏览器解析到所需 `--fq-*` token，正负格计算背景不同。所有 API 响应均为确定性 fixture，无实时市场请求。席位图缺失 ECharts legend category metadata 导致空图，已补本地化 category 与 API category→index 映射；测试等待 fixture 数据和稳定 Canvas 后再悬停，消除了节点 Tooltip 时序 flake；保留可见性观察器以避免隐藏 Tab 初始化异常。
+
+---
+
+## [DONE] BACKLOG-050: 双协议内核与运行时执行遥测
+
+**任务卡**: `docs/ai/tasks/BACKLOG-050.md`
+**范围**: Anthropic Messages 与 OpenAI Chat Completions 双向协议转换、流式分块翻译、运行时 TTFT/速率统计及 schema v27 数据库平滑升级。
+**证据（2026-09-23）**: `test_anthropic_protocol.py` 与 `test_llm_telemetry.py` 全部通过；Ruff passed；前端构建通过。已合入 commit `c39c06d`。
+
+---
+
+## [DONE] BACKLOG-051: SSE llm_metrics 流式事件派发与 Agent 编排集成
+
+**任务卡**: `docs/ai/tasks/BACKLOG-051.md`
+**范围**: Chat/Research/Discussion/Swarm 实时 SSE 管道新增统一 `llm_metrics` 事件派发。
+**证据（2026-09-23）**: `test_chat_metrics_sse.py` 与 `test_models_crud_anthropic.py` 通过。已合入 commit `c39c06d`。
+
+---
+
+## [DONE] BACKLOG-052: 前端遥测指示器与上下文预算条
+
+**任务卡**: `docs/ai/tasks/BACKLOG-052.md`
+**范围**: ModelTelemetryBadge 紧凑/展开态与 ContextBudgetBar，全站消费 `--fq-*` CSS 变量。
+**证据（2026-09-23）**: `ModelTelemetryBadge.test.tsx` 3/3 通过，i18n 对齐。已合入 commit `c39c06d`。
+
+---
+
 ## [DONE] BACKLOG-055: 因子深度分析工坊与分层多空走势
 
 **任务卡**: `docs/ai/tasks/BACKLOG-055.md`

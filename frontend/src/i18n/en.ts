@@ -2389,6 +2389,7 @@ const en: Record<string, string> = {
   'models.provider.together': 'Together AI (OpenAI compatible)',
   'models.provider.fireworks': 'Fireworks AI (OpenAI compatible)',
   'models.provider.cerebras': 'Cerebras (OpenAI compatible)',
+  'models.provider.commandcode': 'CommandCode AI (OpenAI compatible)',
   'models.provider.deepinfra': 'DeepInfra (OpenAI compatible)',
   'models.provider.nebius': 'Nebius Token Factory (OpenAI compatible)',
   'models.provider.siliconflow': 'SiliconFlow (OpenAI compatible)',

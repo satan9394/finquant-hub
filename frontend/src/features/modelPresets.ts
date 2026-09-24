@@ -140,6 +140,15 @@ export const MODEL_PRESETS: ModelPreset[] = [
     docsUrl: 'https://inference-docs.cerebras.ai/quickstart',
   },
   {
+    id: 'commandcode',
+    labelKey: 'models.provider.commandcode',
+    baseUrl: 'https://api.commandcode.ai/provider/v1',
+    category: 'international',
+    docsUrl: 'https://api.commandcode.ai',
+    protocol: 'openai-compatible',
+    defaultModel: 'deepseek/deepseek-v4.1-flash',
+  },
+  {
     id: 'deepinfra',
     labelKey: 'models.provider.deepinfra',
     baseUrl: 'https://api.deepinfra.com/v1/openai',

@@ -120,6 +120,11 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 - Owner-scoped Swarm cancellation persists `team_canceled` with `research_reports.status=canceled`; live and replay states use the same reducer and `SwarmRunView`.
 - Portfolio holdings render mutually exclusive loading, empty, error, and ready states; retry issues a fresh holdings request. Focused tests cover the state transitions.
 
+### Browser chart interaction coverage (Sep 23)
+- BACKLOG-059 verifies the current Research candlestick chart; BACKLOG-061 verifies the Portfolio risk tear sheet and Discover market panorama in Chromium through crosshair, hover, tab, zoom, pan, and legend interactions. Screenshots are attached to the Playwright results.
+- `DragonTigerSeatGraph` now supplies localized ECharts categories and maps API category names to category indices; the browser run verifies the network renders, exposes seat Tooltips, and responds to drag input.
+- These E2E runs use deterministic API fixtures. `pageerror` and `console.error` were empty; browser warnings included AntD deprecation, React Router future flags, and nonfatal ECharts DOM sizing. This is interaction coverage for the named components, not live-provider or whole-site visual regression coverage.
+
 ---
 
 ## Broken, Incorrect, or Half-Baked (🔥)
@@ -173,10 +178,9 @@ The historical sections below predate TASK-021–026 and contain stale counts/au
 - Has import-time API calls? If so, module import could hang/throw.
 - **Fix needed**: Unit test: call `screen('ma_cross')` against real market data and verify output shape.
 
-### 🔥 Frontend StockAnalysis: Chart rendering untested
-- The page at `/analysis/sh600519` renders stat rows and signal badges (verified via browser snapshot), but the lightweight-charts K-line + indicator subpanels were not visually verified.
-- The `analysisApi.ts` fetches `/api/market/kline` + `/api/market/indicators` + `/api/analysis/sh600519/indicators` but the chart component integration might have rendering glitches.
-- **Fix needed**: Open the page, screenshot, verify chart renders. Check browser console for errors.
+### 🔥 Legacy StockAnalysis route: not covered by current chart E2E
+- The earlier `/analysis/sh600519` note described a legacy surface and is not evidence about the current Research candlestick, Portfolio tear sheet, or Discover panorama components; those current components now have the focused browser coverage listed under **Verified Working**.
+- The legacy route itself remains outside BACKLOG-059/-061 and is not claimed as verified by those runs. Do not use this historical note to imply that the current chart components remain untested.
 
 ### 🔥 Frontend Research: SSE event handling assumptions
 - `Research.tsx` renders progress stages for `agent_started`/`agent_completed` events. But these events currently carry errors immediately.
@@ -209,7 +213,7 @@ All 122 existing tests now cover:
 
 **Remaining coverage gaps:**
 - Live external-source integration beyond mocked deterministic tests
-- Browser-level visual regression for chart components
+- Full-site browser visual regression and any chart route outside the BACKLOG-059/-061 component scope
 
 ## API 不一致待修
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Card, Empty, Spin, Typography } from 'antd';
 import * as echarts from 'echarts/core';
 import { GraphChart } from 'echarts/charts';
@@ -54,9 +54,31 @@ function loadSeatGraph() {
 export default function DragonTigerSeatGraph() {
   const { lang } = useLanguage();
   const zh = lang === 'zh';
+  const chartHostRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<SeatGraphResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [chartVisible, setChartVisible] = useState(false);
+
+  useEffect(() => {
+    const host = chartHostRef.current;
+    if (!host) return;
+    const updateVisibility = () => {
+      const bounds = host.getBoundingClientRect();
+      const visible = bounds.width > 0 && bounds.height > 0;
+      setChartVisible((current) => current === visible ? current : visible);
+    };
+    const observer = new ResizeObserver(updateVisibility);
+    observer.observe(host);
+    const tabPane = host.closest('.ant-tabs-tabpane');
+    const mutationObserver = new MutationObserver(updateVisibility);
+    if (tabPane) mutationObserver.observe(tabPane, { attributes: true, attributeFilter: ['class', 'style'] });
+    updateVisibility();
+    return () => {
+      observer.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [data?.nodes.length]);
 
   useEffect(() => {
     let mounted = true;
@@ -84,8 +106,13 @@ export default function DragonTigerSeatGraph() {
         layout: 'circular',
         circular: { rotateLabel: true },
         roam: true,
+        categories: [
+          { name: zh ? '机构席位' : 'Institutions', itemStyle: { color: tokens.secondary } },
+          { name: zh ? '证券营业部' : 'Brokerages', itemStyle: { color: tokens.primary } },
+        ],
         data: (data?.nodes ?? []).map((node) => ({
           ...node,
+          category: node.category === 'institution' ? 0 : 1,
           value: node.buy_amount_cny_10k,
           symbolSize: 18 + 28 * Math.sqrt(node.buy_amount_cny_10k / maxBuy),
           itemStyle: { color: node.category === 'institution' ? tokens.secondary : tokens.primary },
@@ -104,14 +131,16 @@ export default function DragonTigerSeatGraph() {
         emphasis: { focus: 'adjacency' },
       }],
     };
-  }, [data]);
+  }, [data, zh]);
 
   return <Card className="surface-card" title={zh ? '龙虎榜席位共现网络' : 'Dragon Tiger seat co-occurrence'}>
     {loading ? <Spin /> : error ? <Alert showIcon type="error" message={zh ? '席位网络暂不可用' : 'Seat network unavailable'} description={error} /> : null}
     {!loading && !error && !data?.nodes.length
       ? <Empty description={zh ? '所选窗口内没有龙虎榜席位记录' : 'No Dragon Tiger seat records in this window'} /> : null}
     {!loading && !error && !!data?.nodes.length ? <>
-      <LazyEChart option={option} style={{ height: 420, width: '100%' }} notMerge lazyUpdate />
+      <div ref={chartHostRef} style={{ height: 420, width: '100%' }}>
+        {chartVisible && <LazyEChart option={option} style={{ height: '100%', width: '100%' }} notMerge lazyUpdate />}
+      </div>
       <Typography.Text type="secondary">
         {zh ? `数据源：${data.source} · 窗口：${data.date_from} 至 ${data.date_to}` : `Source: ${data.source} · Window: ${data.date_from} to ${data.date_to}`}
       </Typography.Text>

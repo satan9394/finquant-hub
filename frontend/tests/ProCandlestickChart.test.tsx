@@ -34,7 +34,10 @@ function makeChart() {
   const clicks = new Set<(event: { hoveredObjectId?: unknown }) => void>();
   const ranges = new Set<(range: { from: number; to: number } | null) => void>();
   const crosshairs = new Set<(event: { time?: unknown }) => void>();
-  const series = () => ({ setData: vi.fn(), setMarkers: vi.fn(), priceScale: vi.fn(() => ({ applyOptions: vi.fn() })) });
+  const series = () => ({
+    setData: vi.fn(), setMarkers: vi.fn(), applyOptions: vi.fn(),
+    priceScale: vi.fn(() => ({ applyOptions: vi.fn() })),
+  });
   const timeScale = {
     subscribeVisibleLogicalRangeChange: vi.fn((handler) => ranges.add(handler)),
     unsubscribeVisibleLogicalRangeChange: vi.fn((handler) => ranges.delete(handler)),

@@ -31,17 +31,20 @@ export default function UsageDateRangePicker({
   const [draftStart, setDraftStart] = useState(value.start ?? '');
   const [draftEnd, setDraftEnd] = useState(value.end ?? '');
   const [error, setError] = useState('');
+  const [customOpen, setCustomOpen] = useState(value.kind === 'custom');
 
   useEffect(() => {
     setDraftStart(value.start ?? '');
     setDraftEnd(value.end ?? '');
     setError('');
+    setCustomOpen(value.kind === 'custom');
   }, [value]);
 
   const openCustom = () => {
     setDraftStart(value.start ?? windowStart ?? '');
     setDraftEnd(value.end ?? windowEnd ?? '');
     setError('');
+    setCustomOpen(true);
   };
 
   const applyCustom = () => {
@@ -55,7 +58,7 @@ export default function UsageDateRangePicker({
     onChange(candidate);
   };
 
-  const isCustom = value.kind === 'custom';
+  const isCustom = value.kind === 'custom' || customOpen;
 
   return (
     <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="usage-range-picker">
@@ -69,6 +72,7 @@ export default function UsageDateRangePicker({
             data-testid={`usage-range-preset-${days}`}
             onClick={() => {
               setError('');
+              setCustomOpen(false);
               onChange({ kind: 'preset', days });
             }}
           >

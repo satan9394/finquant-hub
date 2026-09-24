@@ -885,3 +885,31 @@
 - Docs updated: API contract, router map, execution plan, next backlog, handoff, and this log.
 - Verification: `test_market_graph.py` 3 passed with `--no-cov`; targeted Ruff passed; `bun run test tests/MarketTreemapChart.test.tsx` 4 passed; `bun run build` passed (OpenAPI 60 schemas fresh, Vite 4,278 modules); `app.openapi()` measured 148 paths / 185 operations. Automated tests used mocked provider data; a narrow local browser smoke triggered three Eastmoney requests (one local API response was 200 and two were 502 `RemoteProtocolError`), while the active panel displayed the explicit error state.
 - Risk: medium; the current provider exposes Eastmoney industry boards rather than verified Shenwan Level 1 membership, and no failed-limit-up denominator is available, so that classification is labeled and break rate remains unknown. The composite index excludes break rate; network edges describe co-occurrence only. No dependency, table, or commit added.
+
+### BACKLOG-058 — Model telemetry and usage-range browser E2E
+- What changed: added `frontend/e2e/model-telemetry.spec.ts`; added role-keyed Agent telemetry badges and a readable three-column Agent grid to `frontend/src/pages/Research.tsx`; fixed the custom-date form reveal state in `frontend/src/components/settings/UsageDateRangePicker.tsx`; recorded evidence in the BACKLOG-058 card, execution plan, and next-backlog appendix.
+- Why: permanently cover Chat/Research telemetry events, independent Agent metrics, context-budget updates, usage windows, and cache-savings states; browser verification exposed that the custom-date control did not reveal its date fields.
+- Docs updated: `docs/ai/tasks/BACKLOG-058.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, and this log.
+- Verification: `bun run test:e2e e2e/model-telemetry.spec.ts` passed 3/3 in Chromium (10.0s, serial, no retries); page errors and console errors were asserted empty; each scenario saved a final screenshot. `bun run test tests/UsageDetail.test.tsx` passed 19/19; focused Research agent suites passed 19/19. API/SSE responses were mocked; no live model/market calls.
+- Risk: low; E2E proves the frontend’s handling of role-keyed telemetry fixtures, not a live model/upstream session. No new dependency, backend change, or schema change.
+
+### BACKLOG-059 — Pro candlestick browser E2E
+- What changed: added `frontend/e2e/pro-candlestick.spec.ts`; added MA/EMA/BOLL visibility controls, supported 30m/5m period choices, and an OHLCV crosshair Tooltip to `frontend/src/components/charts/ProCandlestickChart.tsx`; updated the chart component mock for series visibility options.
+- Why: permanently verify market-period requests, indicator controls, hover/zoom behavior, theme token updates, and the research-marker drawer in the real browser.
+- Docs updated: `docs/ai/tasks/BACKLOG-059.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, and this log. The test follows the API contract’s supported periods; it does not advertise or request `1m`.
+- Verification: `bun run test:e2e e2e/pro-candlestick.spec.ts` passed 4/4 in Chromium (21.3s, 1 worker, no retries); all scenarios assert zero page errors and console errors and attach final screenshots. `bun run test tests/ProCandlestickChart.test.tsx` passed 4/4; `bun run build` passed (OpenAPI 60 schemas fresh, TypeScript clean, Vite 4,278 modules); `git diff --check` passed.
+- Risk: low; browser API and report data use deterministic fixtures, so this validates the UI interaction contract rather than live provider availability. No dependency, API, backend, or schema changes.
+
+### BACKLOG-060 — Alpha factor analytics browser E2E
+- What changed: added `frontend/e2e/alpha-factor.spec.ts` and recorded the browser evidence in the BACKLOG-060 card, execution plan, and next-backlog appendix.
+- Why: permanently verify user-supplied factor CSV validation, submit/retry/cache behavior, summary metrics, IC/Rank IC tooltip values, and a real quantile legend filter.
+- Docs updated: `docs/ai/tasks/BACKLOG-060.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, and this log.
+- Verification: `bun run test:e2e e2e/alpha-factor.spec.ts` passed 1/1 in Chromium (8.2s, one worker, no retry); no page errors or unexpected console errors; the exact mocked 503 network console message is separately asserted once. The test checks eight resolved `--fq-*` variables and attaches a full-page screenshot. `git diff --check` passed.
+- Risk: low; test API responses and 100-row CSV are deterministic in-memory fixtures. It validates frontend behavior, not live analytics or provider availability. No dependency, API, backend, or schema changes.
+
+### BACKLOG-061 — Portfolio tear sheet and market panorama browser E2E
+- What changed: added `frontend/e2e/portfolio-tear-sheet.spec.ts` and `frontend/e2e/market-panorama.spec.ts`; fixed `DragonTigerSeatGraph` category metadata and API category mapping so the seat network renders; made the seat hover wait for fixture data and a stable canvas to remove a timing flake; recorded current chart coverage in `docs/HANDOVER.md`.
+- Why: permanently verify Portfolio risk report and Discover panorama interactions through real Chromium input, including chart crosshairs, monthly returns, zoom, pan, Tooltips, and legend filtering.
+- Docs updated: `docs/ai/tasks/BACKLOG-061.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, `HANDOFF.md`, `docs/HANDOVER.md`, and this log.
+- Verification: exact combined `bun run test:e2e e2e/portfolio-tear-sheet.spec.ts e2e/market-panorama.spec.ts` passed 2/2 in Chromium with no retry; each current spec also passed standalone 1/1. `pageerror=0`, `console.error=0`; AntD deprecation, React Router future-flag, and nonfatal ECharts DOM sizing warnings were observed and recorded. Required `--fq-*` variables resolve; positive/negative monthly cell backgrounds differ and source derives them from `--fq-price-up/down`. Screenshots were saved and visually inspected. API responses use deterministic fixtures; no live market calls.
+- Risk: low; E2E validates frontend behavior against fixtures, not live provider availability. ECharts sizing warnings remain observable during hidden/initial chart layout; no Canvas/WebGL crash or instance-disposal leak warning was observed. No dependency, API, backend, or schema changes.

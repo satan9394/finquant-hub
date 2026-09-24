@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Drawer, Empty, Segmented, Space, Spin, Tag, Typography } from 'antd';
+import { Alert, Button, Checkbox, Drawer, Empty, Segmented, Space, Spin, Tag, Typography } from 'antd';
 import {
   type HistogramData,
   type ISeriesApi,
   type LineData,
+  type MouseEventParams,
   type SeriesMarker,
   type SeriesType,
   type Time,
@@ -27,8 +28,9 @@ import { readChartTokens } from '../../styles/themeTokens';
 
 const { Text, Paragraph } = Typography;
 
-export type ChartPeriod = 'day' | 'week' | 'month' | '60m' | '15m';
+export type ChartPeriod = 'day' | 'week' | 'month' | '60m' | '30m' | '15m' | '5m';
 type Indicator = 'MACD' | 'KDJ' | 'RSI';
+type OverlayIndicator = 'MA' | 'EMA' | 'BOLL';
 type Verdict = 'buy' | 'neutral' | 'avoid' | 'unknown';
 
 interface KlineItem extends Omit<OHLCVPoint, 'time'> {
@@ -47,11 +49,13 @@ export interface ResearchMarker {
 const periodOptions: Record<'zh' | 'en', Array<{ label: string; value: ChartPeriod }>> = {
   zh: [
     { label: '日 K', value: 'day' }, { label: '周 K', value: 'week' }, { label: '月 K', value: 'month' },
-    { label: '60 分钟', value: '60m' }, { label: '15 分钟', value: '15m' },
+    { label: '60 分钟', value: '60m' }, { label: '30 分钟', value: '30m' },
+    { label: '15 分钟', value: '15m' }, { label: '5 分钟', value: '5m' },
   ],
   en: [
     { label: 'Day', value: 'day' }, { label: 'Week', value: 'week' }, { label: 'Month', value: 'month' },
-    { label: '60 min', value: '60m' }, { label: '15 min', value: '15m' },
+    { label: '60 min', value: '60m' }, { label: '30 min', value: '30m' },
+    { label: '15 min', value: '15m' }, { label: '5 min', value: '5m' },
   ],
 };
 
@@ -144,29 +148,36 @@ export default function ProCandlestickChart({
   const { lang } = useLanguage();
   const language = lang === 'zh' ? 'zh' : 'en';
   const copy = language === 'zh' ? {
-    title: '专业 K 线与技术指标', period: 'K 线周期', indicator: '副图指标', volume: '成交量',
+    title: '专业 K 线与技术指标', period: 'K 线周期', mainIndicators: '主图指标', indicator: '副图指标', volume: '成交量',
     macd: 'MACD', kdj: 'KDJ', rsi: 'RSI', loading: '正在获取真实 K 线…', empty: '该周期没有可用 K 线数据',
     retry: '重试', markerTitle: '研报结论锚点', noReports: '当前标的没有可定位到图表区间的研报事件',
     report: '研究报告', unknown: '未知结论', reportTime: '报告时间', close: '关闭', summaryMissing: '报告未提供可展示的文字结论。',
-    source: '数据源', asOf: '截至', adjustment: '复权', unavailable: '未知', verdict: { buy: '看多 / 买入', neutral: '审慎 / 中性', avoid: '看空 / 规避', unknown: '未知' },
+    source: '数据源', asOf: '截至', adjustment: '复权', unavailable: '未知',
+    open: '开', high: '高', low: '低', closeValue: '收', volumeValue: '量',
+    verdict: { buy: '看多 / 买入', neutral: '审慎 / 中性', avoid: '看空 / 规避', unknown: '未知' },
   } : {
-    title: 'Pro Candlestick and Indicators', period: 'Period', indicator: 'Lower indicator', volume: 'Volume',
+    title: 'Pro Candlestick and Indicators', period: 'Period', mainIndicators: 'Main indicators', indicator: 'Lower indicator', volume: 'Volume',
     macd: 'MACD', kdj: 'KDJ', rsi: 'RSI', loading: 'Loading market candles…', empty: 'No candles are available for this period',
     retry: 'Retry', markerTitle: 'Research report markers', noReports: 'No report events fall within the visible chart range',
     report: 'Research report', unknown: 'Unknown verdict', reportTime: 'Report time', close: 'Close', summaryMissing: 'The report has no text conclusion to display.',
-    source: 'Source', asOf: 'As of', adjustment: 'Adjustment', unavailable: 'Unknown', verdict: { buy: 'Bullish / Buy', neutral: 'Cautious / Neutral', avoid: 'Bearish / Avoid', unknown: 'Unknown' },
+    source: 'Source', asOf: 'As of', adjustment: 'Adjustment', unavailable: 'Unknown',
+    open: 'Open', high: 'High', low: 'Low', closeValue: 'Close', volumeValue: 'Volume',
+    verdict: { buy: 'Bullish / Buy', neutral: 'Cautious / Neutral', avoid: 'Bearish / Avoid', unknown: 'Unknown' },
   };
 
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [indicator, setIndicator] = useState<Indicator>('MACD');
+  const [visibleOverlays, setVisibleOverlays] = useState<OverlayIndicator[]>(['MA', 'EMA', 'BOLL']);
   const [rows, setRows] = useState<KlineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
+  const [crosshairPoint, setCrosshairPoint] = useState<OHLCVPoint | null>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
+  const overlaySeriesRef = useRef<Partial<Record<OverlayIndicator, ISeriesApi<SeriesType, Time>[]>>>({});
   const containers = useMemo(() => ({ main: mainRef, volume: volumeRef, indicator: indicatorRef }), []);
   const { charts, themeVersion, registerPrimarySeries, unregisterPrimarySeries } = useProChart(containers);
 
@@ -200,6 +211,24 @@ export default function ProCandlestickChart({
   );
   const markerReports = useMemo(() => new Map(researchMarkers.map((item) => [String(item.report.id), item.report])), [researchMarkers]);
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? null;
+  const pointsByTime = useMemo(
+    () => new Map(points.map((point) => [chartTimeKey(point.time), point])),
+    [points],
+  );
+
+  useEffect(() => {
+    if (!charts) return;
+    const onCrosshairMove = (event: MouseEventParams<Time>) => {
+      if (event.time == null) {
+        setCrosshairPoint(null);
+        return;
+      }
+      const timeKey = chartTimeKey(event.time);
+      setCrosshairPoint(pointsByTime.get(timeKey) ?? null);
+    };
+    charts.main.subscribeCrosshairMove(onCrosshairMove);
+    return () => charts.main.unsubscribeCrosshairMove(onCrosshairMove);
+  }, [charts, pointsByTime]);
 
   useEffect(() => {
     if (!charts || points.length === 0) return;
@@ -221,6 +250,7 @@ export default function ProCandlestickChart({
     const bollMiddle = charts.main.addLineSeries({ color: tokens.model, lineWidth: 1, title: 'BOLL Middle' });
     const bollLower = charts.main.addLineSeries({ color: tokens.warning, lineWidth: 1, title: 'BOLL Lower' });
     for (const series of [ma, ema, bollUpper, bollMiddle, bollLower]) added.push({ panel: 'main', series });
+    overlaySeriesRef.current = { MA: [ma], EMA: [ema], BOLL: [bollUpper, bollMiddle, bollLower] };
     ma.setData(mapLineData(calculateMA(points, 20)));
     ema.setData(mapLineData(calculateEMA(points, 20)));
     const boll = calculateBOLL(points, 20, 2);
@@ -280,6 +310,7 @@ export default function ProCandlestickChart({
 
     return () => {
       charts.main.unsubscribeClick(onMarkerClick);
+      overlaySeriesRef.current = {};
       for (const item of added) {
         unregisterPrimarySeries(item.panel, item.series);
         const target = item.panel === 'main' ? charts.main : item.panel === 'volume' ? charts.volume : charts.indicator;
@@ -287,6 +318,14 @@ export default function ProCandlestickChart({
       }
     };
   }, [charts, points, period, indicator, researchMarkers, markerReports, themeVersion, registerPrimarySeries, unregisterPrimarySeries]);
+
+  useEffect(() => {
+    for (const key of ['MA', 'EMA', 'BOLL'] as const) {
+      for (const series of overlaySeriesRef.current[key] ?? []) {
+        series.applyOptions({ visible: visibleOverlays.includes(key) });
+      }
+    }
+  }, [visibleOverlays, charts, points, period, indicator, themeVersion]);
 
   const source = rows.length ? rows[rows.length - 1].source : undefined;
   const latestRow = rows[rows.length - 1];
@@ -304,6 +343,13 @@ export default function ProCandlestickChart({
             value={period}
             onChange={(value) => setPeriod(value as ChartPeriod)}
           />
+          <Text strong>{copy.mainIndicators}</Text>
+          <Checkbox.Group<OverlayIndicator>
+            aria-label={copy.mainIndicators}
+            options={['MA', 'EMA', 'BOLL'] as OverlayIndicator[]}
+            value={visibleOverlays}
+            onChange={(value) => setVisibleOverlays(value)}
+          />
           <Text strong>{copy.indicator}</Text>
           <Segmented<Indicator>
             aria-label={copy.indicator}
@@ -317,7 +363,27 @@ export default function ProCandlestickChart({
       {error && <Alert type="warning" showIcon message={error} action={<Button size="small" onClick={() => setReloadVersion((version) => version + 1)}>{copy.retry}</Button>} style={{ marginBottom: 12 }} />}
       {loading && <div style={{ padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><Spin /><Text>{copy.loading}</Text></div>}
       {!loading && !error && rows.length === 0 && <Empty description={copy.empty} />}
-      <div ref={mainRef} data-testid="pro-chart-main" aria-label={copy.title} style={{ height: 320, minWidth: 0 }} />
+      <div style={{ position: 'relative' }}>
+        <div ref={mainRef} data-testid="pro-chart-main" aria-label={copy.title} style={{ height: 320, minWidth: 0 }} />
+        {crosshairPoint && (
+          <div
+            role="status"
+            data-testid="pro-chart-crosshair-tooltip"
+            style={{
+              position: 'absolute', top: 8, left: 8, zIndex: 2, display: 'flex', flexWrap: 'wrap', gap: 8,
+              padding: '4px 8px', border: '1px solid var(--fq-border)', borderRadius: 4,
+              color: 'var(--fq-text-primary)', background: 'var(--fq-surface-1)', pointerEvents: 'none',
+            }}
+          >
+            <span>{chartTimeKey(crosshairPoint.time)}</span>
+            <span>{copy.open} {crosshairPoint.open.toFixed(2)}</span>
+            <span>{copy.high} {crosshairPoint.high.toFixed(2)}</span>
+            <span>{copy.low} {crosshairPoint.low.toFixed(2)}</span>
+            <span>{copy.closeValue} {crosshairPoint.close.toFixed(2)}</span>
+            <span>{copy.volumeValue} {crosshairPoint.volume.toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US')}</span>
+          </div>
+        )}
+      </div>
       <div style={{ marginTop: 10, borderTop: '1px solid var(--fq-border)', paddingTop: 8 }}>
         <Text strong>{copy.volume}</Text>
         <div ref={volumeRef} data-testid="pro-chart-volume" aria-label={copy.volume} style={{ height: 96, minWidth: 0 }} />

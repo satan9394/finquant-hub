@@ -409,6 +409,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [latestMetrics, setLatestMetrics] = useState<LLMExecutionMetrics | null>(null);
+  const [agentMetrics, setAgentMetrics] = useState<Partial<Record<string, LLMExecutionMetrics>>>({});
   const [metricsReportId, setMetricsReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -517,6 +518,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     setReportQuality(null);
     setSelectedReportId(null);
     setLatestMetrics(null);
+    setAgentMetrics({});
     setMetricsReportId(null);
     setAgentNotices([]);
     setTruncatedByDeadline(false);
@@ -553,8 +555,13 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
             break;
           }
           case 'llm_metrics': {
-            setLatestMetrics(data as LLMExecutionMetrics);
+            const metrics = data as LLMExecutionMetrics;
+            setLatestMetrics(metrics);
             setMetricsReportId(streamReportId);
+            const roleKey = metrics.role_key ?? agentKey;
+            if (roleKey && AGENT_KEYS.includes(roleKey)) {
+              setAgentMetrics((previous) => ({ ...previous, [roleKey]: metrics }));
+            }
             break;
           }
           case 'agent_started': {
@@ -722,13 +729,20 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
           const info = AGENT_LABELS[key];
           const status = agent?.status === 'running' ? 'running' : agent?.status === 'completed' ? 'completed' : agent?.status === 'failed' ? 'failed' : 'waiting';
           return (
-            <Col xs={12} sm={6} key={key}>
-              <AgentStatusCard
-                name={t(info?.nameKey ?? key)}
-                role={t(info?.roleKey ?? key)}
-                status={status}
-                stage={agent?.progress}
-              />
+            <Col xs={24} sm={12} lg={8} key={key}>
+              <div data-testid={`research-agent-telemetry-${key}`}>
+                <AgentStatusCard
+                  name={t(info?.nameKey ?? key)}
+                  role={t(info?.roleKey ?? key)}
+                  status={status}
+                  stage={agent?.progress}
+                />
+                {agentMetrics[key] ? (
+                  <div style={{ marginTop: 4 }}>
+                    <ModelTelemetryBadge metrics={agentMetrics[key]} />
+                  </div>
+                ) : null}
+              </div>
             </Col>
           );
         })}

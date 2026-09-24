@@ -1,13 +1,13 @@
 # HANDOFF —— 项目交接档案
 
 > 用途：跨会话/跨 agent 接续的权威档案。会话结束时更新；新会话先读本文件再动手。
-> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-23（Mission 1/2 与 BACKLOG-050～057 收尾）。
+> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-23（Mission 1/2 与 BACKLOG-050～061 收尾）。
 
 ## 当前目标（Objective）
 
-**Mission 3 已完工，BACKLOG-050～057 模型遥测与量化图表序列也已实现并完成卡内门禁。** 下一重点仍是 `docs/ai/evo/NEXT_BACKLOG.md` 中的 P2-2：按单实体逐项评估剩余失败态调用点，Portfolio 真实持仓首批已收敛。
+**Mission 3 已完工，BACKLOG-050～061（含 058～061 浏览器交互 E2E）已实现并完成卡内门禁。** 下一重点仍是 `docs/ai/evo/NEXT_BACKLOG.md` 中的 P2-2：按单实体逐项评估剩余失败态调用点，Portfolio 真实持仓首批已收敛。
 
-序列完成后工作树含 BACKLOG-050～057 与此前 Mission 后续改动，均尚未提交；提交前需继续保留这些在途改动。此前 `main` 与 `origin/main` 同步，GitHub `satan9394/finquant-hub` 可见性为 PRIVATE。
+序列完成后工作树含 BACKLOG-050～061 与此前 Mission 后续改动，均尚未提交；提交前需继续保留这些在途改动。此前 `main` 与 `origin/main` 同步，GitHub `satan9394/finquant-hub` 可见性为 PRIVATE。
 
 ## 完成标准（Definition of Done）
 
@@ -320,3 +320,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-23 BACKLOG-056 完成：新增 owner-scoped 风险 Tear Sheet，基于真实共同日线回放当前股数，补水下回撤、持续期、滚动夏普/波动、月收益矩阵、集中度和协方差风险贡献；币种/复权/行情覆盖质量透明；Portfolio 新增默认 Tear Sheet Tab，保留旧风险模拟 Tab。| 验证: 后端聚焦 7/7（--no-cov）+ Ruff、原样命令 7 项断言通过但全仓 coverage 3.6% 未达 80% 退出非零；前端 3/3；build 4,275 modules；OpenAPI 145/182；无新表/依赖、无真实行情请求。
 
 - 2026-09-23 BACKLOG-057 完成：新增 `/api/market/sector-treemap`、`dragon-tiger-network`、`sentiment-ladder` 与 Discover 延迟加载的市场全景子标签；复用 AStockExtra/Eastmoney 直接数据，不加依赖/表。行业分类限于东财行业板块（非申万一级），炸板率因失败涨停分母缺失保持 UNKNOWN，席位边仅为共现观察。| 验证: `test_market_graph.py` 3/3（`--no-cov`）、目标 Ruff、前端 4/4、`bun run build` 4,278 modules / OpenAPI 60 schemas fresh；`app.openapi()` 148 路径 / 185 操作；自动化测试用 mock；窄屏浏览器烟测触发 3 次东财请求（本地 API 1 次 200、2 次 502 RemoteProtocolError），当前活动面板显示明确错误态；未提交。
+
+- 2026-09-23 BACKLOG-058～061 浏览器 E2E 序列完成；BACKLOG-061 稳定化席位图悬停并更新任务记录 | 验证: BACKLOG-061 combined Chromium E2E 2/2 no retry; both specs standalone 1/1; pageerror=0 and console.error=0; git diff --check exit 0; AntD, React Router, and ECharts warnings recorded; screenshots inspected.
