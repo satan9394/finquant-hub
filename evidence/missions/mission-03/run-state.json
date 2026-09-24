@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "mode": "standard",
+  "mission": {
+    "goal": "把 swarmApi 历史回放从“已评估”推进为可用能力：让用户能回看某标的历次 swarm 团队运行（四大师 / 财报精读），且回放与实时同源（折叠同一个 applySwarmEvent 归约器），不做 schema 迁移。",
+    "definitionOfDone": [
+      "D1 回放数据层为纯函数 —— 达成（4e031979；replay.ts 全文无 switch、唯一映射点 :121、折叠 :161；名册取自 team_started；失败分支类型无 state 字段；指挥侧鉴别力 7 red / 6 red，无 timeout）",
+      "D2 后端只读端点：列出当前用户某 ticker 下的 swarm 运行（不改表、不加列） —— 达成（011e4e9f；git status 不含 database.py；SQL 三重 user_id 隔离 + event_type='team_started'；指挥侧复跑 pytest 5 passed exit 0、ruff All checks passed）",
+      "D3 前端接线；读取失败走族内三态契约，不得把“读不出来”渲染成“没有历史”；回放态与实时态共用同一套渲染 —— 达成（e2450115；SwarmRunView 只认 SwarmRunState、两处使用点 :310/:377；replaySwarmRun( 实际调用只有 SwarmStatusCard.tsx:232 一处；指挥侧复跑 3 文件 / 26 用例 exit 0 + build exit 0）",
+      "D4 文档同步：新增端点须写入 docs/API_CONTRACT.md —— 达成（随 011e4e9f；§15 端点行 + 语义段 + 汇总表 132→133 + 实测 141/177→142/178）",
+      "D5 逐卡独立验证（客观门禁 + 鉴别力证明）→ 逐卡路径限定提交 → git status --porcelain 为空 —— 达成（四笔提交 4e031979/011e4e9f/e2450115/47b13547，收尾后 0 行）"
+    ],
+    "outOfScope": [
+      "不做 schema 迁移、不加表/列、不引入 ORM 或连接池（架构不变量）",
+      "不重跑 VS-3…VS-39 与 Mission 1/2 的任何已 ACCEPT 工作",
+      "不改 .gitignore / tsconfig* / ruff 配置 / package.json / start.bat / .gitattributes",
+      "不做 NEXT_BACKLOG 的 NIT-1…NIT-6、D-1…D-3、P2-2/P2-3/P2-4",
+      "不给 swarm 加“取消/重跑历史”等超范围能力；不做跨 ticker 的全局历史页",
+      "不跑全量 pytest（本机挂起）/ 全量前端 vitest（151 文件）/ E2E / Docker / mypy",
+      "不 push；删除一律进回收站；不挂 goal；不启动 workflow"
+    ],
+    "status": "done",
+    "source": "项目根 RUN_STATE.md（Mission 3，用户 2026-09-13「授权。允许执行。」）；该原件经 .git/info/exclude 本地排除、从未纳入版本库，本次迁移时已逐字归档为 evidence/missions/mission-03/RUN_STATE.md（12384 字节，与原件一致）。",
+    "completedAt": "2026-09-13",
+    "lastVerifiedCommit": "47b1354748bf60bdbc7286425c324860a6d230e6"
+  },
+  "workset": [
+    {
+      "id": "W1",
+      "title": "前端回放数据层 + 单元测试（含角色键碰撞反向断言）",
+      "status": "done",
+      "commit": "4e031979",
+      "source": "planned"
+    },
+    {
+      "id": "W2",
+      "title": "后端只读端点 + pytest + docs/API_CONTRACT.md 同步",
+      "status": "done",
+      "commit": "011e4e9f",
+      "source": "planned"
+    },
+    {
+      "id": "W3",
+      "title": "前端接线：历史入口 + 点选回放 + 三态",
+      "status": "done",
+      "commit": "e2450115",
+      "source": "planned"
+    },
+    {
+      "id": "W4",
+      "title": "收尾：文档核对 + 逐卡路径限定提交 + 工作区核对",
+      "status": "done",
+      "commit": "47b13547",
+      "source": "planned"
+    }
+  ],
+  "blocked": [],
+  "deferredBacklog": [],
+  "budget": {
+    "run": {
+      "epoch": {
+        "used": 0,
+        "limit": 2
+      },
+      "cards": {
+        "used": 0,
+        "limit": 6
+      },
+      "repairs": {
+        "used": 0,
+        "limit": 1
+      },
+      "workersSpawned": {
+        "used": 0,
+        "limit": 8
+      },
+      "research": {
+        "used": 0,
+        "limit": 1
+      }
+    },
+    "mission": {
+      "runs": {
+        "used": 1,
+        "limit": 3
+      },
+      "cards": {
+        "used": 0,
+        "limit": 12
+      },
+      "repairs": {
+        "used": 0,
+        "limit": 3
+      }
+    },
+    "worksetLimit": 8,
+    "activeWorkerLimit": 3,
+    "maxSubagentDepth": 1
+  },
+  "workers": {
+    "active": 0
+  },
+  "lastVerifiedCommit": "47b1354748bf60bdbc7286425c324860a6d230e6",
+  "resumeFrom": null,
+  "notesForNextRun": [],
+  "updatedAt": "2026-09-24T18:08:52.930Z"
+}

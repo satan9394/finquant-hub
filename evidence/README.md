@@ -66,4 +66,28 @@ evidence/
 |---|---|---|
 | Mission 1 / 2 任务卡 | `tasks/_missions/mission-01/` `tasks/_missions/mission-02/` | 卡片本体归 `tasks/`，仅证据归本目录 |
 | 笔记 | `memory/notes/` | 由 `notes/` 迁入 |
-| 运行时状态 | `.agent-state/run-state.json` | **机器真相源，gitignore 排除，不入版本库** |
+
+## 跟踪注意事项（.log）
+
+本目录下的 `.log` 文件（如 `evidence/missions/mission-01/W2-baseline/gate*.log`）
+与项目根 `.gitignore` 的全局规则 `*.log` 冲突，**默认不会被 git 跟踪**。
+新增这类证据时需显式强制跟踪（未改动任何既有 ignore 规则）：
+
+```bash
+git add -f evidence/
+```
+
+## 状态文件的处置（2026-09-24 补丁）
+
+`runstate.js` 是 **bounded 模式专用**的状态控制器，其 `validate()` 硬校验
+`mode === 'bounded'`；因此 `mode: "standard"` 的项目**本就不该有运行时状态文件**
+（v1.0.0 的 fail-open 语义是「未管理 = 放行」）。
+
+据此已撤销项目根的运行时状态：
+
+| 项 | 处置 |
+|---|---|
+| `.agent-state/run-state.json` | 归档为 `evidence/missions/mission-03/run-state.json`（档案态，`mode` 保持 `standard`，不参与 check） |
+| `.agent-state/` 目录 | 清空后进回收站 |
+| 根 `RUN_STATE.md` | Mission 3 已完成，不需要运行时视图；原件已安全归档于本目录，根上副本进回收站 |
+| `.gitignore` 的 `.agent-state/` 规则 | **保留**（规范要求的追加项，不因目录删除而撤销） |
