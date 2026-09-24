@@ -4,6 +4,30 @@
 
 ---
 
+## [READY] BACKLOG-062: 资料库策略互动演示原生化与量化业务一键接通
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-062.md`
+**范围**: 移除 `Knowledge.tsx` 中的静态 HTML iframe 与断开的返回链接；重构为原生 Lightweight/ECharts 交互动态组件，支持时间滑块、核心参数调节与买卖信号标记；为 8 类策略一键打通直达 `/strategy-lab` 回测实验室并预填参数。
+**门禁**: `bun run test tests/KnowledgeInteractive.test.tsx`，`bun run build` 成功。
+
+---
+
+## [READY] BACKLOG-063: 模型管理拉取模型交互闭环与候选模型直观选用
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-063.md`
+**范围**: 模型管理弹窗拉取模型后，动态展开「候选模型列表/标签区（支持关键词搜索过滤）」；点击任意模型 Tag 一键自动填入 `model_name` 和配置名称；支持常用模型快捷多选批量保存，给出明确可操作指引。
+**门禁**: 模型弹窗中点击拉取模型，候选模型面板立即展开并可点击回填，测试通过，`bun run build` 成功。
+
+---
+
+## [READY] BACKLOG-064: 供应商管理界面精简净化与协议驱动（OpenAI/Anthropic）重构
+
+**优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-064.md`
+**范围**: 净化添加模型弹窗，摆脱 18 个公有云厂商预设网格铺屏；改为核心协议卡片驱动（OpenAI 兼容协议 vs Anthropic 原生协议）；公有云预设降级为折叠抽屉或下拉辅助填入，默认不平铺；优先高亮展示用户已配置的专属供应商（如 CommandCode）。
+**门禁**: 弹窗界面清爽，仅显示协议选择与自定义表单，外部厂商网格默认隐藏，前端单测与构建 100% 通过。
+
+---
+
 ## [DONE] BACKLOG-058: 模型流式遥测与预算条的浏览器自动化交互与 E2E 验证
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-058.md`

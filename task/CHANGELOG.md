@@ -3,6 +3,17 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-24（实机体验反馈与体验闭环序列 BACKLOG-062～064 就绪）
+- What changed:
+  1. 数据库写入 CommandCode 官方兼容模型服务配置（`provider=commandcode`、`base_url=https://api.commandcode.ai/provider/v1`、`model=deepseek/deepseek-v4.1-flash`、`is_default=1`，密钥采用 Fernet 本地安全加密存储在 `user_credentials` 表中），并通过真实 API 联通验证；
+  2. 终止后台常驻服务并彻底释放 8000 端口，避免 Windows 孤儿进程占用；
+  3. 立项并起草三张任务卡：`docs/ai/tasks/BACKLOG-062.md`（资料库原生化+回测联动）、`docs/ai/tasks/BACKLOG-063.md`（拉取模型直观选择卡片与一键填入）、`docs/ai/tasks/BACKLOG-064.md`（供应商协议驱动与外部预设折叠收拢）；
+  4. 同步 `docs/ai/EXEC_PLAN.md`（062～064 置为 `[READY]`）、`docs/ai/evo/NEXT_BACKLOG.md` 以及 `HANDOFF.md`（含新会话接力协议与开箱即用 Prompt）。
+- Why: 用户在实机走查中指出三大真实业务割裂点（资料库策略动态图不可用且含破损链接、拉取模型后无直观候选列表可点、供应商界面被 18 个无关公有云厂商铺屏），必须立项彻底解决，让量化系统达到可交付的直观体验标准。
+- Docs updated: `HANDOFF.md`、`docs/ai/EXEC_PLAN.md`、`docs/ai/evo/NEXT_BACKLOG.md`、`docs/ai/tasks/BACKLOG-062.md`、`docs/ai/tasks/BACKLOG-063.md`、`docs/ai/tasks/BACKLOG-064.md`、`task/CHANGELOG.md`。
+- Verification: 8000 端口释放验证确认（`netstat -ano` 无监听）；新任务卡格式与门禁完备；`git diff --check` 通过。
+- Risk: low（纯新任务卡登记与文档接力就绪，无业务代码破坏性改动）。
+
 ## 2026-09-13（BACKLOG-047 死代码收口，DSH Worker 执行，待维护者复核合入）
 - What changed: `backend/app/services/mcp_runtime.py`（仅删除 `connect_http_mcp_server(name, url)` 薄封装函数 + docstring + 相邻空行，文件 59→54 行；`connect_mcp_server` 统一分派入口与 `restore_enabled_mcp_servers` 一字未动，imports 不变）；新建 `docs/ai/tasks/BACKLOG-047.md`（完成证据）；`docs/ai/BACKLOG-047.md`（[READY]→[DONE] + 执行结果段）；`docs/ai/EXEC_PLAN.md`（047 → DONE + 证据行）；`HANDOFF.md`（变更日志追加）。
 - Why: 042（ed02b20）重构为 `connect_mcp_server(config)` 统一分派 + 042b（c8735c3）测试 patch 目标改向后，`connect_http_mcp_server` 全程零调用点仅剩自身定义——纯死代码收口（P3）。

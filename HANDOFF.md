@@ -1,13 +1,48 @@
 # HANDOFF —— 项目交接档案
 
 > 用途：跨会话/跨 agent 接续的权威档案。会话结束时更新；新会话先读本文件再动手。
-> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-23（Mission 1/2 与 BACKLOG-050～061 收尾）。
+> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-24（BACKLOG-050～061 归档与 BACKLOG-062～064 体验闭环序列就绪）。
 
 ## 当前目标（Objective）
 
-**Mission 3 已完工，BACKLOG-050～061（含 058～061 浏览器交互 E2E）已实现并完成卡内门禁。** 下一重点仍是 `docs/ai/evo/NEXT_BACKLOG.md` 中的 P2-2：按单实体逐项评估剩余失败态调用点，Portfolio 真实持仓首批已收敛。
+**BACKLOG-050～061（含双模型协议、遥测流、专业K线图、Alpha/组合体检及浏览器自动化 E2E）已全部开发验证完毕并提交入库（commit `c39c06d`, `4ed0966`）。**
+**CommandCode 模型供应商与默认模型 `deepseek/deepseek-v4.1-flash` 已注入数据库（Fernet 加密密钥存储、用户隔离、默认标记）并通过真实 API 联通测试。**
 
-序列完成后工作树含 BACKLOG-050～061 与此前 Mission 后续改动，均尚未提交；提交前需继续保留这些在途改动。此前 `main` 与 `origin/main` 同步，GitHub `satan9394/finquant-hub` 可见性为 PRIVATE。
+用户在实机走查体验中发现了三大核心业务与交互断裂问题，当前处于 **待执行 [READY]** 的演进序列为：
+1. **BACKLOG-062**：资料库策略互动演示原生化与量化业务一键接通（淘汰旧静态 HTML iframe，改用原生 Lightweight/ECharts 交互组件，支持调节参数并一键直达 `/strategy-lab` 回测实验室预填参数）。
+2. **BACKLOG-063**：模型管理拉取模型交互闭环与候选模型直观选用（拉取模型后动态展开可搜索过滤的模型 Tag/卡片列表，支持点击自动填表与快捷勾选批量添加，终结无反馈感）。
+3. **BACKLOG-064**：供应商管理界面精简净化与协议驱动（OpenAI/Anthropic）重构（淘汰 18 个外部厂商平铺大网格，改为协议驱动卡片，公有云厂商收折为次级抽屉，突出用户已配置供应商）。
+
+---
+
+### 新会话接力协议（针对用户提问：“看看当前项目还有什么未完成的，或者要搞的”）
+
+当用户开启全新的会话窗口（无需恢复旧会话 ID），并提出类似问句时，接手的 Agent（Codex / Claude / agy 等）应直接按本约定回答用户，说明当前已就绪的 3 张任务卡与背景，并直接提供或执行如下为 Codex 准备的无缝启动 Prompt：
+
+```text
+【你现在以首席量化系统架构师与前端资深全栈工程师身份，执行 FinQuant Hub 的用户真实体验闭环优化任务。
+
+背景与前置状态：
+- 后端基础服务与行情能力正常，已配置默认 CommandCode 供应商（模型 deepseek/deepseek-v4.1-flash 已就绪并加密存储）。
+- 此前已完成 BACKLOG-050～061，但用户在实机走查中发现了三大体验与业务割裂问题：
+  1. 资料库（Knowledge）中策略动态图无法使用、点击无反应、内嵌静态 iframe 且返回链接破损；
+  2. 模型管理中点击“拉取模型”后仅弹窗提示已拉取，既未呈现拉取到的候选模型列表，也无法点击选择或一键回填/添加；
+  3. 供应商管理界面充斥了 18 个与当前用户配置完全无关的国内外部厂商大网格（通义千问、智谱清言、MiniMax、Kimi等平铺），干扰核心操作。
+
+任务执行计划序列：
+- 任务 1：BACKLOG-062（资料库策略互动演示原生化与量化业务一键接通，任务书 docs/ai/tasks/BACKLOG-062.md）
+- 任务 2：BACKLOG-063（模型管理拉取模型交互闭环与候选模型直观选用，任务书 docs/ai/tasks/BACKLOG-063.md）
+- 任务 3：BACKLOG-064（供应商管理界面精简净化与协议驱动重构，任务书 docs/ai/tasks/BACKLOG-064.md）
+
+核心原则：
+1. 架构不变量：无 ORM、无连接池、无 WebSocket（全 SSE）、零引入新第三方依赖。
+2. 样式与主题：全站消费 Design System 的 --fq-* CSS 变量，绝不硬编码颜色值。
+3. 真实业务闭环：资料库策略点击一键直达 /strategy-lab 并预填对应标的与参数；拉取模型展示搜索过滤标签并可一键回填；供应商界面默认只展示 OpenAI 兼容 / Anthropic 协议卡片，外部厂商收拢至折叠抽屉并高亮当前已配置供应商。
+4. 自动化验证：每张任务卡必须跑通针对性测试（bun run test ...）与 bun run build，保持全绿。
+
+请从 docs/ai/tasks/BACKLOG-062.md 开始自主推进开发与验证闭环。】
+```
+
 
 ## 完成标准（Definition of Done）
 
@@ -322,3 +357,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-23 BACKLOG-057 完成：新增 `/api/market/sector-treemap`、`dragon-tiger-network`、`sentiment-ladder` 与 Discover 延迟加载的市场全景子标签；复用 AStockExtra/Eastmoney 直接数据，不加依赖/表。行业分类限于东财行业板块（非申万一级），炸板率因失败涨停分母缺失保持 UNKNOWN，席位边仅为共现观察。| 验证: `test_market_graph.py` 3/3（`--no-cov`）、目标 Ruff、前端 4/4、`bun run build` 4,278 modules / OpenAPI 60 schemas fresh；`app.openapi()` 148 路径 / 185 操作；自动化测试用 mock；窄屏浏览器烟测触发 3 次东财请求（本地 API 1 次 200、2 次 502 RemoteProtocolError），当前活动面板显示明确错误态；未提交。
 
 - 2026-09-23 BACKLOG-058～061 浏览器 E2E 序列完成；BACKLOG-061 稳定化席位图悬停并更新任务记录 | 验证: BACKLOG-061 combined Chromium E2E 2/2 no retry; both specs standalone 1/1; pageerror=0 and console.error=0; git diff --check exit 0; AntD, React Router, and ECharts warnings recorded; screenshots inspected.
+
+- 2026-09-24 实机体验走查反馈与体验闭环任务规划（BACKLOG-062～064 就绪）：录入 CommandCode 供应商配置并在 DB 中安全加密持久化（默认模型 deepseek/deepseek-v4.1-flash 联通验证通过）；服务停机释放端口 8000；梳理实机反馈并立项三张任务卡（062 资料库原生化+回测联动、063 拉取模型直观选择卡片与一键填入、064 供应商协议驱动与外部预设折叠收拢）；更新 EXEC_PLAN、NEXT_BACKLOG 与接力 Prompt。 | 验证: 端口 8000 释放确认；新任务卡 docs/ai/tasks/BACKLOG-062~064.md 结构完整，注册状态 [READY]；git diff --check 通过。

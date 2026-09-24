@@ -236,3 +236,11 @@
 | BACKLOG-059 | **已完成** | `frontend/e2e/pro-candlestick.spec.ts` Chromium 4/4；验证日/周/月与 API 支持的 60m/30m/15m/5m、MA/EMA/BOLL 点击、MACD/KDJ/RSI、OHLCV hover/zoom、浅深主题 token 与研报抽屉。组件测试 4/4、生产构建 4,278 modules、pageerror/console error 0。依据接口契约未测试不存在的 1m；确定性 API fixture，无实时行情请求。 |
 | BACKLOG-060 | **已完成** | `frontend/e2e/alpha-factor.spec.ts` Chromium 1/1；验证空态/无自动填样、CSV 校验、一次模拟 503 后重试、7 项指标、IC/Rank IC Tooltip 与 Q1 图例隐藏且 Q2~Q5 保留。8 个 `--fq-*` CSS 变量已在浏览器解析；0 uncaught pageerror、0 非预期 console error（唯一 console 503 为重试 fixture）。 |
 | BACKLOG-061 | **已完成** | `frontend/e2e/{portfolio-tear-sheet,market-panorama}.spec.ts` Chromium combined 2/2、无 retry；两份 spec 单跑各 1/1。覆盖 Portfolio crosshair/月收益 title/风险摘要及 Discover Treemap、席位网络和情绪图交互。pageerror 与 console.error 均为 0；记录 AntD、React Router 与 ECharts warnings。API 使用确定性 fixture；截图已检查。 |
+
+## 附：BACKLOG-062～064 用户交互体验与业务闭环优化（待执行 [READY]）
+
+| 任务卡 | 状态 | 目标与路径 |
+|---|---|---|
+| BACKLOG-062 | **待执行 [READY]** | 资料库策略互动演示原生化；淘汰旧静态 HTML iframe，重构为原生 Lightweight/ECharts 交互动态组件，并打通直达 `/strategy-lab` 回测实验室；`docs/ai/tasks/BACKLOG-062.md`。 |
+| BACKLOG-063 | **待执行 [READY]** | 模型管理拉取模型交互闭环；拉取成功后动态展开候选模型卡片/标签区（支持关键词搜索），点击直接填入表单，支持快捷勾选批量添加；`docs/ai/tasks/BACKLOG-063.md`。 |
+| BACKLOG-064 | **待执行 [READY]** | 供应商管理界面精简净化；摆脱 18 个外部公有云厂商常驻铺屏，改为协议驱动（OpenAI 兼容 vs Anthropic 原生），厂商预设折叠收拢，高亮用户专属供应商；`docs/ai/tasks/BACKLOG-064.md`。 |
