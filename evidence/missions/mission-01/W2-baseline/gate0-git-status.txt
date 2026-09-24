@@ -1,0 +1,5 @@
+# captured after all four gates completed; identical (empty) to the start-of-work check at 01:26 -07:00
+$ git rev-parse HEAD
+264648d8619f759b222cced6583169e6432d04d6
+$ git status --porcelain
+# (empty output above means clean working tree)

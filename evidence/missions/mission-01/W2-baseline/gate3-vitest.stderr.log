@@ -1,0 +1,21 @@
+$ vitest run tests/GlobalTaskEntryQueryScope.test.tsx tests/DiscoverFactorScope.test.tsx tests/DiscoverThemesScope.test.tsx tests/GlobalTaskEntry.test.tsx tests/CommandBar.test.tsx tests/DiscoverQueryScope.test.tsx tests/DiscoverUX.test.tsx tests/DiscoverModeDispatch.test.tsx tests/DiscoverTickerExtraction.test.ts "tests/I18n.test.tsx" "tests/CorePrimitiveI18n.test.tsx" tests/AlphaResearchQueryScope.test.tsx tests/ReadStateThreeWay.test.tsx tests/ListFailureNotEmptiness.test.tsx tests/ResearchRuns.test.tsx
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements
+Not implemented: Window's getComputedStyle() method: with pseudo-elements

@@ -1,0 +1,9 @@
+===== GATE1-A (card-literal): ruff check --no-cache .   [ruff on PATH 0.12.0, cwd=backend] =====
+All checks passed!
+
+EXITCODE_A=0
+
+===== GATE1-B (project-canonical): .\.venv\Scripts\python.exe -m ruff check --no-cache .   [ruff 0.16.0, cwd=backend] =====
+All checks passed!
+
+EXITCODE_B=0

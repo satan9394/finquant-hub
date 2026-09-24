@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 E:/Code_file/Projects/finquant-hub/frontend
+
+
+ Test Files  15 passed (15)
+      Tests  83 passed (83)
+   Start at  01:30:32
+   Duration  262.48s (transform 2.02s, setup 8.05s, import 185.26s, tests 25.39s, environment 39.15s)
+

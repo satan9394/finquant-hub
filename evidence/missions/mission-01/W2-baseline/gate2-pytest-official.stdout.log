@@ -1,0 +1,122 @@
+....................................................................................................................................................................
+ERROR: Coverage failure: total of 23.0 is less than fail-under=80.0
+                                                                                                                                                                             [100%]
+================================================================================= tests coverage ==================================================================================
+________________________________________________________________ coverage: platform win32, python 3.12.12-final-0 _________________________________________________________________
+
+Name                                  Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------------------
+app\agent\tools.py                      102     27     54     12  64.7%   37, 40, 43, 46, 51-52, 55-64, 82, 151, 157-162, 165, 169, 173-174
+app\agent\tools_definitions.py          293    186     36      0  32.5%   49-62, 66-103, 131-160, 189-206, 236-246, 271-280, 305-329, 356-369, 414-425, 468-479, 500-544, 576-579, 599-607, 626, 649-655, 674-683, 702-711, 727-733
+app\backtest\execution_rules.py          67     67     28      0   0.0%   3-117
+app\backtest\loaders\__init__.py         11     11      2      0   0.0%   2-17
+app\backtest\loaders\base.py             22     22      2      0   0.0%   2-42
+app\backtest\loaders\providers.py       114    114     16      0   0.0%   2-189
+app\backtest\loaders\registry.py         63     63     26      0   0.0%   2-104
+app\backtest\ma_crossover.py            171    171     54      0   0.0%   2-326
+app\backtest\metrics.py                  82     82     28      0   0.0%   2-147
+app\backtest\optimizers\__init__.py       2      2      0      0   0.0%   3-5
+app\backtest\optimizers\core.py          73     73     30      0   0.0%   2-111
+app\backtest\portfolio.py                57     57     18      0   0.0%   2-161
+app\backtest\risk.py                     78     78     28      0   0.0%   3-174
+app\backtest\significance.py             63     63     12      0   0.0%   3-189
+app\config.py                            51      2      0      0  96.1%   19-20
+app\database.py                         794    245    156     19  68.4%   339, 341, 343, 345, 347, 349, 351, 353, 355, 357, 359, 361, 363, 365, 388-391, 400-403, 413-416, 426-429, 439-442, 452-455, 465-468, 478-481, 491-494, 504-507, 517-520, 530-533, 543-546, 556-559, 569-572, 582-585, 595-598, 608-611, 621-624, 634-637, 647-650, 660-663, 673-676, 686-689, 699-702, 712-715, 738-743, 1344-1356, 1856-1863, 1868-1875, 1880-1887, 1892-1899, 1904-1911, 1916-1923, 1928-1935, 1940-1947, 1952-1959, 1964-1971, 1976-1983, 1988-1995, 2000-2007, 2012-2019, 2214-2217, 2237-2249, 2260->exit, 2287->2289, 2292-2296, 2299->exit, 2358
+app\main.py                             101    101     30      0   0.0%   2-174
+app\middleware\security.py              130    130     42      0   0.0%   2-196
+app\models.py                            56      6      2      0  86.2%   9-14
+app\orchestrator\runtime.py             106     10     34      8  85.7%   42, 90, 123, 125, 142-143, 150, 152, 159, 166
+app\orchestrator\team.py                 84     15     28     11  76.8%   37, 39, 42, 61, 68, 70, 77, 90, 93-94, 96, 99-100, 107, 109
+app\routers\agents.py                    32     32      8      0   0.0%   2-56
+app\routers\alerts.py                    88     88     12      0   0.0%   3-135
+app\routers\analysis.py                 103    103     12      0   0.0%   6-193
+app\routers\auth.py                      72     47     10      0  30.5%   25, 31-36, 43-47, 52-72, 77-101, 110-123, 128
+app\routers\backtests.py                221    221     38      0   0.0%   2-409
+app\routers\chat.py                     124     36     24      6  67.6%   57, 63-68, 76, 93-102, 110-114, 143->148, 157-161, 176, 199-200, 225, 226->229, 248-271
+app\routers\credentials.py               33     33      2      0   0.0%   2-56
+app\routers\dashboard.py                 87     87     18      0   0.0%   2-157
+app\routers\discussion.py                74     74     14      0   0.0%   2-124
+app\routers\instruments.py              112    112      6      0   0.0%   2-193
+app\routers\market.py                   161    161     10      0   0.0%   2-262
+app\routers\mcp.py                       94     94      6      0   0.0%   3-185
+app\routers\model_pricing.py             65     65     10      0   0.0%   9-127
+app\routers\models_crud.py              102    102     20      0   0.0%   2-149
+app\routers\notifications.py             52     52     12      0   0.0%   3-99
+app\routers\portfolio.py                165    165     28      0   0.0%   2-278
+app\routers\research.py                 262    262     72      0   0.0%   9-512
+app\routers\screening.py                 13     13      0      0   0.0%   3-29
+app\routers\settings.py                 154    154     22      0   0.0%   2-263
+app\routers\swarm.py                     80     80     16      0   0.0%   3-146
+app\routers\thesis.py                   151    151      0      0   0.0%   2-276
+app\routers\usage.py                    132    132     38      0   0.0%   12-444
+app\routers\wq.py                        76     76      2      0   0.0%   2-137
+app\services\a_stock_extra.py           317    264    112      0  12.4%   37-38, 53-60, 67-73, 77-93, 97-98, 102-108, 112-118, 122-123, 127-133, 137-153, 157-167, 174-218, 244-248, 251-252, 257-268, 271-301, 306-309, 312-350, 357-391, 397-412, 415-455, 461-483
+app\services\alerts.py                  146    119     40      0  14.5%   39-41, 45-48, 52-57, 69-85, 89-93, 97-98, 102-139, 143-146, 156-168, 175, 182-212, 226-286, 296-325
+app\services\alpha_brain.py              63     63     12      0   0.0%   2-117
+app\services\alpha_service.py           121    121     42      0   0.0%   6-377
+app\services\alpha_simulator.py         165    165     60      0   0.0%   2-301
+app\services\alpha_templates.py          14     14      4      0   0.0%   2-85
+app\services\analysis\scoring.py         57     57     10      0   0.0%   5-149
+app\services\analysis\signals.py        116    103     62      0   7.3%   14, 19-35, 40-56, 65-97, 107-137, 146-165, 170-184, 189-203, 208-216, 227-246
+app\services\analysis\ticker.py          16     16      4      0   0.0%   3-34
+app\services\auth.py                    146     96     38      0  28.3%   31-32, 55-56, 84-87, 92-115, 119-125, 129-132, 136, 140, 144, 148-163, 167-201, 205-252, 256-265, 269-270
+app\services\chip_distribution.py        64     64     16      0   0.0%   2-103
+app\services\context.py                 124     91     56      4  21.7%   26, 47, 49, 55-75, 79-100, 104-118, 122-149, 153-166, 170
+app\services\credential_store.py         90     64     16      0  24.5%   23-26, 30-44, 49-52, 56-58, 63, 67-71, 75, 89-107, 111-117, 121-125, 129-136, 140-144, 148-153, 158-176
+app\services\cron.py                     73      7     28      3  90.1%   22-23, 34-35, 77, 83, 95
+app\services\decision_inbox.py           59     59     16      0   0.0%   2-172
+app\services\discussion_orch.py          84     84     22      0   0.0%   6-165
+app\services\evidence_audit.py           34     34     12      0   0.0%   3-109
+app\services\fundamentals.py            311    311    136      0   0.0%   2-623
+app\services\import_service.py          121    121     40      0   0.0%   2-180
+app\services\indicators.py              103     80     18      0  19.0%   20-23, 28-32, 37-42, 47-52, 57-60, 64-67, 71-74, 83-84, 88-92, 96-108, 114-123, 127-130, 138-142, 146-147, 165-176
+app\services\instruments.py             106     90     32      0  11.6%   20-28, 38-48, 68, 80-94, 99, 102-123, 137-160, 175-189, 205-230
+app\services\investment_memory.py       127     66     46      9  43.9%   18, 78-95, 112, 114, 128-129, 131-135, 137, 153, 161, 186->189, 201-223, 227, 232-239, 254-292
+app\services\llm_client.py              328     18    122      9  93.1%   76, 78, 152, 155, 368-380, 667, 669->683, 677, 685->688, 735->754
+app\services\llm_usage.py                48     12      6      1  72.2%   46-47, 57-75, 94, 101-106, 111-112
+app\services\logging.py                  34     34     10      0   0.0%   2-54
+app\services\market_data.py             536    458    192      0  10.7%   57-81, 85-90, 98, 106-110, 114-116, 121, 131-176, 180, 184-193, 197, 213-222, 227-229, 232, 235-238, 241, 245-255, 258, 280-394, 401-418, 423-431, 434-435, 439-469, 479-490, 500-503, 506-509, 512-520, 553-589, 605-637, 642-649, 665-670, 686-710, 713-727, 731-785, 788-906, 910-913, 924-964, 971-1011
+app\services\market_overview.py         466    424    158      0   6.7%   95-100, 104-105, 113-129, 132-145, 148-176, 179-220, 233-237, 246-265, 288-332, 336, 350-522, 530-621, 625-669, 672-692, 698-804, 810-846, 850-903, 916-959, 962-998
+app\services\market_review.py            97     71     18      0  22.6%   24-27, 31-44, 55-59, 67-84, 97, 115-124, 135-182, 186-190, 194-195, 200-210
+app\services\mcp_runtime.py              26     26      2      0   0.0%   3-51
+app\services\memory.py                   80     41     30      2  40.9%   57-73, 84-118, 128, 132-153, 167
+app\services\memory_capture.py           49     14     16      3  67.7%   27, 30, 54-55, 75-76, 102-110, 115-116
+app\services\memory_context.py           39      5     12      5  80.4%   64, 66, 68, 70, 90
+app\services\memory_rollout.py           56      4      8      0  93.8%   132-133, 153-155
+app\services\model_router.py             29     21     12      0  19.5%   16-30, 35-50
+app\services\monitor_targets.py          57     57     26      0   0.0%   2-115
+app\services\news_search.py             170    137     56      0  14.6%   24, 36-48, 51-54, 57-65, 68, 77-126, 136-146, 149-154, 157-162, 165-172, 175-181, 184-189, 193-225, 228-236, 240-267, 271-290
+app\services\notifications.py           106     50     20      4  49.2%   35, 40-47, 71, 76, 100, 119-128, 132-139, 143-146, 150-156, 160-163, 180, 200-202, 213-241
+app\services\portfolio.py               370    370    114      0   0.0%   2-800
+app\services\product_metrics.py          44     44     14      0   0.0%   2-116
+app\services\provenance.py               82     82     30      0   0.0%   3-251
+app\services\report_builder.py          159     12     56     13  88.4%   100, 144-145, 215, 217->213, 225, 227, 229, 234, 236, 238, 259->261, 262->264, 265, 279
+app\services\report_export.py           171    171     76      0   0.0%   6-228
+app\services\research_jobs.py           191     21     46      9  86.5%   42, 73-75, 110, 154, 178, 237, 278, 334, 343, 432, 462, 491-510, 514
+app\services\research_orch.py           274     17    106     12  92.4%   69, 78-80, 83, 126, 292, 294, 296, 353, 424-425, 583-586, 701, 711
+app\services\scheduler.py               218     80     58     11  62.0%   55-66, 71-75, 102, 145-146, 159->236, 171->159, 207->223, 227-234, 239->245, 242-243, 246-247, 258-284, 292-316, 322-325, 343, 353, 355, 394, 409-420
+app\services\senders.py                  83     48     20      0  34.0%   29-36, 45-53, 68-73, 76-82, 86-101, 112-128
+app\services\share_preview.py           114    114     34      0   0.0%   3-313
+app\services\source_health.py            44     27     12      0  30.4%   22-33, 36-40, 43-48, 51-54
+app\services\source_settings.py          18     18      2      0   0.0%   3-37
+app\services\strategy_ir.py             129    129     50      0   0.0%   2-232
+app\services\swarm_orch.py              144     19     34      7  85.4%   80, 85, 116, 121, 156-169, 201-203, 207-210, 253, 338->322
+app\services\system_settings.py          32     32     12      0   0.0%   2-66
+app\services\thesis.py                  465    465    136      0   0.0%   2-1060
+app\services\thesis_challenge.py         70     70     22      0   0.0%   2-186
+app\services\thesis_drift.py             67     67     18      0   0.0%   2-174
+app\services\trading_calendar.py         37     37     14      0   0.0%   2-66
+app\tools\adversarial_review.py          46      9     24      7  68.6%   23, 29, 40->47, 47->26, 63-64, 71-72, 79-81
+app\tools\financial_rigor.py            281    281     88      0   0.0%   18-485
+app\tools\investment_checklist.py        31      9     12      4  60.5%   28-33, 38, 44, 48
+app\tools\mcp_bridge.py                 150    150     52      0   0.0%   3-253
+app\tools\report_audit.py               143    126     58      0   8.5%   24-31, 36-45, 53-80, 85-135, 142-143, 148-150, 155-217
+app\tools\stock_screener.py              92     83     32      0   7.3%   20-21, 32-72, 76-105, 114-157, 170-178
+app\tools\trading_analysis.py            30     26     10      0  10.0%   8-40, 55-56
+---------------------------------------------------------------------------------
+TOTAL                                 13055   9833   3648    159  23.0%
+
+13 files skipped due to complete coverage.
+Coverage HTML written to dir htmlcov
+FAIL Required test coverage of 80.0% not reached. Total coverage: 23.03%
+164 passed in 43.11s
