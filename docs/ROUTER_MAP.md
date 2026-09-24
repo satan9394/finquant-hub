@@ -1,6 +1,6 @@
-# Router Map — 23 APIRouter，176 个 OpenAPI 操作
+# Router Map — 23 APIRouter，185 个 OpenAPI 操作
 
-> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 140 个 `/api/*` 路径、176 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
+> `backend/app/main.py` 另内联公开的 `GET /api/health`。当前生成契约为 148 个 `/api/*` 路径、185 个 HTTP 操作（实测 `app.openapi()`，不含内联健康检查）；除 `/api/auth/*` 与 `/api/health` 外，业务路由统一附加 `authenticated_context`。
 
 | Prefix | File | Stage |
 |--------|------|-------|
@@ -10,12 +10,12 @@
 | /api/agents | agents.py | MVP |
 | /api/chat | chat.py | MVP |
 | /api/discussion | discussion.py | MVP |
-| /api/market | market.py | MVP + Phase 9.2（市场级快照、复盘历史、源健康/优先级与批量预取） |
+| /api/market | market.py | MVP + Phase 9.2（市场级快照、复盘历史、源健康/优先级与批量预取） + BACKLOG-057（行业树图、席位共现网络、连板情绪） |
 | /api/dashboard | dashboard.py | MVP + TASK-017 导入 + AIOS-040 owner-scoped Decision Inbox + Workbench latest news |
 
 Dashboard endpoint additions: `GET /api/dashboard/news`（综合财经搜索，返回来源、时间、错误与 `data_status`，默认最多 6 条）。
 | /api/analysis | analysis.py | MVP |
-| /api/portfolio | portfolio.py | MVP + AIOS-053 独立 Paper 账本/UNKNOWN FX 估值 + AIOS-054 owner-scoped hypothesis 模拟复盘与非因果 review outcome |
+| /api/portfolio | portfolio.py | MVP + AIOS-053 独立 Paper 账本/UNKNOWN FX 估值 + AIOS-054 owner-scoped hypothesis 模拟复盘与非因果 review outcome + BACKLOG-056 固定当前持仓股数的历史风险 Tear Sheet |
 | /api/backtest | backtest.py | MVP (v1 sync) |
 | /api/research | research.py | New（含报告数据审计、typed memory 管理/导出、evidence 审计与脱敏导出） |
 | /api/backtests | backtests.py | New（`strategy-ir/v1` 非执行解析/可逆草稿编译 + v2 async + 多市场组合回测 + saved completed strategy 私有只读 share preview） |

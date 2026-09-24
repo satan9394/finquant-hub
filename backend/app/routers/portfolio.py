@@ -1,10 +1,12 @@
 """投资组合 API：组合 CRUD + 持仓管理 + 实时盈亏。"""
+import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..services import portfolio as svc
+from ..services.portfolio_risk import analyze_portfolio_prices, unavailable_portfolio_risk
 from .auth import CurrentUser, authenticated_context
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"], dependencies=[Depends(authenticated_context)])
@@ -276,3 +278,54 @@ async def calc_pnl(portfolio_id: int, user: CurrentUser) -> dict[str, Any]:
     if not p:
         raise HTTPException(404, f"组合不存在：id={portfolio_id}")
     return await svc.calc_pnl(portfolio_id, user_id)
+
+
+@router.get("/{portfolio_id}/risk-tearsheet")
+async def portfolio_risk_tearsheet(portfolio_id: int, request: Request, user: CurrentUser) -> dict[str, Any]:
+    """Analyze historical market risk for the authenticated user's current holdings."""
+    user_id = int(user["id"])
+    portfolio = await svc.get_portfolio(portfolio_id, user_id)
+    if portfolio is None:
+        raise HTTPException(404, f"组合不存在：id={portfolio_id}")
+
+    positions = await svc.list_positions(portfolio_id, user_id)
+    currency = str(portfolio.get("currency") or "").strip().upper()
+    symbols = [str(position.get("ticker") or "").strip().upper() for position in positions]
+    currencies = {str(position.get("currency") or "").strip().upper() for position in positions}
+
+    if positions and (not currency or currencies != {currency}):
+        result = unavailable_portfolio_risk(symbols, "unsupported_currency_conversion")
+        result["warnings"] = ["currency_conversion_unavailable"]
+        return {
+            **result,
+            "portfolio_id": portfolio_id,
+            "currency": currency or None,
+            "method": "current_share_quantities_fixed_over_history",
+        }
+
+    shares_by_symbol: dict[str, float] = {}
+    for position in positions:
+        symbol = str(position.get("ticker") or "").strip().upper()
+        if symbol:
+            shares_by_symbol[symbol] = shares_by_symbol.get(symbol, 0.0) + float(position["shares"])
+
+    market = request.app.state.market
+    semaphore = asyncio.Semaphore(8)
+
+    async def fetch_history(symbol: str) -> tuple[str, list[dict[str, Any]]]:
+        async with semaphore:
+            try:
+                rows = await market.kline(symbol, "1d", 800)
+            except Exception:
+                return symbol, []
+        return symbol, rows
+
+    fetched = await asyncio.gather(*(fetch_history(symbol) for symbol in shares_by_symbol))
+    price_history = dict(fetched)
+    result = analyze_portfolio_prices(price_history, shares_by_symbol)
+    return {
+        **result,
+        "portfolio_id": portfolio_id,
+        "currency": currency or None,
+        "method": "current_share_quantities_fixed_over_history",
+    }

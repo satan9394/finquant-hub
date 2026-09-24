@@ -10,12 +10,20 @@ import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
+from time import perf_counter_ns
 from typing import Any
 
 import httpx
 
 from .context import DEFAULT_CONTEXT_BUDGET, compact_messages, estimate_tokens
-from .llm_usage import record_llm_usage
+from .anthropic_protocol import (
+    anthropic_response_to_openai,
+    anthropic_stream_delta,
+    normalize_anthropic_usage,
+    normalize_openai_usage,
+    openai_request_to_anthropic,
+)
+from .llm_usage import record_llm_usage, set_last_llm_metrics
 
 
 JSONDict = dict[str, Any]
@@ -50,6 +58,10 @@ _DEFAULT_TOTAL_BUDGET_SECONDS = 180.0
 # （实测：now 1000.3 - 1000.0 = 0.2999999999999545 ⇒ 剩余 4.5e-14 > 0）。不设容差就会出现
 # "还剩 1e-14 秒 → 睡一下 → 再发一次尝试"这种与语义相悖的抖动。1 微秒相对 180 秒预算可忽略。
 _BUDGET_EPSILON_SECONDS = 1e-6
+
+
+def _perf_counter_ns() -> int:
+    return perf_counter_ns()
 
 # VS23: **整轮**带工具对话的聚合等待上界——"每次调用最多等 N 秒" ≠ "用户最多等 N 秒"。
 # VS21 的单次预算只约束**一次** `_post_chat_with_retry`，而 `chat_with_tools_loop` 每轮各起算一次，
@@ -197,6 +209,7 @@ class LLMClient:
         total_budget_seconds: float = _DEFAULT_TOTAL_BUDGET_SECONDS,
         context_budget: int = DEFAULT_CONTEXT_BUDGET,
         proxy_url: str | None = None,
+        provider: str = "openai",
     ):
         if context_budget < 256:
             raise ValueError("context_budget 不能小于 256")
@@ -214,6 +227,70 @@ class LLMClient:
         self.total_budget_seconds = total_budget_seconds
         self.context_budget = context_budget
         self.proxy_url = proxy_url
+        self.provider = provider.strip().lower()
+
+    @property
+    def _uses_anthropic(self) -> bool:
+        return self.provider == "anthropic"
+
+    def _chat_url(self) -> str:
+        if not self._uses_anthropic:
+            return f"{self.base_url}/chat/completions"
+        base = self.base_url.removesuffix("/v1/messages").removesuffix("/v1")
+        return f"{base}/v1/messages"
+
+    def _models_url(self) -> str:
+        if not self._uses_anthropic:
+            return f"{self.base_url}/models"
+        base = self.base_url.removesuffix("/v1/models").removesuffix("/v1")
+        return f"{base}/v1/models"
+
+    def _request_payload(self, payload: JSONDict) -> JSONDict:
+        if not self._uses_anthropic:
+            return payload
+        try:
+            return openai_request_to_anthropic(payload)
+        except ValueError as exc:
+            raise LLMError(f"Anthropic 请求格式无法转换：{exc}") from exc
+
+    def _chat_response(self, response: httpx.Response) -> JSONDict:
+        data = response.json()
+        return anthropic_response_to_openai(data) if self._uses_anthropic else data
+
+    def _normalized_usage(self, usage: JSONDict) -> JSONDict:
+        return normalize_anthropic_usage(usage) if self._uses_anthropic else normalize_openai_usage(usage)
+
+    def _record_usage_with_metrics(
+        self,
+        usage: JSONDict,
+        started_at_ns: int,
+        *,
+        first_text_at_ns: int | None = None,
+    ) -> None:
+        if not usage:
+            set_last_llm_metrics(None)
+            return
+        normalized = self._normalized_usage(usage)
+        finished_at_ns = _perf_counter_ns()
+        duration_seconds = max(0.0, (finished_at_ns - started_at_ns) / 1_000_000_000)
+        ttft_ms = (
+            max(0, round((first_text_at_ns - started_at_ns) / 1_000_000))
+            if first_text_at_ns is not None else None
+        )
+        generation_seconds = (
+            (finished_at_ns - first_text_at_ns) / 1_000_000_000
+            if first_text_at_ns is not None and finished_at_ns > first_text_at_ns else 0.0
+        )
+        completion_tokens = normalized["completion_tokens"]
+        speed = completion_tokens / generation_seconds if generation_seconds > 0 else None
+        metrics = {
+            **normalized,
+            "ttft_ms": ttft_ms,
+            "duration_ms": max(0, round(duration_seconds * 1000)),
+            "tokens_per_second": speed if speed is None or math.isfinite(speed) else None,
+        }
+        set_last_llm_metrics(metrics)
+        record_llm_usage(self.model, normalized if self._uses_anthropic else usage)
 
     def _payload(self, messages: list[JSONDict], stream: bool) -> JSONDict:
         payload = {
@@ -236,6 +313,13 @@ class LLMClient:
         return compact_messages(messages, token_budget=message_budget)
 
     def _headers(self) -> dict[str, str]:
+        if self._uses_anthropic:
+            return {
+                "Content-Type": "application/json",
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "prompt-caching-2024-07-31",
+            }
         return {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
@@ -331,14 +415,15 @@ class LLMClient:
         "本次调用 ≤ 生效预算 + 单次尝试超时"。
         """
         budget = self.total_budget_seconds if budget_seconds is None else budget_seconds
-        url = f"{self.base_url}/chat/completions"
+        url = self._chat_url()
+        request_payload = self._request_payload(payload)
         last_exc: Exception | None = None
         started_at = time.monotonic()  # VS21：预算自循环开始计时
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             response: httpx.Response | None = None
             try:
                 async with self._http_client() as http:
-                    response = await http.post(url, json=payload, headers=self._headers())
+                    response = await http.post(url, json=request_payload, headers=self._headers())
             except httpx.HTTPError as exc:
                 last_exc = exc
             else:
@@ -367,7 +452,7 @@ class LLMClient:
         """Discover only models actually returned by this OpenAI-compatible provider."""
         try:
             async with self._http_client() as http:
-                response = await http.get(f"{self.base_url}/models", headers=self._headers())
+                response = await http.get(self._models_url(), headers=self._headers())
             if response.status_code != 200:
                 raise self._response_error(response.status_code, response.text)
             data = response.json()
@@ -381,13 +466,15 @@ class LLMClient:
 
     async def chat(self, messages: list[JSONDict]) -> tuple[str, int | None]:
         """非流式调用，返回 (全文, total_tokens)。"""
+        started_at_ns = _perf_counter_ns()
+        set_last_llm_metrics(None)
         resp = await self._post_chat_with_retry(self._payload(messages, False))
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
-        data = resp.json()
+        data = self._chat_response(resp)
         content = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage") or {}
-        record_llm_usage(self.model, usage)
+        self._record_usage_with_metrics(usage, started_at_ns)
         return content, usage.get("total_tokens")
 
     async def chat_with_tools(
@@ -417,10 +504,12 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
+        started_at_ns = _perf_counter_ns()
+        set_last_llm_metrics(None)
         resp = await self._post_chat_with_retry(payload, budget_seconds=budget_seconds)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
-        data = resp.json()
+        data = self._chat_response(resp)
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
         raw_calls = choice.get("tool_calls") or []
@@ -436,7 +525,7 @@ class LLMClient:
                 },
             })
         usage = data.get("usage") or {}
-        record_llm_usage(self.model, usage)
+        self._record_usage_with_metrics(usage, started_at_ns)
         tokens = usage.get("total_tokens")
         if with_finish_reason:
             return content, tool_calls, tokens, _finish_reason_of(data)
@@ -471,10 +560,12 @@ class LLMClient:
         }
         if tools:
             payload["tools"] = tools
+        started_at_ns = _perf_counter_ns()
+        set_last_llm_metrics(None)
         resp = await self._post_chat_with_retry(payload, budget_seconds=budget_seconds)
         if resp.status_code != 200:
             raise self._response_error(resp.status_code, resp.text)
-        data = resp.json()
+        data = self._chat_response(resp)
         choice = data["choices"][0]["message"]
         content = choice.get("content") or ""
         raw_calls = choice.get("tool_calls") or []
@@ -490,7 +581,7 @@ class LLMClient:
                 },
             })
         usage = data.get("usage") or {}
-        record_llm_usage(self.model, usage)
+        self._record_usage_with_metrics(usage, started_at_ns)
         tokens = usage.get("total_tokens")
         if with_finish_reason:
             return content, tool_calls, tokens, _finish_reason_of(data)
@@ -722,17 +813,25 @@ class LLMClient:
 
     async def chat_stream(self, messages: list[JSONDict]) -> AsyncIterator[str]:
         """流式调用，逐 token yield 增量文本。"""
-        url = f"{self.base_url}/chat/completions"
+        started_at_ns = _perf_counter_ns()
+        set_last_llm_metrics(None)
         usage: JSONDict = {}
+        first_text_at_ns: int | None = None
+        event_name: str | None = None
         try:
             async with self._http_client() as http:
                 async with http.stream(
-                    "POST", url, json=self._payload(messages, True), headers=self._headers()
+                    "POST", self._chat_url(),
+                    json=self._request_payload(self._payload(messages, True)),
+                    headers=self._headers(),
                 ) as resp:
                     if resp.status_code != 200:
                         body = (await resp.aread()).decode("utf-8", "replace")
                         raise self._response_error(resp.status_code, body)
                     async for line in resp.aiter_lines():
+                        if self._uses_anthropic and line.startswith("event:"):
+                            event_name = line[6:].strip()
+                            continue
                         if not line or not line.startswith("data:"):
                             continue
                         data = line[5:].strip()
@@ -741,6 +840,22 @@ class LLMClient:
                         try:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
+                            event_name = None
+                            continue
+                        if self._uses_anthropic:
+                            chunk_type = chunk.get("type") or event_name
+                            if chunk_type == "error":
+                                detail = self._redact(json.dumps(chunk, ensure_ascii=False))[:300]
+                                raise LLMError(f"Anthropic 流式调用失败：{detail}")
+                            event_payload = chunk if chunk.get("type") else {**chunk, "type": chunk_type}
+                            text, usage_delta = anthropic_stream_delta(event_payload)
+                            if usage_delta:
+                                usage.update(usage_delta)
+                            event_name = None
+                            if text:
+                                if first_text_at_ns is None:
+                                    first_text_at_ns = _perf_counter_ns()
+                                yield text
                             continue
                         if isinstance(chunk.get("usage"), dict):
                             usage = chunk["usage"]
@@ -750,7 +865,14 @@ class LLMClient:
                         delta = choices[0].get("delta") or {}
                         text = delta.get("content")
                         if text:
+                            if first_text_at_ns is None:
+                                first_text_at_ns = _perf_counter_ns()
                             yield text
-            record_llm_usage(self.model, usage)
+            if usage:
+                self._record_usage_with_metrics(
+                    usage,
+                    started_at_ns,
+                    first_text_at_ns=first_text_at_ns,
+                )
         except httpx.HTTPError as e:
             raise LLMError("网络错误或超时，请检查 API 地址、网络/代理连接及供应商服务状态后重试。") from e

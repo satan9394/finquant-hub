@@ -21,6 +21,7 @@ import ResearchArtifact from '../components/ResearchArtifact';
 import type { EvidenceRecord } from '../components/EvidenceDrawer';
 import { useLanguage } from '../i18n/LanguageContext';
 import ResearchPlan, { type AgentRunStep } from '../components/ResearchPlan';
+import ModelTelemetryBadge, { type LLMExecutionMetrics } from '../components/ModelTelemetryBadge';
 import {
   describeDegradedReasons,
   reasonCodes as asReasonCodes,
@@ -81,6 +82,15 @@ type ResearchStreamData = {
   degraded_reasons?: string[];
   error?: string;
   message?: string;
+  model?: string;
+  ttft_ms?: number | null;
+  speed_tps?: number | null;
+  prompt_tokens?: number;
+  cached_tokens?: number;
+  cache_hit_rate?: number | null;
+  completion_tokens?: number;
+  reasoning_tokens?: number;
+  context_used?: number;
 };
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
@@ -398,6 +408,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
   const [history, setHistory] = useState<HistoryGroup[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
+  const [latestMetrics, setLatestMetrics] = useState<LLMExecutionMetrics | null>(null);
+  const [metricsReportId, setMetricsReportId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadHistory = useCallback(async () => {
@@ -504,6 +516,8 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
     setReportTitle('');
     setReportQuality(null);
     setSelectedReportId(null);
+    setLatestMetrics(null);
+    setMetricsReportId(null);
     setAgentNotices([]);
     setTruncatedByDeadline(false);
     resetAgents();
@@ -525,6 +539,7 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
 
       let accContent = '';
       let streamCompleted = false;
+      let streamReportId: number | null = null;
 
       await readSSE<ResearchStreamData>(response.body, ({ event, data }) => {
         // Research orchestration emits `agent`; older discussion endpoints
@@ -532,8 +547,14 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
         const agentKey = data.agent ?? data.role_key;
         switch (event) {
           case 'report_started': {
+            streamReportId = data.report_id ?? null;
             setSelectedReportId(data.report_id ?? null);
             void loadHistory();
+            break;
+          }
+          case 'llm_metrics': {
+            setLatestMetrics(data as LLMExecutionMetrics);
+            setMetricsReportId(streamReportId);
             break;
           }
           case 'agent_started': {
@@ -680,6 +701,9 @@ export default function Research({ initialTicker }: { initialTicker?: string } =
               {t('deep.page.start')}
             </Button>
           )}
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <ModelTelemetryBadge metrics={metricsReportId === selectedReportId ? latestMetrics : null} />
         </div>
       </Card>
 

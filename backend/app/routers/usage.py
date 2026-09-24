@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/usage", tags=["usage"], dependencies=[Depends(au
 
 TOKENS_PER_MILLION = 1_000_000
 MAX_RANGE_DAYS = 366
+ANTHROPIC_CACHE_SAVING_RATE = 0.9
 
 
 def estimate_cost(
@@ -154,11 +155,73 @@ def _stats_row(row: dict[str, Any]) -> dict[str, Any]:
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
         "total_tokens": row["total_tokens"],
+        **_telemetry_fields(row),
         **_cost_rollup([{
             "estimated_cost": cost,
             "currency": row["currency"],
             "total_tokens": row["total_tokens"],
         }]),
+    }
+
+
+def _telemetry_fields(row: dict[str, Any]) -> dict[str, Any]:
+    prompt_tokens = row.get("prompt_tokens") or 0
+    cached_tokens = row.get("cached_tokens") or 0
+    speed_count = row.get("speed_sample_count") or 0
+    ttft_count = row.get("ttft_sample_count") or 0
+    return {
+        "cached_tokens": cached_tokens,
+        "cache_hit_rate": cached_tokens * 100.0 / prompt_tokens if prompt_tokens else None,
+        "avg_speed_tps": row["speed_tps_sum"] / speed_count if speed_count else None,
+        "avg_ttft_ms": round(row["ttft_ms_sum"] / ttft_count) if ttft_count else None,
+    }
+
+
+def _efficiency_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate measured telemetry and priced cache savings for the window."""
+    prompt_tokens = sum(row["prompt_tokens"] or 0 for row in rows)
+    cached_tokens = sum(row["cached_tokens"] or 0 for row in rows)
+    speed_total = sum(row["speed_tps_sum"] or 0 for row in rows)
+    speed_count = sum(row["speed_sample_count"] or 0 for row in rows)
+    ttft_total = sum(row["ttft_ms_sum"] or 0 for row in rows)
+    ttft_count = sum(row["ttft_sample_count"] or 0 for row in rows)
+
+    savings_by_currency: dict[str, float] = {}
+    has_unpriced_cached_tokens = False
+    for row in rows:
+        row_cached_tokens = row["cached_tokens"] or 0
+        if row_cached_tokens <= 0:
+            continue
+        currency = row["currency"]
+        saving = estimate_cost(row_cached_tokens, 0, row["input_per_1m"], 0)
+        if saving is None or not currency:
+            has_unpriced_cached_tokens = True
+            continue
+        savings_by_currency[currency] = (
+            savings_by_currency.get(currency, 0.0) + saving * ANTHROPIC_CACHE_SAVING_RATE
+        )
+
+    if not rows:
+        total_saved_cost = None
+        currency = "N/A"
+    elif has_unpriced_cached_tokens:
+        total_saved_cost = None
+        currency = "UNAVAILABLE"
+    elif len(savings_by_currency) > 1:
+        total_saved_cost = None
+        currency = "MIXED"
+    elif savings_by_currency:
+        currency, total_saved_cost = next(iter(savings_by_currency.items()))
+    else:
+        total_saved_cost = 0.0
+        currency = "N/A"
+
+    return {
+        "avg_speed_tps": speed_total / speed_count if speed_count else None,
+        "avg_ttft_ms": round(ttft_total / ttft_count) if ttft_count else None,
+        "overall_cache_hit_rate": cached_tokens * 100.0 / prompt_tokens if prompt_tokens else None,
+        "total_saved_cost": total_saved_cost,
+        "currency": currency,
     }
 
 
@@ -176,12 +239,21 @@ def _fold_by_key(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
+                "cached_tokens": 0,
+                "speed_tps_sum": 0.0,
+                "speed_sample_count": 0,
+                "ttft_ms_sum": 0,
+                "ttft_sample_count": 0,
             }
             cost_rows[key] = []
         bucket["request_count"] += row["request_count"]
         bucket["prompt_tokens"] += row["prompt_tokens"]
         bucket["completion_tokens"] += row["completion_tokens"]
         bucket["total_tokens"] += row["total_tokens"]
+        for metric_key in (
+            "cached_tokens", "speed_tps_sum", "speed_sample_count", "ttft_ms_sum", "ttft_sample_count"
+        ):
+            bucket[metric_key] += row[metric_key] or 0
         cost_rows[key].append({
             "estimated_cost": estimate_cost(
                 row["prompt_tokens"],
@@ -193,7 +265,7 @@ def _fold_by_key(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "total_tokens": row["total_tokens"],
         })
     items = [
-        {**bucket, **_cost_rollup(cost_rows[key])}
+        {**bucket, **_telemetry_fields(bucket), **_cost_rollup(cost_rows[key])}
         for key, bucket in buckets.items()
     ]
     items.sort(key=lambda item: (-item["total_tokens"], item["key"] or ""))
@@ -405,6 +477,11 @@ async def get_usage_stats(
             "COALESCE(SUM(u.prompt_tokens), 0) AS prompt_tokens, "
             "COALESCE(SUM(u.completion_tokens), 0) AS completion_tokens, "
             "COALESCE(SUM(u.total_tokens), 0) AS total_tokens, "
+            "COALESCE(SUM(u.cached_tokens), 0) AS cached_tokens, "
+            "COALESCE(SUM(CASE WHEN u.tokens_per_second > 0 THEN u.tokens_per_second ELSE 0 END), 0) AS speed_tps_sum, "
+            "COALESCE(SUM(CASE WHEN u.tokens_per_second > 0 THEN 1 ELSE 0 END), 0) AS speed_sample_count, "
+            "COALESCE(SUM(CASE WHEN u.ttft_ms IS NOT NULL THEN u.ttft_ms ELSE 0 END), 0) AS ttft_ms_sum, "
+            "COALESCE(SUM(CASE WHEN u.ttft_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS ttft_sample_count, "
             "COUNT(*) AS request_count, "
             "p.input_per_1m AS input_per_1m, p.output_per_1m AS output_per_1m, "
             "p.currency AS currency "
@@ -422,6 +499,11 @@ async def get_usage_stats(
             "COALESCE(SUM(u.prompt_tokens), 0) AS prompt_tokens, "
             "COALESCE(SUM(u.completion_tokens), 0) AS completion_tokens, "
             "COALESCE(SUM(u.total_tokens), 0) AS total_tokens, "
+            "COALESCE(SUM(u.cached_tokens), 0) AS cached_tokens, "
+            "COALESCE(SUM(CASE WHEN u.tokens_per_second > 0 THEN u.tokens_per_second ELSE 0 END), 0) AS speed_tps_sum, "
+            "COALESCE(SUM(CASE WHEN u.tokens_per_second > 0 THEN 1 ELSE 0 END), 0) AS speed_sample_count, "
+            "COALESCE(SUM(CASE WHEN u.ttft_ms IS NOT NULL THEN u.ttft_ms ELSE 0 END), 0) AS ttft_ms_sum, "
+            "COALESCE(SUM(CASE WHEN u.ttft_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS ttft_sample_count, "
             "COUNT(*) AS request_count, "
             "p.input_per_1m AS input_per_1m, p.output_per_1m AS output_per_1m, "
             "p.currency AS currency "
@@ -441,6 +523,7 @@ async def get_usage_stats(
         "total_tokens": sum(item["total_tokens"] for item in items),
         **_cost_rollup(items),
     }
+    efficiency = _efficiency_stats(rows)
     return {
         "dimension": dimension,
         "days": (end_date - start_date).days + 1,
@@ -449,4 +532,5 @@ async def get_usage_stats(
         "session_type": session_type,
         "items": items,
         "total": total,
+        "efficiency": efficiency,
     }

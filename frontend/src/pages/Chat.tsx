@@ -13,6 +13,8 @@ import { readSSE } from '../services/sse';
 import { useChatStore } from '../store/chatStore';
 import { useModelStore } from '../store/modelStore';
 import ChatMessageBubble from '../components/ChatMessageBubble';
+import ContextBudgetBar, { DEFAULT_CONTEXT_LIMIT } from '../components/ContextBudgetBar';
+import ModelTelemetryBadge, { type LLMExecutionMetrics } from '../components/ModelTelemetryBadge';
 // VS34：`LoadFailureAlert`（错误态）与 `LoadStateView`（三态唯一渲染出口）都复用 VS29 的唯一实现处，
 // 本页不另造三态判定。
 import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
@@ -32,6 +34,16 @@ type ChatStreamData = {
   message_id?: number;
   token_count?: number | null;
   truncated_by_deadline?: boolean;
+  model?: string;
+  ttft_ms?: number | null;
+  speed_tps?: number | null;
+  prompt_tokens?: number;
+  cached_tokens?: number;
+  cache_hit_rate?: number | null;
+  completion_tokens?: number;
+  reasoning_tokens?: number;
+  context_used?: number;
+  role_key?: string;
 };
 
 /**
@@ -89,6 +101,8 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
   const [agents, setAgents] = useState<AgentPreset[]>([]);
   const [selectedRole, setSelectedRole] = useState<string | undefined>();
   const [inputValue, setInputValue] = useState('');
+  const [latestMetrics, setLatestMetrics] = useState<LLMExecutionMetrics | null>(null);
+  const [metricsSessionId, setMetricsSessionId] = useState<number | null>(null);
   // VS34（吞错点 A）：角色列表读取失败必须可归因、可重试 —— 与 VS25 在 Discussion.tsx 建立的
   // `loadAgents` 完全同构（成功/失败分开、请求序号丢弃过期响应、**仅成功才清失败态**）。
   const [agentsFailed, setAgentsFailed] = useState(false);
@@ -304,6 +318,8 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
     setInputValue('');
     setIsStreaming(true);
     setStreamingContent('');
+    setLatestMetrics(null);
+    setMetricsSessionId(currentSessionId);
 
     // 添加用户消息到本地
     const tempUserMsg: Message = {
@@ -335,6 +351,11 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
 
       let accumulatedContent = '';
       await readSSE<ChatStreamData>(response.body, ({ event, data }) => {
+        if (event === 'llm_metrics') {
+          setLatestMetrics(data as LLMExecutionMetrics);
+          setMetricsSessionId(currentSessionId);
+          return;
+        }
         if (event === 'error') {
           message.error(data.error ?? data.message ?? t('chat.sendFailed'));
           return;
@@ -548,7 +569,7 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
         {/* 底部输入 */}
         {currentSessionId && (
           <div style={{ padding: '12px 16px', borderTop: '1px solid var(--fq-border)' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
               <TextArea
                 aria-label={t('chat.inputPlaceholder')}
                 value={inputValue}
@@ -576,6 +597,8 @@ export default function Chat({ initialPrompt }: { initialPrompt?: string } = {})
                 )}
               </div>
             </div>
+            <ModelTelemetryBadge metrics={metricsSessionId === currentSessionId ? latestMetrics : null} />
+            <ContextBudgetBar value={inputValue} contextLimit={DEFAULT_CONTEXT_LIMIT} />
             <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
               {t('chat.quota')}
             </Text>

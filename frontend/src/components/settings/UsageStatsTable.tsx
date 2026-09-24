@@ -25,6 +25,10 @@ function formatShare(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatPercent(value: number | null): string {
+  return value === null ? '-' : `${value.toFixed(1)}%`;
+}
+
 /**
  * Aggregation table for the usage detail module (BACKLOG-045), modelled on CC
  * Switch's `ProviderStatsTable` / `ModelStatsTable`: one row per model or per
@@ -111,6 +115,24 @@ export default function UsageStatsTable({
       key: 'requestShare',
       align: 'right',
       render: (_value, row) => formatShare(row.requestShare),
+    },
+    {
+      title: t('settings.usage.efficiency.avgSpeed'),
+      key: 'avgSpeedTps',
+      align: 'right',
+      render: (_value, row) => row.avgSpeedTps === null ? '-' : `${row.avgSpeedTps.toFixed(1)} tok/s`,
+    },
+    {
+      title: t('settings.usage.efficiency.avgTtft'),
+      key: 'avgTtftMs',
+      align: 'right',
+      render: (_value, row) => row.avgTtftMs === null ? '-' : `${row.avgTtftMs} ms`,
+    },
+    {
+      title: t('settings.usage.efficiency.cacheHitRate'),
+      key: 'cacheHitRate',
+      align: 'right',
+      render: (_value, row) => formatPercent(row.cacheHitRate),
     },
     {
       title: t('settings.usage.cost.estimated'),

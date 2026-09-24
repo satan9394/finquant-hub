@@ -54,7 +54,7 @@ FinQuant Hub 是一个面向中文个人投资者的**全栈量化投研 Web 系
 │  ToolRegistry 单例 + BaseTool 抽象基类                  │
 ├─────────────────────────────────────────────────────────┤
 │                     数据层                                │
-│  aiosqlite 单连接 + WAL + schema v26（50 张逻辑表）       │
+│  aiosqlite 单连接 + WAL + schema v27（50 张逻辑表）       │
 │  database.query_one/query_all/execute 直接 SQL 调用     │
 ├─────────────────────────────────────────────────────────┤
 │                     外部API                               │
@@ -198,7 +198,7 @@ model_router.get_client(model_id) → (LLMClient, config)
 
 **实现位置**：`backend/app/routers/backtests.py` + `backend/app/backtest/ma_crossover.py`，组合回测复用 `backtest/portfolio.py`。
 
-BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；2026-09-07 的全应用 OpenAPI 计数 136/170 为历史快照，2026-09-23 当前 `app.openapi()` 实测为 143 个 `/api/*` 路径、179 个 HTTP 操作。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
+BACKLOG-021 已回收 v1 router、`backtest/engine.py` 和专属测试，`/api/backtest` 不再提供服务。当前仅 v2 `/api/backtests`（9 路径、10 操作）；2026-09-07 的全应用 OpenAPI 计数 136/170 为历史快照，2026-09-23 当前 `app.openapi()` 实测为 145 个 `/api/*` 路径、182 个 HTTP 操作（含 BACKLOG-055 因子分析 POST/GET 与 BACKLOG-056 风险 Tear Sheet GET）。旧 `backtest_runs` 表及数据仍由 `database.py` 保留，v2 继续使用 `quant_backtests`，不做表迁移。共享 `backtest/metrics.py` 仍被 `alpha_simulator.py` 使用；Agent `run_backtest` 工具继续使用 v2。
 
 Chat 回测入口重定向到 `/strategy-lab/ma-crossover?symbol={ticker}`：复用现有描述解析函数仅提取股票代码，缺少代码时保留提示；不传递旧策略类型，不自动运行。用户在 Strategy Lab 确认参数后使用既有 v2 流程。Chat 内的 v1 请求、结果 state/列表和 loading 态已移除，解析工具文件保留；无外部引用的 `BacktestResultCard` 及其同名测试已在 BACKLOG-022 回收至回收站。
 
@@ -537,7 +537,7 @@ Router → ticker.py → MarketDataService → 腾讯API
 ### 8.8 投研证据与 LLM 用量闭环
 
 - **13 章基本面证据（TASK-014）**：Swarm 在 DAG 启动时通过统一 `InstrumentService.fundamentals()` 单次拉取，向各 Agent 注入原始字段，并由报告构建器确定性填充财务概览、盈利、成长、偿债和现金流章节。每条事实保留 provider/as-of/period；无法取得的章节继续使用 `unknown`。Yahoo 只从同口径原始字段派生毛利率、净利率与资产负债率，并公开组成字段。
-- **LLM 用量持久化（TASK-015）**：Chat Completions 的每个真实上游请求写一条 `llm_usage`，工具循环不追加汇总行以避免重复计数；ContextVar 为 chat/research/swarm/discussion 传播场景与业务 ID。写入异步 best-effort，应用退出前 drain；`GET /api/usage` 提供有界 UTC 日聚合。该表不承担计费账单或用户授权语义；费用只由 `model_pricing` 在读取时派生（见 §2.13）。
+- **LLM 用量与遥测持久化（schema v27）**：每个真实上游请求写一条 `llm_usage`，工具循环不追加汇总行以避免重复计数；表额外记录缓存读取/创建 tokens、推理 tokens、TTFT、请求耗时和可观测的生成速率。ContextVar 为 chat/research/swarm/discussion 传播场景与业务 ID。写入异步 best-effort，应用退出前 drain；非流式调用没有可观测首字时间，`ttft_ms` 与依赖 TTFT 的速率保留 `NULL`。Anthropic Messages 通过无状态转换接入现有客户端；OpenAI 兼容协议保持原请求契约。该表不承担计费账单或用户授权语义；费用只由 `model_pricing` 在读取时派生（见 §2.13）。
 
 ### 2.13 模型单价与费用估算（BACKLOG-044）
 

@@ -99,12 +99,25 @@ export interface UsageSummaryResponse {
 
 export type UsageDimension = 'model' | 'session_type';
 
+export interface UsageEfficiency {
+  avg_speed_tps: number | null;
+  avg_ttft_ms: number | null;
+  overall_cache_hit_rate: number | null;
+  total_saved_cost: number | null;
+  /** Currency code, or N/A, MIXED, or UNAVAILABLE when a single amount is unknown. */
+  currency: string;
+}
+
 export interface UsageStatsItem {
   key: string | null;
   request_count: number;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cached_tokens?: number;
+  cache_hit_rate?: number | null;
+  avg_speed_tps?: number | null;
+  avg_ttft_ms?: number | null;
   priced_models: number;
   unpriced_models: number;
   unpriced_total_tokens: number;
@@ -125,6 +138,7 @@ export interface UsageStatsResponse {
   session_type: string | null;
   items: UsageStatsItem[];
   total: UsageStatsTotal;
+  efficiency?: UsageEfficiency;
 }
 
 export async function listModelPricing(): Promise<ModelPricingItem[]> {

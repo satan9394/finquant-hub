@@ -4,6 +4,46 @@
 
 ---
 
+## [DONE] BACKLOG-055: 因子深度分析工坊与分层多空走势
+
+**任务卡**: `docs/ai/tasks/BACKLOG-055.md`
+**范围**: NumPy 横截面 IC/Rank IC、IC_IR、t 统计、分位数累计收益、多空换手/自相关；Discover 面板提交真实观察值、按用户读取短期派生缓存。
+**证据（2026-09-23）**: `test_alpha_analytics.py` 11/11（`--no-cov`）、Ruff passed、`AlphaFactorAnalytics.test.tsx` 3/3、`bun run build` passed（OpenAPI 60 schemas fresh，Vite 4,272 modules）。卡内原 pytest 断言全过，但全仓 coverage 3.4% < 80% 使命令退出码 1。缓存为 1 小时、每用户有界，仅存派生结果；无持久横截面数据时明确要求用户提交观察值。
+
+---
+
+## [DONE] BACKLOG-056: 投资组合风险归因与水下回撤分析
+
+**任务卡**: `docs/ai/tasks/BACKLOG-056.md`
+**范围**: 组合风险 Tear Sheet 端点、回撤/持续期/滚动风险/月收益矩阵与当前持仓风险暴露；纯 Python/NumPy 和现有行情/图表包，不改 `portfolios`/`positions` 表。
+**证据（2026-09-23）**: `test_portfolio_risk.py` 7/7（`--no-cov`）与目标 Ruff 通过；原样 pytest 断言 7/7 通过但全仓 coverage 3.6% < 80% 返回 exit 1；`PortfolioRiskComponents.test.tsx` 3/3；`bun run build` 通过（OpenAPI 60 schemas fresh，Vite 4,275 modules）；运行时 `app.openapi()` 145 路径 / 182 操作。所有行情由 mock 覆盖，没有调用真实行情源。
+
+---
+
+## [DONE] BACKLOG-057: 全市场热力罗盘、游资席位协同网络与市场情绪天梯
+
+**任务卡**: `docs/ai/tasks/BACKLOG-057.md`
+**范围**: 复用现有行情/A 股扩展数据构建行业 Treemap、龙虎榜席位协同图与连板情绪指标；仅用 ECharts 6.1 按需内核，不加图表依赖、不虚构数据。
+**证据（2026-09-23）**: `test_market_graph.py` 3/3（`--no-cov`）、目标 Ruff passed、`MarketTreemapChart.test.tsx` 4/4、`bun run build` passed（OpenAPI 60 schemas fresh，Vite 4,278 modules）；运行时 `app.openapi()` 148 路径 / 185 操作。自动化测试使用 mock；窄屏本地浏览器烟测触发 3 次东财请求：1 次本地 API 返回 200、2 次以 `RemoteProtocolError` 返回 502；当前活动面板显示明确错误态。行业分类如实返回东方财富行业板块（未把它冒称申万一级）；因没有失败涨停股分母，炸板率为 UNKNOWN，综合指数明确不含该项。
+
+---
+
+## [DONE] BACKLOG-054: 多周期 K 线与动态技术分析工作台
+
+**任务卡**: `docs/ai/tasks/BACKLOG-054.md`
+**范围**: `/api/market/kline` 增加 `symbol` 与日/周/月/分钟周期；真实日线周/月聚合、分钟时间戳与短 TTL 有界缓存；研究工作台接入 Lightweight Charts 主图 MA/EMA/BOLL、副图 MACD/KDJ/RSI/成交量、同步时间轴与十字光标，并以未知态保留未识别研报评级。
+**证据（2026-09-23）**: 新增多周期后端测试 4/4 断言通过；卡内原命令退出码由全仓 coverage 5.4% < 配置 80% 导致；加入既有 `test_market.py` 的聚焦回归后用 `--no-cov` 共 34/34 通过。Ruff 3 个目标文件通过；`ProCandlestickChart.test.tsx` 4/4 通过；`bun run build` 通过（OpenAPI 60 schemas fresh，Vite 4,269 modules）。未调用真实行情上游。
+
+---
+
+## [DONE] BACKLOG-053: 全局效能用量看板与 Anthropic Prompt Caching
+
+**任务卡**: `docs/ai/tasks/BACKLOG-053.md`
+**范围**: Anthropic 大提示词/工具定义自动注入 ephemeral cache breakpoint 与 beta header；`/api/usage/stats` 增加基于落盘指标的窗口效能和 priced cache-savings 汇总；Settings UsageHero 与 UsageStatsTable 展示效能字段，保留单价/币种诚实口径。
+**证据（2026-09-23）**: `test_prompt_caching.py` + `test_usage_telemetry_stats.py` 8/8 passed（`--no-cov`）；卡内原命令同样 8/8 断言通过，但退出码由全仓 coverage 23.4% < 配置 80% 引起；既有 `test_usage_range.py` 21/21 passed（`--no-cov`）；Ruff passed；`UsageDetail.test.tsx` 19/19 passed；`bun run build` passed（OpenAPI 60 schemas fresh，Vite 4,267 modules）；zh/en 字典双向 key 集合 2,548/2,548、差异 0。
+
+---
+
 ## [DONE] BACKLOG-048: 科研增强——Alpha 因子模拟绩效统计（夏普/回撤/年化 汇总）
 
 **优先级**: P2 ｜ **任务卡**: `docs/ai/BACKLOG-048.md`

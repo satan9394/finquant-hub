@@ -1,4 +1,5 @@
 """单 Agent 对话：会话管理 + SSE 流式聊天。"""
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -14,7 +15,14 @@ from ..models import MessageIn, SessionCreate, SessionUpdate
 from ..services.context import estimate_tokens
 from ..services import model_router
 from ..services.llm_client import DEFAULT_TOOL_LOOP_DEADLINE_SECONDS, LLMError
-from ..services.llm_usage import reset_usage_context, set_usage_context
+from ..services.llm_usage import (
+    interleave_llm_metrics,
+    llm_metrics_event_payload,
+    reset_llm_metrics_sink,
+    reset_usage_context,
+    set_llm_metrics_sink,
+    set_usage_context,
+)
 from ..services.memory import native_memory_provider
 from ..services.memory_rollout import MemoryRollout, finalize_memory_rollout, prepare_memory_rollout
 from .auth import CurrentUser, authenticated_context
@@ -149,6 +157,10 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
         full = ""
         rollout = MemoryRollout()
         usage_token = set_usage_context("chat", session_id, user_id)
+        metrics_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        metrics_token = set_llm_metrics_sink(
+            lambda record: metrics_queue.put_nowait(llm_metrics_event_payload(record))
+        )
         try:
             client, _ = await model_router.get_client(session.get("model_id"), user_id=user_id)
 
@@ -206,15 +218,25 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
                         }, ensure_ascii=False),
                     })
 
-            full, tool_calls, llm_tokens, loop_status = await client.chat_with_tools_loop(
-                llm_messages,
-                registry.to_openai_tools(),
-                _execute_tool,
-                event_sink=_event_sink,
-                # VS23：整轮（多轮工具调用累加）的聚合等待上界。"每次调用最多等 N 秒"不等于
-                # "用户最多等 N 秒"——轮数上限只约束轮数，不约束时长。
-                deadline_seconds=DEFAULT_TOOL_LOOP_DEADLINE_SECONDS,
-            )
+            async def run_tool_loop() -> AsyncIterator[tuple[str, dict[str, Any]]]:
+                result = await client.chat_with_tools_loop(
+                    llm_messages,
+                    registry.to_openai_tools(),
+                    _execute_tool,
+                    event_sink=_event_sink,
+                    # VS23：整轮（多轮工具调用累加）的聚合等待上界。"每次调用最多等 N 秒"不等于
+                    # "用户最多等 N 秒"——轮数上限只约束轮数，不约束时长。
+                    deadline_seconds=DEFAULT_TOOL_LOOP_DEADLINE_SECONDS,
+                )
+                yield "tool_loop_result", {"result": result}
+
+            tool_loop_result = None
+            async for event, data in interleave_llm_metrics(run_tool_loop(), metrics_queue):
+                if event == "llm_metrics":
+                    yield {"event": event, "data": json.dumps(data, ensure_ascii=False)}
+                else:
+                    tool_loop_result = data["result"]
+            full, tool_calls, llm_tokens, loop_status = tool_loop_result
             # VS23/VS28：因截止提前结束必须**显式**透出——既不伪装成正常回答（回落文案进正文与
             # done 载荷），也不静默丢弃已完成的工具调用记录。用户可见通道为「正文前缀 + done 字段」
             # 两条，二者共用同一常量、与落库内容同源；事件通道不外发（见 _event_sink 注释）。
@@ -271,6 +293,7 @@ async def send_message(session_id: int, body: MessageIn, user: CurrentUser) -> E
             return
         finally:
             # SSE lifecycle boundary stays explicit even though tool calling is non-streaming upstream.
+            reset_llm_metrics_sink(metrics_token)
             reset_usage_context(usage_token)
 
     return EventSourceResponse(stream())

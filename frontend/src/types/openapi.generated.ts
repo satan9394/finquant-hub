@@ -179,6 +179,7 @@ export interface ModelConfigUpdate {
 
 export interface ModelDiscoveryIn {
   base_url: string;
+  provider?: string | null;
   api_key?: string | null;
   api_key_env?: string | null;
   model_id?: number | null;

@@ -11,6 +11,7 @@ import { readSSE } from '../services/sse';
 import { useDiscussionStore } from '../store/discussionStore';
 import { useModelStore } from '../store/modelStore';
 import InvestmentCommittee from '../components/InvestmentCommittee';
+import ModelTelemetryBadge, { type LLMExecutionMetrics } from '../components/ModelTelemetryBadge';
 import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import type { DiscussionRoom, AgentPreset, Message } from '../types';
 import { useSearchParams } from 'react-router-dom';
@@ -62,6 +63,8 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
   const [totalRounds, setTotalRounds] = useState(3);
   const [creating, setCreating] = useState(false);
   const [streamingByAgent, setStreamingByAgent] = useState<DiscussionStreamingByAgent>({});
+  const [latestMetrics, setLatestMetrics] = useState<LLMExecutionMetrics | null>(null);
+  const [metricsRoomId, setMetricsRoomId] = useState<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   // VS16：深链只应用一次。缺了它，`rooms` 一变（例如新建讨论走 addRoom 产生新数组）就会出现
@@ -267,6 +270,8 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
 
     setIsStreaming(true);
     setStreamingByAgent({});
+    setLatestMetrics(null);
+    setMetricsRoomId(currentRoomId);
 
     abortRef.current = new AbortController();
 
@@ -283,6 +288,11 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
 
       let streamSnapshot: DiscussionStreamingByAgent = {};
       await readSSE<DiscussionStreamData>(response.body, ({ event, data }) => {
+        if (event === 'llm_metrics') {
+          setLatestMetrics(data as LLMExecutionMetrics);
+          setMetricsRoomId(currentRoomId);
+          return;
+        }
         streamSnapshot = reduceDiscussionStream(streamSnapshot, event, data);
         setStreamingByAgent(streamSnapshot);
 
@@ -454,6 +464,9 @@ export default function Discussion({ initialTopic }: { initialTopic?: string } =
                     {t('discussion.start')}
                   </Button>
                 )}
+                <div style={{ marginTop: 8 }}>
+                  <ModelTelemetryBadge metrics={metricsRoomId === currentRoomId ? latestMetrics : null} />
+                </div>
               </div>
             )}
 

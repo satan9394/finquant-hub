@@ -17,9 +17,17 @@ from ..orchestrator import DAGContext, DAGNode, DAGRuntime
 from ..prompts.research_roles import REPORT_LEAD_ROLE, RESEARCH_ROLES
 from ..prompts.research_memo_prompt import get_memo_sections
 from ..services.llm_client import LLMClient, LLMError
+from ..services.llm_usage import (
+    interleave_llm_metrics,
+    llm_metrics_event_payload,
+    reset_llm_metrics_context,
+    reset_llm_metrics_sink,
+    set_llm_metrics_context,
+    set_llm_metrics_sink,
+)
 from ..services.memory import native_memory_provider
 from ..services.memory_rollout import finalize_memory_rollout, prepare_memory_rollout
-from ..services.report_builder import build_unified_report, parse_lead_review
+from ..services.report_builder import build_telemetry_summary, build_unified_report, parse_lead_review
 
 _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="research-tool")
 JSONDict: TypeAlias = dict[str, Any]
@@ -204,6 +212,7 @@ async def _request_tool_round(
     *,
     method: str = "chat_with_tools_safe",
     budget_seconds: float | None = None,
+    metrics_context: dict[str, str] | None = None,
 ) -> tuple[str, list[JSONDict], str | None]:
     """调用 LLM 一轮并带回 finish_reason（VS12 P1-2）。
 
@@ -223,7 +232,11 @@ async def _request_tool_round(
     kwargs: JSONDict = {"with_finish_reason": True}
     if budget_seconds is not None:
         kwargs["budget_seconds"] = budget_seconds
-    return _unpack_tool_response(await call(messages, tools, **kwargs))
+    context_token = set_llm_metrics_context(metrics_context or {})
+    try:
+        return _unpack_tool_response(await call(messages, tools, **kwargs))
+    finally:
+        reset_llm_metrics_context(context_token)
 
 
 def _deadline_reached(deadline_at: float | None) -> bool:
@@ -387,6 +400,7 @@ async def _call_agent(
             messages,
             tools,
             budget_seconds=_remaining_call_budget(client, deadline_at),
+            metrics_context={"role_key": str(role.get("role_key") or "")},
         )
         last_content = content
 
@@ -429,18 +443,20 @@ async def _call_agent(
         tools,
         method="chat_with_tools",
         budget_seconds=_remaining_call_budget(client, deadline_at),
+        metrics_context={"role_key": str(role.get("role_key") or "")},
     )
     _flag_incomplete_output(content, finish_reason, degraded_reasons)
     return content, tool_calls_log
 
 
-async def run_research(
+async def _run_research_impl(
     ticker: str,
     company_name: str = "",
     model_id: int | None = None,
     *,
     user_id: int,
     deadline_seconds: float | None = DEFAULT_RESEARCH_DEADLINE_SECONDS,
+    telemetry_records: list[JSONDict],
 ) -> AsyncIterator[tuple[str, JSONDict]]:
     """并行执行四个 Agent 的研究，通过 yield (event, data) 推送 SSE 事件流。
 
@@ -739,6 +755,7 @@ async def run_research(
     yield "report_progress", {"section": 0, "total": total_sections, "name": "开始整合备忘录"}
 
     report_data = _build_report(ticker, company_name, agent_results)
+    report_data["telemetry_summary"] = build_telemetry_summary(telemetry_records)
     # VS7 P0: 质量标记的单一源头——并入 report_data 内部，随报告一起持久化。
     # 定时路径（scheduler）只落库 payload["report"]，交互路径（routers/research）
     # 额外读顶层 quality 再合并；放在源头后两条路径天然一致。
@@ -777,6 +794,37 @@ async def run_research(
     }
     await finalize_memory_rollout(rollout, response=report_data)
     yield "done", done_payload
+
+
+async def run_research(
+    ticker: str,
+    company_name: str = "",
+    model_id: int | None = None,
+    *,
+    user_id: int,
+    deadline_seconds: float | None = DEFAULT_RESEARCH_DEADLINE_SECONDS,
+) -> AsyncIterator[tuple[str, JSONDict]]:
+    """Run the research pipeline and persist the measured call summary in its report."""
+    telemetry_records: list[JSONDict] = []
+    metrics_queue: asyncio.Queue[JSONDict] = asyncio.Queue()
+    telemetry_token = set_llm_metrics_sink(telemetry_records.append)
+    stream_token = set_llm_metrics_sink(
+        lambda record: metrics_queue.put_nowait(llm_metrics_event_payload(record))
+    )
+    try:
+        source = _run_research_impl(
+            ticker,
+            company_name,
+            model_id,
+            user_id=user_id,
+            deadline_seconds=deadline_seconds,
+            telemetry_records=telemetry_records,
+        )
+        async for event in interleave_llm_metrics(source, metrics_queue):
+            yield event
+    finally:
+        reset_llm_metrics_sink(stream_token)
+        reset_llm_metrics_sink(telemetry_token)
 
 
 def _build_report(ticker: str, company_name: str, agent_results: dict[str, JSONDict]) -> JSONDict:

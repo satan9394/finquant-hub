@@ -30,6 +30,16 @@
 
 **单次调用预算（VS-21/23）**：单次 LLM 调用另有总时长预算（默认 180s，上界 = 预算 + 单次尝试超时），预算耗尽抛携带（脱敏后的）上游响应片段的可行动错误；整轮截止会**压低**当轮的单次预算（取 `min(单次预算, 剩余整轮预算)`）。
 
+### 实时模型遥测
+
+`POST /api/chat/sessions/{id}/messages`、`POST /api/research`、`POST /api/analysis/stock` 与 Swarm SSE 端点会在模型调用成功提取 usage 后发送 `llm_metrics`。既有 `token`、工具、报告进度与完成事件的名称和 payload 不变。
+
+| event | data |
+|------|------|
+| `llm_metrics` | `{"model": "claude-sonnet", "ttft_ms": 120, "speed_tps": 34.5, "prompt_tokens": 1200, "cached_tokens": 800, "cache_hit_rate": 66.7, "completion_tokens": 240, "reasoning_tokens": 30, "context_used": 1200}`；研究与 Swarm 可附 `role_key` |
+
+`ttft_ms` 和 `speed_tps` 为 `null` 时表示本次调用无法测量（例如非流式调用），不得将不可用指标按零计入。`cache_hit_rate` 按 `cached_tokens / prompt_tokens * 100` 计算，prompt 为零时为 `null`。Research `done.data.report.telemetry_summary` 可选包含 `avg_tokens_per_second`、`total_duration_seconds` 与 `cache_savings_ratio`；只聚合有实际测量值的调用，缓存比例按持久化 usage token 汇总。
+
 ### 多 Agent 讨论
 
 `POST /api/discussion/rooms/{id}/start`：
@@ -57,12 +67,13 @@
 | `report_progress` | `{"section": 1, "total": 13, "name": "生成公司概况"}` |
 | `done` | `{"ticker": "usAAPL", "report": {"schema_version": 2, "chapters": [...]}, "agent_results": {...}, "report_id": 42}`；`report_id` 仅 `/api/research` |
 | `error` | `{"error": "错误描述", "role_key": "risk_manager"}`；`role_key` 仅 Agent 级错误存在 |
+| `llm_metrics` | 与[实时模型遥测](#实时模型遥测)相同的指标对象，可带当前 Agent 的 `role_key` |
 
 `/api/research` 会持久化 `agent_started` 至 `done/error` 的事件 payload；`done.payload.report_id` 必须与首帧 `report_started.report_id` 相同。HTTP 建连前的校验失败仍使用普通 `{"detail": "..."}` 错误响应。
 
 ### Swarm 团队研究
 
-`POST /api/swarm/analyze` 与 `POST /api/swarm/teams/earnings-review/run` 复用并行研究协议，均先发送 `report_started`，随后发送 `agent_started/tool_call/agent_completed/done/error`。四大师旧入口 `/api/swarm/teams/four-masters/run` 是不进入 OpenAPI 的兼容别名。
+`POST /api/swarm/analyze` 与 `POST /api/swarm/teams/earnings-review/run` 复用并行研究协议，均先发送 `report_started`，随后发送 `agent_started/tool_call/agent_completed/llm_metrics/done/error`。四大师旧入口 `/api/swarm/teams/four-masters/run` 是不进入 OpenAPI 的兼容别名。
 
 ### 通知流
 
@@ -163,6 +174,9 @@
 | `/api/market/calendar?date=` | GET | 查询证据边界内的 A 股交易日（交易日/周末/交易所节假日） | 新增 |
 | `/api/market/overview?market=` | GET | A/港/美主要指数快照；A 股含全市场涨跌统计，未覆盖口径显式返回 unsupported | 新增 |
 | `/api/market/sectors?kind=&limit=` | GET | A 股行业/概念板块涨幅排行及领涨股 | 新增 |
+| `/api/market/sector-treemap` | GET | 行业板块成交额 Treemap；含直接板块合计、前四行业代表成分股及可核验聚合差额 | BACKLOG-057 |
+| `/api/market/dragon-tiger-network?days=5` | GET | 最近 1–30 个自然日龙虎榜买入席位共现网络，节点最多 50 个 | BACKLOG-057 |
+| `/api/market/sentiment-ladder?date=` | GET | 连板分布、前一可用交易日晋级率与可计算的情绪指数；失败涨停分母不可得时炸板率为 `null` | BACKLOG-057 |
 | `/api/market/popular?limit=` | GET | 东方财富人气股排行与实时行情 | 新增 |
 | `/api/market/pulse?limit=&threshold_percent=&ths_limit=` | GET | 批量市场雷达：全 A 广度、日异动、行业/概念、板块/个股资金、周异动、热度；同花顺逐股资金以命中率和部分失败显式返回 | 新增 |
 | `/api/market/themes?keyword=&sort_by=&limit=&stocks_per_theme=&ths_limit=` | GET | 关键词主题分类：分页扫描完整行业/概念目录，显式扩展相关词，批量读取板块成分股并以同花顺逐股资金补充 | 新增 |
@@ -176,8 +190,16 @@
 | `/api/market/reviews/{review_id}` | GET | 获取单次复盘的原始快照、来源、模型产出与状态 | 新增 |
 | `/api/market/search?q=` | GET | 搜索股票（东方财富 + Yahoo 双源合并） | MVP |
 | `/api/market/quote?ticker=` | GET | 实时行情（腾讯→新浪→Yahoo 降级链） | MVP |
-| `/api/market/kline?ticker=&period=&count=` | GET | K 线数据（新浪→腾讯→Yahoo 降级链） | MVP |
+| `/api/market/kline?symbol=&ticker=&period=&count=` | GET | 日/周/月/分钟 OHLCV K 线（新浪→腾讯→Yahoo 降级链） | MVP |
 | `/api/market/indicators?ticker=&indicators=&count=` | GET | 技术指标计算（MA/MACD/RSI/KDJ/BOLL/ATR/VolMA） | MVP |
+
+`/api/market/kline` 接受 `symbol`，并继续兼容旧参数 `ticker`；两者同时传入时必须一致。`period` 支持 `day|week|month|60m|30m|15m|5m`，兼容 `1d|1wk|1mo`；`count` 默认为 100，范围 1–800。成功响应为 `{ "items": [...] }`，每项含 `day/open/high/low/close/volume`；分钟线另含 Unix 秒级 `time`。新浪/腾讯通过真实日线聚合周/月 OHLCV，Yahoo 使用其原生周/月周期；不支持分钟线的腾讯日线适配器会被跳过，不会冒充分钟数据。
+
+### BACKLOG-057 市场全景
+
+- `GET /api/market/sector-treemap` 返回 `classification/source/quality/status/coverage/items`。行业面积使用东方财富板块直接成交额（CNY）；前四板块附成交额最高的代表成分股，并以板块合计减已知成分额形成可核验的“其余成分股”差额。分类明确为东方财富行业板块，当前运行时没有可核验的申万一级成员映射，不得把它标成申万分类。返回的子项总额与板块聚合额一致；不一致时省略子项并标记 `INCONSISTENT_CONSTITUENT_TOTALS`。
+- `GET /api/market/dragon-tiger-network?days=5` 的 `days` 范围为 1–30 个自然日。`nodes` 最多 50 个，按直接买入金额取前 50；边仅统计同一交易日同一证券出现的买入席位，边权重为每个共现证券日的双方买入金额较小值之和（万元）。共现只描述观察到的相同买入记录，不表示协同或因果。
+- `GET /api/market/sentiment-ladder?date=` 的日期可省略（默认为上海时区当天）；若当天无直接快照，会向前查找最多 10 个自然日。晋级率按前一可用交易日各连板档的晋级家数总和 / 昨日对应档家数总和加权计算。综合指数仅在最高板和晋级率都可得时返回：`(min(100, 最高板 × 20) + 加权晋级率 × 100) / 2`。现有涨停池没有失败涨停股分母，故 `break_rate` 固定为 `null` / `UNKNOWN`，不会用封板开板次数替代炸板率；综合指数不含炸板率。
 
 ---
 
@@ -216,6 +238,7 @@
 | `/api/portfolio/positions/{position_id}` | PUT | 更新持仓股数/成本 | MVP |
 | `/api/portfolio/positions/{position_id}` | DELETE | 删除持仓 | MVP |
 | `/api/portfolio/{id}/pnl` | GET | 实时盈亏计算（多市场行情估值） | MVP |
+| `/api/portfolio/{id}/risk-tearsheet` | GET | 按当前持仓股数回放最多 800 根共同日线，返回水下回撤、60 期滚动风险、月收益矩阵、集中度与协方差风险贡献；跨币种无可核实 FX 时返回 `insufficient`/未知值 | BACKLOG-056 |
 | `/api/portfolio/paper` | POST | 创建 owner-scoped 独立模拟组合；名称、基础币种、初始模拟现金必填，响应固定 `PAPER`/`SIMULATED` 且真实能力均为 false | AIOS-053 |
 | `/api/portfolio/paper` | GET | 列出当前用户模拟组合，不混入既有组合 | AIOS-053 |
 | `/api/portfolio/paper/{id}` | GET | 获取模拟现金、确定性持仓与 append-only ledger | AIOS-053 |
@@ -227,6 +250,8 @@
 | `/api/portfolio/paper/{id}/reviews` | POST | 显式保存 supported/refuted/inconclusive、理由、观察窗口和幂等键；写 `USER_HYPOTHESIS` review outcome，非 OK 估值仅允许 inconclusive | AIOS-054 |
 
 模拟组合没有账户连接、真实资金、真实委托或自动执行能力。模拟账本与既有 `portfolios`/`positions` 完全分表；详情见 `docs/ai/PAPER_PORTFOLIO_CONTRACT.md`。复盘只复用 owner-scoped `memory_records.review_outcome`，不修改原 hypothesis/Thesis/confidence，详见 `docs/ai/PAPER_PORTFOLIO_REVIEW_CONTRACT.md`。
+
+风险 Tear Sheet 的净值曲线是将**当前股数**乘以历史收盘价形成的固定股数历史重演；旧组合没有交易账本，故不能称为账户真实历史收益。价格覆盖不足时响应标为 `partial` 并列出缺行情标的、各标的行情源与复权口径；60 个共同收益期之前不返回滚动序列。月收益按日收益连乘，波动率/滚动夏普按 252 个交易日年化；风险贡献为 `w_i × (Σw)_i / (wᵀΣw)`。复权口径不一致时保留警告。组合币种与持仓币种不一致时不合并金额，也不推断汇率。
 
 ---
 
@@ -311,11 +336,15 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | `/api/wq/fields` | GET | 完整 WorldQuant 字段目录（4367 条） | 新增 |
 | `/api/wq/templates` | GET | 从真实字段目录生成可用因子表达式模板 | 新增 |
 | `/api/wq/simulate/local` | POST | 本地确定性多空因子模拟（不调用外部 API）；同一观察合同逐期计算横截面 Pearson IC、Spearman Rank IC 与非年化 ICIR，至少每期 5 个标的及 5 个有效期才标为可用 | 新增 |
+| `/api/wq/factors/{factor_id}/analytics` | POST | 提交显式 `date,symbol,factor,forward_return` 观察值；计算因子分析，并按用户缓存派生结果 1 小时。每次最多 10,000 行；不保存原始观察 | 新增 |
+| `/api/wq/factors/{factor_id}/analytics` | GET | 读取该用户该因子最近一次分析；缓存缺失、过期、被容量淘汰或服务重启后返回 404 | 新增 |
 | `/api/wq/brain/simulations` | POST | 显式 `confirm=true` 后提交 WorldQuant BRAIN 模拟 | 新增 |
 | `/api/wq/brain/simulations/{id}` | GET | 查询 BRAIN 模拟状态 | 新增 |
 | `/api/wq/brain/alphas/{id}` | GET | 查询 BRAIN Alpha 结果 | 新增 |
 | `/api/wq/correlation` | POST | 计算两序列 Pearson 相关系数 + p-value | 新增 |
 | `/api/wq/help` | GET | 使用说明 | 新增 |
+
+因子分析以调用者显式提交的横截面观察为唯一数据源，不会从目录模板或表达式生成因子值/收益。少于 20 个有效日期时返回 `status="insufficient"`，汇总统计为 `null`，有效期曲线仍只包含实际观察。因子自相关按相邻有效日期、共同标的的因子秩计算。分析缓存按认证用户隔离，进程内最多保留 128 个因子结果，TTL 为 1 小时；应用重启会清空缓存，客户端应在读取 404 后重新提交观察。
 
 ---
 
@@ -407,13 +436,15 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | `/api/usage?days=30&session_type=research` | GET | 查询 UTC 日期窗口内的 Token/请求数日聚合、总计和场景分组；`days` 范围 1-365，`session_type` 可省略；可用 `start`/`end`（`YYYY-MM-DD`，闭区间，必须成对）替代 `days` | 新增 |
 | `/api/usage/records?limit=50&session_type=research` | GET | 查询当前用户的会话级用量明细（时间倒序，含 model/总量/会话 id）；`limit` 1-200，`session_type` 可省略过滤；每条另带 `priced`/`currency`/`estimated_cost` | 新增 |
 | `/api/usage/cost?days=30&session_type=research` | GET | 按 owner 配置的模型单价估算费用：逐模型返回 token 汇总、单价来源与 `estimated_cost`；`days` 1-365，同样支持 `start`/`end` | 新增 |
-| `/api/usage/stats?dimension=model&days=30` | GET | 维度聚合：`dimension=model`（按模型）或 `session_type`（按会话类型），每行含调用次数/输入输出 token/费用派生字段；`days` 或 `start`/`end` 二选一 | 新增 |
+| `/api/usage/stats?dimension=model&days=30` | GET | 维度聚合：`dimension=model`（按模型）或 `session_type`（按会话类型），每行含调用次数/输入输出 token/速度/TTFT/缓存率/费用派生字段，并返回窗口级 `efficiency`；`days` 或 `start`/`end` 二选一 | 新增 |
 
 响应中的 `items` 为按日升序聚合，`total` 为窗口总计，`by_session_type` 为 `chat/research/swarm/discussion` 等调用场景汇总。用量写入采用 best-effort，不会因统计库写失败而改变已成功的模型响应。
 
 **窗口参数（BACKLOG-045）**：`days` 保持向后兼容（近 N 天，含今天，UTC）；`start`/`end` 为闭区间 UTC 日期，必须成对出现。非法输入一律诚实 400：格式不是 `YYYY-MM-DD`（`invalid start/end: expected YYYY-MM-DD`）、只给一端（`start and end must be provided together`）、起止倒置（`start must not be after end`）、跨度超过 366 天（`range must not exceed 366 days`）。响应回显解析后的 `start`/`end` 与真实 `days`（自定义范围时为区间天数），前端据此显示"当前窗口"，不自行推算日期。
 
 **维度统计（BACKLOG-045）**：`/api/usage/stats` 的每一行都带 `cost_status`——`priced`（该行所有模型都有单价）、`partial`（部分模型缺单价）、`mixed_currency`（已计价模型跨币种，不给单一合计）、`unpriced`（全无单价）、`none`（窗口内无数据）；同时给出 `priced_models`/`unpriced_models`/`unpriced_total_tokens`/`cost_by_currency`。`total` 由各行的 token/请求数直接求和、费用再聚合，因此与 `/api/usage/cost` 的总额口径一致。
+
+**效能遥测（BACKLOG-053）**：每个 `items[]` 项新增 `cached_tokens`、`cache_hit_rate`（百分数）、`avg_speed_tps`、`avg_ttft_ms`；速度只平均正数样本，TTFT 忽略 `NULL`，会话维度按有效样本数合并，缓存率按 `SUM(cached_tokens) / SUM(prompt_tokens)` 计算，分母为零时返回 `null`。窗口级 `efficiency` 含 `avg_speed_tps`、`avg_ttft_ms`、`overall_cache_hit_rate`、`total_saved_cost` 和 `currency`。节省估算严格来自已落盘的 `cached_tokens`，按模型 `input_per_1m × cached_tokens / 1,000,000 × 90%` 派生；若涉及未配置单价的缓存用量则金额为 `null`/`UNAVAILABLE`，若有多个币种则为 `null`/`MIXED`，没有缓存记录时币种为 `N/A`。不同币种不做汇率换算，也不把未定价缓存用量当作零。
 
 `/api/usage/cost` 与 `/api/usage/records` 的费用字段都是**派生值**（token × `model_pricing` 单价），不写回 `llm_usage`。未配置单价的模型返回 `priced: false`、`estimated_cost: null`（绝不返回 0 冒充免费），并计入 `total.unpriced_models` / `total.unpriced_total_tokens` / `total.unpriced_model_names`。币种只作展示字段、不做汇率换算：`total.cost_by_currency` 按币种分组，只有全部已计价模型币种一致时才填 `total.currency` 与 `total.estimated_cost`，否则 `mixed_currency: true` 且两者为 `null`。
 
@@ -470,12 +501,12 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 8 | `/api/market` | market.py | 4 | 15 |
 | 9 | `/api/dashboard` | dashboard.py | 1 | 2 |
 | 10 | `/api/analysis` | analysis.py | 3 | 0 |
-| 11 | `/api/portfolio` | portfolio.py | 10 | 9 |
+| 11 | `/api/portfolio` | portfolio.py | 10 | 10 |
 | 12 | `/api/research` | research.py | 0 | 11 |
 | 13 | `/api/backtests` | backtests.py | 0 | 10 |
 | 14 | `/api/instruments` | instruments.py | 0 | 10 |
 | 15 | `/api/screening` | screening.py | 0 | 1 |
-| 16 | `/api/wq` | wq.py | 0 | 10 |
+| 16 | `/api/wq` | wq.py | 0 | 12 |
 | 17 | `/api/swarm` | swarm.py | 0 | 5 |
 | 18 | `/api/notifications` | notifications.py | 0 | 4 |
 | 19 | `/api/alerts` | alerts.py | 0 | 8 |
@@ -484,6 +515,6 @@ Chat 的“打开策略实验室”入口仅导航到 `/strategy-lab/ma-crossove
 | 22 | `/api/usage` | usage.py | 0 | 4 |
 | 23 | `/api/thesis` | thesis.py | 0 | 14 |
 | 24 | `/api/model-pricing` | model_pricing.py | 0 | 4 |
-| | **合计** | | **39** | **133** |
+| | **合计** | | **39** | **136** |
 
-合计为 23 个 APIRouter 加 1 个内联健康检查。2026-09-13 实测 `app.openapi()`：含内联健康检查为 142 个 `/api/*` 路径、178 个 HTTP 操作；不含内联健康检查为 141 / 177。本次新增 `/api/swarm/runs` 贡献 1 个路径 / 1 个操作（新增前实测：含健康检查 141 / 177）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。2026-09-23 复测当前 `app.openapi()` 为 143 个 `/api/*` 路径、179 个 HTTP 操作；142 / 178 是 2026-09-13 的历史快照。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是历史功能口径，不替代 OpenAPI operation 计数。
+合计为 23 个 APIRouter 加 1 个内联健康检查。2026-09-13 实测 `app.openapi()`：含内联健康检查为 142 个 `/api/*` 路径、178 个 HTTP 操作；不含内联健康检查为 141 / 177。本次新增 `/api/swarm/runs` 贡献 1 个路径 / 1 个操作（新增前实测：含健康检查 141 / 177）。v1 下线减少 2 个路径和 3 个操作；v2 的 9 个路径、10 个操作完整保留。2026-09-23 基线为 143 个 `/api/*` 路径、179 个 HTTP 操作；加入 BACKLOG-055 因子分析 POST/GET 与 BACKLOG-056 风险 Tear Sheet GET 后复测为 145 / 182。142 / 178 是 2026-09-13 的历史快照。运行时 OpenAPI 是端点数量的最终校验来源；上表 MVP/新增分类是功能归属口径，不替代 OpenAPI operation 计数。

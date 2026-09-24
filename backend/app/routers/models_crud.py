@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(
 
 class ModelDiscoveryIn(BaseModel):
     base_url: ModelBaseURL
+    provider: str | None = None
     api_key: str | None = None
     api_key_env: str | None = None
     model_id: int | None = None
@@ -29,13 +30,22 @@ async def discover_models(body: ModelDiscoveryIn, user: CurrentUser) -> dict[str
     """Test unsaved form values; only reuse credentials owned by the current user."""
     try:
         stored = ""
+        provider = body.provider or "openai"
         if body.model_id is not None:
-            await model_router.get_model_config(body.model_id, user_id=int(user["id"]))
+            config_row = await model_router.get_model_config(body.model_id, user_id=int(user["id"]))
+            provider = str(config_row.get("provider") or provider)
             stored = await get_credential(int(user["id"]), f"model:{body.model_id}") or ""
         key = body.api_key or stored or (os.getenv(body.api_key_env, "") if body.api_key_env else "")
         if not key:
             raise LLMError("请先填写 API Key。")
-        client = LLMClient(body.base_url, key, "", timeout=20, proxy_url=config.LLM_PROXY_URL or None)
+        client = LLMClient(
+            body.base_url,
+            key,
+            "",
+            timeout=20,
+            proxy_url=config.LLM_PROXY_URL or None,
+            provider=provider,
+        )
         items = await client.list_models()
         return {"ok": bool(items), "items": items,
                 "message": "已拉取模型列表" if items else "供应商未返回模型，请手动填写模型名。"}

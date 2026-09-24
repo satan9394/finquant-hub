@@ -76,6 +76,10 @@ function statsItem(overrides: Partial<UsageStatsResponse['items'][number]> = {})
     prompt_tokens: 100,
     completion_tokens: 50,
     total_tokens: 150,
+    cached_tokens: 25,
+    cache_hit_rate: 25,
+    avg_speed_tps: 10,
+    avg_ttft_ms: 200,
     priced_models: 1,
     unpriced_models: 0,
     unpriced_total_tokens: 0,
@@ -108,6 +112,13 @@ const stats: UsageStatsResponse = {
     priced_models: 2, unpriced_models: 1, unpriced_total_tokens: 15,
     cost_by_currency: { CNY: 0.0014 }, currency: 'CNY', mixed_currency: false,
     estimated_cost: 0.0014, cost_status: 'partial',
+  },
+  efficiency: {
+    avg_speed_tps: 20,
+    avg_ttft_ms: 300,
+    overall_cache_hit_rate: 41.7,
+    total_saved_cost: 0.0027,
+    currency: 'CNY',
   },
 };
 
@@ -299,6 +310,10 @@ describe('UsageHero', () => {
     expect(screen.getByTestId('usage-hero-window-days').textContent).toContain('3');
     expect(screen.getByTestId('usage-hero-top-model').textContent).toContain('model-c');
     expect(screen.getByTestId('usage-hero-cost').textContent).toContain('CNY 0.0012');
+    expect(screen.getByTestId('usage-hero-average-speed').textContent).toContain('20.0 tok/s');
+    expect(screen.getByTestId('usage-hero-average-ttft').textContent).toContain('300 ms');
+    expect(screen.getByTestId('usage-hero-cache-hit-rate').textContent).toContain('41.7%');
+    expect(screen.getByTestId('usage-hero-cache-savings').textContent).toContain('CNY 0.0027');
   });
 
   it('labels unpriced usage instead of showing a fake zero amount', () => {
@@ -353,6 +368,9 @@ describe('UsageStatsTable', () => {
     expect(screen.getByText('CNY 0.0004')).toBeTruthy();
     expect(screen.getByText('未配置单价')).toBeTruthy();
     expect(screen.getByText('32.3%')).toBeTruthy();
+    expect(screen.getAllByText('10.0 tok/s')).toHaveLength(3);
+    expect(screen.getAllByText('200 ms')).toHaveLength(3);
+    expect(screen.getAllByText('25.0%')).toHaveLength(3);
 
     fireEvent.click(screen.getByText('按会话类型'));
     expect(onDimensionChange).toHaveBeenCalledWith('session_type');

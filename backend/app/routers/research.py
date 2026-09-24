@@ -21,7 +21,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import database
 from ..services.notifications import publish_research_status
-from ..services.llm_usage import reset_usage_context, set_usage_context
+from ..services.llm_usage import (
+    reset_usage_context,
+    set_usage_context,
+)
 from ..services.evidence_audit import audit_evidence, export_evidence_manifest
 from ..services.investment_memory import (
     create_memory,

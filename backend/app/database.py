@@ -274,7 +274,8 @@ _JOB_RUNTIME_VERSION = 23
 _SCHEMA_CLEANUP_VERSION = 24
 _MCP_STDIO_VERSION = 25
 _MODEL_PRICING_VERSION = 26
-_SCHEMA_VERSION = _MODEL_PRICING_VERSION
+_LLM_TELEMETRY_VERSION = 27
+_SCHEMA_VERSION = _LLM_TELEMETRY_VERSION
 _OWNER_TABLES = (
     "model_configs", "conversations", "messages", "discussion_rooms",
     "research_reports", "research_events", "research_workspaces",
@@ -319,6 +320,7 @@ _MIGRATION_NAMES = {
     _SCHEMA_CLEANUP_VERSION: "install_schema_cleanup",
     _MCP_STDIO_VERSION: "install_mcp_stdio_transport",
     _MODEL_PRICING_VERSION: "install_model_pricing",
+    _LLM_TELEMETRY_VERSION: "install_llm_telemetry",
 }
 
 
@@ -715,6 +717,19 @@ async def _migrate_schema() -> None:
             raise
         version = _MODEL_PRICING_VERSION
 
+    if version < _LLM_TELEMETRY_VERSION:
+        await _db.execute("SAVEPOINT install_llm_telemetry")
+        try:
+            await _install_llm_telemetry()
+            await _db.execute(f"PRAGMA user_version={_LLM_TELEMETRY_VERSION}")
+            await _record_schema_version(_LLM_TELEMETRY_VERSION)
+            await _db.execute("RELEASE SAVEPOINT install_llm_telemetry")
+        except Exception:
+            await _db.execute("ROLLBACK TO SAVEPOINT install_llm_telemetry")
+            await _db.execute("RELEASE SAVEPOINT install_llm_telemetry")
+            raise
+        version = _LLM_TELEMETRY_VERSION
+
     # Existing databases already tracked only PRAGMA user_version; backfill their audit trail.
     for applied_version in range(1, min(version, _SCHEMA_VERSION) + 1):
         await _record_schema_version(applied_version)
@@ -952,6 +967,18 @@ async def _install_llm_usage() -> None:
         "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_session "
         "ON llm_usage(created_at, session_type)"
     )
+
+
+async def _install_llm_telemetry() -> None:
+    """Add request performance and cache usage fields without rewriting history."""
+    await _ensure_column("llm_usage", "cached_tokens", "cached_tokens INTEGER NOT NULL DEFAULT 0")
+    await _ensure_column(
+        "llm_usage", "cache_creation_tokens", "cache_creation_tokens INTEGER NOT NULL DEFAULT 0"
+    )
+    await _ensure_column("llm_usage", "reasoning_tokens", "reasoning_tokens INTEGER NOT NULL DEFAULT 0")
+    await _ensure_column("llm_usage", "ttft_ms", "ttft_ms INTEGER")
+    await _ensure_column("llm_usage", "duration_ms", "duration_ms INTEGER")
+    await _ensure_column("llm_usage", "tokens_per_second", "tokens_per_second REAL")
 
 
 async def _install_investment_theses() -> None:

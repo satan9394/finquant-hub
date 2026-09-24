@@ -44,8 +44,8 @@ export default function UsageHero({ data }: { data: UsageHeroData | null }) {
     }
   })();
 
-  const block = (testId: string, title: string, value: ReactNode, hint?: string) => (
-    <Col xs={12} lg={4}>
+  const block = (testId: string, title: string, value: ReactNode, hint?: string, span = 4) => (
+    <Col xs={12} lg={span}>
       <Typography.Text type="secondary">{title}</Typography.Text>
       <div style={{ fontSize: 20, fontWeight: 600 }} data-testid={testId}>
         {value}
@@ -107,6 +107,52 @@ export default function UsageHero({ data }: { data: UsageHeroData | null }) {
               </Typography.Text>
             </Col>
           </Row>
+          {data.efficiency ? (
+            <Card size="small" title={t('settings.usage.efficiency.title')} style={{ marginTop: 12 }}>
+              <Row gutter={[16, 8]}>
+                {block(
+                  'usage-hero-average-speed',
+                  t('settings.usage.efficiency.avgSpeed'),
+                  data.efficiency.avg_speed_tps === null
+                    ? '-'
+                    : `${data.efficiency.avg_speed_tps.toFixed(1)} tok/s`,
+                  undefined,
+                  6,
+                )}
+                {block(
+                  'usage-hero-average-ttft',
+                  t('settings.usage.efficiency.avgTtft'),
+                  data.efficiency.avg_ttft_ms === null ? '-' : `${data.efficiency.avg_ttft_ms} ms`,
+                  undefined,
+                  6,
+                )}
+                {block(
+                  'usage-hero-cache-hit-rate',
+                  t('settings.usage.efficiency.cacheHitRate'),
+                  data.efficiency.overall_cache_hit_rate === null
+                    ? '-'
+                    : `${data.efficiency.overall_cache_hit_rate.toFixed(1)}%`,
+                  undefined,
+                  6,
+                )}
+                {block(
+                  'usage-hero-cache-savings',
+                  t('settings.usage.efficiency.savedCost'),
+                  data.efficiency.total_saved_cost === null
+                    ? data.efficiency.currency === 'MIXED'
+                      ? t('settings.usage.efficiency.mixedCurrency')
+                      : data.efficiency.currency === 'UNAVAILABLE'
+                        ? t('settings.usage.efficiency.costUnavailable')
+                        : '-'
+                    : data.efficiency.currency === 'N/A'
+                      ? t('settings.usage.efficiency.noCache')
+                      : formatCost(data.efficiency.total_saved_cost, data.efficiency.currency),
+                  undefined,
+                  6,
+                )}
+              </Row>
+            </Card>
+          ) : null}
         </>
       ) : (
         <Empty description={t('settings.usage.stats.empty')} data-testid="usage-hero-empty" />

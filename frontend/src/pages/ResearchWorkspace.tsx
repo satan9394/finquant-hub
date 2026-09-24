@@ -9,7 +9,7 @@ import {
   SaveOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import ResearchCharts from '../components/research/ResearchCharts';
+import ProCandlestickChart from '../components/charts/ProCandlestickChart';
 import SwarmStatusCard from '../components/SwarmStatusCard';
 import TaskPageHeader from '../components/TaskPageHeader';
 import ResultLayer from '../components/ResultLayer';
@@ -673,7 +673,7 @@ function ResearchWorkspaceCore({ followupPrompt = '' }: { followupPrompt?: strin
             <Row gutter={[18, 18]} align="top">
             <Col xs={24} xl={17}>
               <Card title={t('research.marketData')} className="surface-card">
-                {bars ? <ResearchCharts payload={bars} /> : <Empty description={t('research.barsUnavailable')} />}
+                <ProCandlestickChart symbol={currentSymbol} reports={reports} />
               </Card>
 
               <Card title={t('research.fundamentals')} className="surface-card" style={{ marginTop: 18 }}>

@@ -1,13 +1,13 @@
 # HANDOFF —— 项目交接档案
 
 > 用途：跨会话/跨 agent 接续的权威档案。会话结束时更新；新会话先读本文件再动手。
-> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-23（Mission 1/2 完成与私有 GitHub 同步）。
+> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-23（Mission 1/2 与 BACKLOG-050～057 收尾）。
 
 ## 当前目标（Objective）
 
-**Mission 3 已完工，当前进入技术债演进阶段。** Mission Phase 1/2 已完成并同步至私有 GitHub 仓库。当前重点是 `docs/ai/evo/NEXT_BACKLOG.md` 中的 P2-2：首轮审计列出 46 个剩余请求开始清失败态调用点；按单实体逐项评估，Portfolio 真实持仓首批已收敛。
+**Mission 3 已完工，BACKLOG-050～057 模型遥测与量化图表序列也已实现并完成卡内门禁。** 下一重点仍是 `docs/ai/evo/NEXT_BACKLOG.md` 中的 P2-2：按单实体逐项评估剩余失败态调用点，Portfolio 真实持仓首批已收敛。
 
-截至 2026-09-23，`main` 与 `origin/main` 同步，工作树干净；GitHub `satan9394/finquant-hub` 可见性为 PRIVATE。
+序列完成后工作树含 BACKLOG-050～057 与此前 Mission 后续改动，均尚未提交；提交前需继续保留这些在途改动。此前 `main` 与 `origin/main` 同步，GitHub `satan9394/finquant-hub` 可见性为 PRIVATE。
 
 ## 完成标准（Definition of Done）
 
@@ -312,3 +312,11 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-23 Mission 1/2 完成：实现提交 `93e7563` 收敛 ResearchReportEvent 类型、recent 缓存损坏恢复、Swarm 取消事件持久化与回放、Portfolio 持仓三态读取、start.bat requirements SHA-256 同步；P2-2 扫描器确认 46 个剩余调用点并记录 Portfolio 首批收敛。已与 GitHub 私有 `main` 无覆盖合并，远端独有 `PUBLIC_SOURCE_MANIFEST.json` 保留。| 验证：Vite build 4,265 modules / OpenAPI 60 schemas fresh；聚焦 Vitest 4 files/31 tests；backend `test_swarm.py` 2/2；Ruff；`start.bat --check-only`（237 CRLF、0 lone LF）；`git diff --check`；harness audit exit 0。隐私启发式仍报告 masked phone/email/key 类命中；已抽查的 phone 样本位于保留清单 `PUBLIC_SOURCE_MANIFEST.json` 的 SHA-256 字段，其余命中尚未逐项分类，不据此宣称均已排除。
 
 - 2026-09-23 完成 Mission 1/2 文档收尾并准备同步至私有 GitHub | 验证: 核心验证已记录；文档差异检查 git diff --check 通过；仓库可见性 PRIVATE
+
+- 2026-09-23 BACKLOG-055 部分完成：分析引擎与 Discover 图表已实现，因子分析 ID 数据源待用户确认。 | 验证: 后端 7 项（--no-cov）、前端 2 项、Ruff 与 bun build 通过；卡内原样 pytest 7 项断言全过，但全仓 coverage 0.9% 未达 80% 导致退出码 1；GET 端点未接入。
+
+- 2026-09-23 BACKLOG-055 收尾校准：已按用户提交的观察值接入 POST 分析与用户级 GET 缓存读取；旧“GET 未接入/待确认数据源”记录由本条 supersede。 | 验证: `test_alpha_analytics.py` 11/11（`--no-cov`），Ruff、AlphaFactorAnalytics 3/3 与 `bun run build`（60 schemas / 4,272 modules）通过；卡内 pytest 11 项断言通过但全仓 coverage 3.4% < 80% 退出码 1。
+
+- 2026-09-23 BACKLOG-056 完成：新增 owner-scoped 风险 Tear Sheet，基于真实共同日线回放当前股数，补水下回撤、持续期、滚动夏普/波动、月收益矩阵、集中度和协方差风险贡献；币种/复权/行情覆盖质量透明；Portfolio 新增默认 Tear Sheet Tab，保留旧风险模拟 Tab。| 验证: 后端聚焦 7/7（--no-cov）+ Ruff、原样命令 7 项断言通过但全仓 coverage 3.6% 未达 80% 退出非零；前端 3/3；build 4,275 modules；OpenAPI 145/182；无新表/依赖、无真实行情请求。
+
+- 2026-09-23 BACKLOG-057 完成：新增 `/api/market/sector-treemap`、`dragon-tiger-network`、`sentiment-ladder` 与 Discover 延迟加载的市场全景子标签；复用 AStockExtra/Eastmoney 直接数据，不加依赖/表。行业分类限于东财行业板块（非申万一级），炸板率因失败涨停分母缺失保持 UNKNOWN，席位边仅为共现观察。| 验证: `test_market_graph.py` 3/3（`--no-cov`）、目标 Ruff、前端 4/4、`bun run build` 4,278 modules / OpenAPI 60 schemas fresh；`app.openapi()` 148 路径 / 185 操作；自动化测试用 mock；窄屏浏览器烟测触发 3 次东财请求（本地 API 1 次 200、2 次 502 RemoteProtocolError），当前活动面板显示明确错误态；未提交。

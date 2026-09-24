@@ -29,6 +29,10 @@ export interface ModelPreset {
   docsUrl: string;
   /** Optional i18n remark key. */
   remarkKey?: string;
+  /** Wire protocol selected by the backend LLMClient. */
+  protocol?: 'openai-compatible' | 'anthropic';
+  /** Optional model filled when selecting this preset. */
+  defaultModel?: string;
 }
 
 export const MODEL_PRESETS: ModelPreset[] = [
@@ -84,11 +88,21 @@ export const MODEL_PRESETS: ModelPreset[] = [
   },
   // ---- International ----
   {
+    id: 'anthropic',
+    labelKey: 'models.provider.anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    category: 'international',
+    docsUrl: 'https://docs.anthropic.com/en/api/getting-started',
+    protocol: 'anthropic',
+    defaultModel: 'claude-3-7-sonnet',
+  },
+  {
     id: 'openai',
     labelKey: 'models.provider.openai',
     baseUrl: 'https://api.openai.com/v1',
     category: 'international',
     docsUrl: 'https://platform.openai.com/docs/api-reference',
+    protocol: 'openai-compatible',
   },
   {
     id: 'deepseek',

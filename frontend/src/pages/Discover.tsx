@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, Card, Empty, List, message, Space, Typography } from 'antd';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Alert, Button, Card, Empty, List, message, Space, Tabs, Typography } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import DiscoverSearch from '../components/DiscoverSearch';
 import DiscoverResults, { type DiscoveredStock } from '../components/DiscoverResults';
 import SourceChip from '../components/SourceChip';
 import TaskPageHeader from '../components/TaskPageHeader';
 import AlphaResearchPanel from '../components/alpha/AlphaResearchPanel';
+import AlphaFactorAnalytics from './alpha/AlphaFactorAnalytics';
 import apiClient from '../services/api';
 import { searchAlpha, type AlphaSearchResult } from '../services/alphaApi';
 import { useLanguage } from '../i18n/LanguageContext';
 import { searchStocks } from '../services/stockApi';
 import DiscoverThemes from '../components/DiscoverThemes';
 import LoadFailureAlert, { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
+
+const MarketTreemapChart = lazy(() => import('../components/charts/MarketTreemapChart'));
+const DragonTigerSeatGraph = lazy(() => import('../components/charts/DragonTigerSeatGraph'));
+const SentimentLadderChart = lazy(() => import('../components/charts/SentimentLadderChart'));
 
 // 股票代码提取：6/5 位数字与 .HK 后缀按代码处理；裸字母 token 需排除常见
 // 筛选/因子术语（ROE/FCF/CAGR 等财务缩写），避免把自然语言筛选词误当证券
@@ -47,7 +52,7 @@ type DiscoverOutcome = {
 };
 
 export default function Discover() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const mode = searchParams.get('mode');
@@ -58,6 +63,9 @@ export default function Discover() {
   const [outcome, setOutcome] = useState<DiscoverOutcome | null>(null);
   const [loading, setLoading] = useState(false);
   const [executedQuery, setExecutedQuery] = useState('');
+  const [discoverTab, setDiscoverTab] = useState('stocks');
+  const [marketTabVisited, setMarketTabVisited] = useState(false);
+  const [marketChartTab, setMarketChartTab] = useState('sectors');
   // VS36：公司名检索的失败态**自带归属**（哪个查询词 + 出错原文），不再靠"发起新请求时清一下"掩盖。
   // 同族范式：VS-32 的 `detailErrorId`（27233a4）——切到新词时旧失败因归属不匹配而自动不渲染，
   // 而"这条失败是谁的"这一信息被保住（切回来仍然显示它）。
@@ -148,7 +156,7 @@ export default function Discover() {
   };
 
   if (mode === 'alpha') {
-    return <AlphaResearchPanel />;
+    return <><AlphaResearchPanel /><AlphaFactorAnalytics /></>;
   }
 
   // VS36：渲染处只认"属于**页面当前对象**（executedQuery）"的那一份产出 —— 换词在途时不可能再看到
@@ -199,6 +207,14 @@ export default function Discover() {
         return (checked ? [...parts, filter] : parts).join(' · ');
       })}
     />
+    <Tabs
+      activeKey={discoverTab}
+      onChange={(key) => {
+        setDiscoverTab(key);
+        if (key === 'market') setMarketTabVisited(true);
+      }}
+      items={[
+        { key: 'stocks', label: lang === 'zh' ? '股票与因子' : 'Stocks and factors', children: <>
     {!executedQuery && <Card className="surface-card" title={t('discover.examples.title')}>
       <Typography.Paragraph>{t('discover.examples.help')}</Typography.Paragraph>
       <Space wrap>{[
@@ -241,5 +257,17 @@ export default function Discover() {
         />
       </LoadStateView>
     </Card></>}
+        </> },
+        { key: 'market', label: lang === 'zh' ? '市场全景' : 'Market panorama', children: marketTabVisited
+          ? <Suspense fallback={<div role="status">{lang === 'zh' ? '正在加载图表…' : 'Loading charts…'}</div>}>
+            <Tabs activeKey={marketChartTab} onChange={setMarketChartTab} items={[
+              { key: 'sectors', label: lang === 'zh' ? '行业热力' : 'Industry heatmap', children: <MarketTreemapChart /> },
+              { key: 'seats', label: lang === 'zh' ? '席位关系' : 'Seat network', children: <DragonTigerSeatGraph /> },
+              { key: 'sentiment', label: lang === 'zh' ? '短线情绪' : 'Short-term sentiment', children: <SentimentLadderChart /> },
+            ]} />
+          </Suspense>
+          : <Empty description={lang === 'zh' ? '选择此标签后加载大盘数据' : 'Market data loads when this tab is selected'} /> },
+      ]}
+    />
   </main>;
 }

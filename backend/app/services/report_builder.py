@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import math
 import re
 from typing import Any
 
@@ -13,6 +14,33 @@ from ..tools.investment_checklist import BUFFETT_GATES, check_buffett_rules
 
 UNKNOWN = "unknown（当前证据不足，不能形成可靠结论）"
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.S | re.I)
+
+
+def build_telemetry_summary(records: list[dict[str, Any]]) -> dict[str, float | None]:
+    """Summarize measured model calls without treating unavailable values as zero."""
+    speeds = [
+        float(value)
+        for record in records
+        if isinstance((value := record.get("tokens_per_second")), (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    ]
+    durations = [
+        float(value)
+        for record in records
+        if isinstance((value := record.get("duration_ms")), (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    ]
+    prompt_tokens = sum(max(0, int(record.get("prompt_tokens") or 0)) for record in records)
+    cached_tokens = sum(max(0, int(record.get("cached_tokens") or 0)) for record in records)
+    return {
+        "avg_tokens_per_second": sum(speeds) / len(speeds) if speeds else None,
+        "total_duration_seconds": sum(durations) / 1000,
+        "cache_savings_ratio": cached_tokens / prompt_tokens if prompt_tokens else None,
+    }
 
 LONG_TERM_DIMENSIONS = {
     "business_quality": "生意质量",

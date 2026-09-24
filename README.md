@@ -2,7 +2,7 @@
 
 个人全栈金融量化研究 Web 系统 — A/港股/美股多市场行情、技术分析、AI 多 Agent 投研、投资组合与策略回测。
 
-> 当前交付目标：GitHub 获取、个人电脑本地安装和自用。运行时包含 23 个 APIRouter、143 个 `/api/*` 路径和 179 个 HTTP 操作。
+> 当前交付目标：GitHub 获取、个人电脑本地安装和自用。运行时包含 23 个 APIRouter、145 个 `/api/*` 路径和 182 个 HTTP 操作。
 
 ## 安装与启动
 
@@ -90,7 +90,7 @@ bun run dev
 ```
 浏览器层     React 18 + AntD 5 + ProLayout + lightweight-charts
 代理层       Vite dev proxy (5173 → 8000) / Nginx (prod)
-路由层       23 APIRouter → 143 个 /api/* 路径 / 179 个 HTTP 操作
+路由层       23 APIRouter → 145 个 /api/* 路径 / 182 个 HTTP 操作
 服务层       3 层：编排器 → I/O 服务 → 纯逻辑服务
 Agent 层     13 个本地工具 (ToolRegistry) + function_calling 循环
 数据层       aiosqlite 单连接 + WAL + schema v23（52 张逻辑表）
@@ -101,7 +101,7 @@ Agent 层     13 个本地工具 (ToolRegistry) + function_calling 循环
 
 ## API 端点目录
 
-当前 23 个 APIRouter 生成 143 个 `/api/*` 路径、179 个 HTTP 操作；另有内联健康检查。运行时 OpenAPI 是最终校验来源，完整清单见 **[docs/API_CONTRACT.md](docs/API_CONTRACT.md)**。
+当前 23 个 APIRouter 生成 145 个 `/api/*` 路径、182 个 HTTP 操作；另有内联健康检查。运行时 OpenAPI 是最终校验来源，完整清单见 **[docs/API_CONTRACT.md](docs/API_CONTRACT.md)**。
 
 ## 参考项目
 

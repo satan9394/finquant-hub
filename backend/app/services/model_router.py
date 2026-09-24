@@ -46,5 +46,6 @@ async def get_client(model_id: int | None = None, *, user_id: int | None = None)
         temperature=cfg.get("temperature") or 0.7,
         max_tokens=cfg.get("max_tokens") or 4096,
         proxy_url=config.LLM_PROXY_URL or None,
+        provider=cfg.get("provider") or "openai",
     )
     return client, cfg

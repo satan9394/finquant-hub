@@ -9,9 +9,10 @@ import json
 import os
 import re
 from time import monotonic
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from dataclasses import dataclass, field
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -46,9 +47,76 @@ SEARCH_ALIASES = {
 }
 
 PERIOD_TO_SCALE = {"1d": 240, "60m": 60, "30m": 30, "15m": 15, "5m": 5}
+KLINE_PERIOD_ALIASES = {
+    "day": "1d", "1d": "1d",
+    "week": "1wk", "1wk": "1wk",
+    "month": "1mo", "1mo": "1mo",
+    "60m": "60m", "30m": "30m", "15m": "15m", "5m": "5m",
+}
+KLINE_CACHE_TTL_SECONDS = {"intraday": 60.0, "daily": 300.0, "long_period": 900.0}
 
 DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 JSONDict = dict[str, Any]
+
+
+def normalize_kline_period(period: str) -> str:
+    normalized = KLINE_PERIOD_ALIASES.get(period.strip().lower())
+    if normalized is None:
+        raise ValueError("period 仅支持 day、week、month、60m、30m、15m、5m（兼容 1d/1wk/1mo）")
+    return normalized
+
+
+def _aggregate_period_bars(rows: list[JSONDict], period: str, count: int) -> list[JSONDict]:
+    """Aggregate real daily OHLCV rows into calendar-week or calendar-month bars."""
+    buckets: dict[tuple[int, int], list[JSONDict]] = {}
+    bucket_dates: dict[tuple[int, int], str] = {}
+    for row in sorted(rows, key=lambda item: str(item.get("day") or "")):
+        raw_day = row.get("day")
+        if not raw_day:
+            continue
+        try:
+            trading_day = date.fromisoformat(str(raw_day)[:10])
+        except ValueError as exc:
+            raise ValueError("K 线日期格式无效，无法生成周/月线") from exc
+        if period == "1wk":
+            iso = trading_day.isocalendar()
+            key = (iso.year, iso.week)
+            start = date.fromisocalendar(iso.year, iso.week, 1).isoformat()
+        else:
+            key = (trading_day.year, trading_day.month)
+            start = date(trading_day.year, trading_day.month, 1).isoformat()
+        buckets.setdefault(key, []).append(row)
+        bucket_dates[key] = start
+
+    result: list[JSONDict] = []
+    for key in sorted(buckets):
+        bars = buckets[key]
+        first, last = bars[0], bars[-1]
+        aggregated: JSONDict = {
+            "day": bucket_dates[key],
+            "open": float(first["open"]),
+            "high": max(float(bar["high"]) for bar in bars),
+            "low": min(float(bar["low"]) for bar in bars),
+            "close": float(last["close"]),
+            "volume": sum(int(bar.get("volume") or 0) for bar in bars),
+        }
+        for provenance_key in ("source", "adjustment"):
+            value = first.get(provenance_key)
+            if value is not None and all(bar.get(provenance_key) == value for bar in bars):
+                aggregated[provenance_key] = value
+        result.append(aggregated)
+    if not result:
+        raise ValueError("K 线响应为空，无法聚合周/月线")
+    return result[-count:]
+
+
+def _minute_timestamp(day_value: str, code: str) -> int | None:
+    if len(day_value) < 16 or day_value[10] not in {" ", "T"}:
+        return None
+    market = _market(code)
+    timezone_name = "Asia/Hong_Kong" if market == "hk" else "Asia/Shanghai"
+    parsed = datetime.strptime(day_value[:16].replace("T", " "), "%Y-%m-%d %H:%M")
+    return int(parsed.replace(tzinfo=ZoneInfo(timezone_name)).timestamp())
 
 
 @lru_cache(maxsize=128)
@@ -208,6 +276,7 @@ class MarketDataService:
     fundamentals_priority: tuple[str, ...] = ("akshare", "tushare", "yahoo")
     breakers: dict[str, CircuitBreaker] = field(default_factory=dict)
     snapshot_cache: dict[str, tuple[float, JSONDict]] = field(default_factory=dict, repr=False)
+    kline_cache: dict[str, tuple[float, list[JSONDict]]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         injected_http = self.http is not None
@@ -239,6 +308,21 @@ class MarketDataService:
 
     def store_snapshot(self, key: str, value: JSONDict) -> None:
         self.snapshot_cache[key] = (monotonic(), value)
+
+    def cached_kline(self, key: str, max_age: float) -> list[JSONDict] | None:
+        cached = self.kline_cache.get(key)
+        if cached is None:
+            return None
+        if monotonic() - cached[0] > max_age:
+            self.kline_cache.pop(key, None)
+            return None
+        return [dict(item) for item in cached[1]]
+
+    def store_kline(self, key: str, value: list[JSONDict]) -> None:
+        if len(self.kline_cache) >= 256 and key not in self.kline_cache:
+            oldest = min(self.kline_cache, key=lambda item: self.kline_cache[item][0])
+            self.kline_cache.pop(oldest, None)
+        self.kline_cache[key] = (monotonic(), [dict(item) for item in value])
 
     def configure_source_priority(self, kind: str, providers: list[str]) -> None:
         """Reorder installed providers without silently disabling fallbacks."""
@@ -603,8 +687,15 @@ class MarketDataService:
 
     async def kline(self, ticker: str, period: str = "1d", count: int = 100) -> list[JSONDict]:
         code = normalize_code(ticker)
-        scale = PERIOD_TO_SCALE.get(period, 240)
+        period = normalize_kline_period(period)
         count = max(1, min(count, 800))
+        cache_class = "intraday" if period in {"60m", "30m", "15m", "5m"} else "daily" if period == "1d" else "long_period"
+        cache_key = f"{code}:{period}:{count}"
+        cached = self.cached_kline(cache_key, KLINE_CACHE_TTL_SECONDS[cache_class])
+        if cached is not None:
+            return cached
+
+        scale = PERIOD_TO_SCALE.get(period, 240)
         providers = ("yahoo",) if _market(code) in {"hk", "us"} else self.kline_priority
         errors: list[str] = []
         for provider in providers:
@@ -612,17 +703,27 @@ class MarketDataService:
             if not breaker.allow_request():
                 errors.append(f"{provider}:circuit_open")
                 continue
-            # Astra A8-①：腾讯 K 线接口仅支持日线（qfqday/day）。分钟级请求
-            # （5m/15m/30m/60m）走腾讯会用日线冒充分钟数据——语义错误。因此
-            # 分钟请求跳过腾讯备源，宁可继续降级/失败也不返回错误频率的数据。
-            if provider == "tencent" and period != "1d":
+            # These adapters expose daily bars, not week/month bars. Aggregate
+            # those real bars for week/month; never return daily rows as
+            # if they were intraday data.
+            if provider == "tencent" and period in {"60m", "30m", "15m", "5m"}:
                 errors.append("tencent:daily_only_skipped_for_minute_period")
                 continue
             try:
                 if provider == "sina":
-                    items = await self._kline_sina(code, scale, count)
+                    if period in {"1wk", "1mo"}:
+                        factor = 5 if period == "1wk" else 23
+                        daily = await self._kline_sina(code, 240, count * factor)
+                        items = _aggregate_period_bars(daily, period, count)
+                    else:
+                        items = await self._kline_sina(code, scale, count)
                 elif provider == "tencent":
-                    items = await self._kline_tencent(code, count)
+                    if period in {"1wk", "1mo"}:
+                        factor = 5 if period == "1wk" else 23
+                        daily = await self._kline_tencent(code, count * factor)
+                        items = _aggregate_period_bars(daily, period, count)
+                    else:
+                        items = await self._kline_tencent(code, count)
                 elif provider == "yahoo":
                     items = await self._kline_yahoo(code, period, count)
                 else:
@@ -630,6 +731,7 @@ class MarketDataService:
                 if not items:
                     raise ValueError("K 线响应为空")
                 breaker.record_success()
+                self.store_kline(cache_key, items)
                 return items
             except (httpx.HTTPError, ValueError, MarketError) as exc:
                 breaker.record_failure(exc)
@@ -646,20 +748,25 @@ class MarketDataService:
         data = json.loads(resp.text)
         if not isinstance(data, list):
             return []
-        return [
-            {
-                "day": it["day"],
-                "open": float(it["open"]),
-                "high": float(it["high"]),
-                "low": float(it["low"]),
-                "close": float(it["close"]),
-                "volume": int(float(it.get("volume") or 0)),
+        rows: list[JSONDict] = []
+        for item in data:
+            if not item.get("day") or not item.get("open"):
+                continue
+            row: JSONDict = {
+                "day": item["day"],
+                "open": float(item["open"]),
+                "high": float(item["high"]),
+                "low": float(item["low"]),
+                "close": float(item["close"]),
+                "volume": int(float(item.get("volume") or 0)),
                 "source": "sina",
                 "adjustment": "none",
             }
-            for it in data
-            if it.get("day") and it.get("open")
-        ]
+            timestamp = _minute_timestamp(str(item["day"]), code)
+            if timestamp is not None:
+                row["time"] = timestamp
+            rows.append(row)
+        return rows
 
     async def _kline_tencent(self, code: str, count: int) -> list[JSONDict]:
         resp = await self.http.get(TENCENT_KLINE.format(code=code, count=count))
@@ -683,8 +790,8 @@ class MarketDataService:
         ]
 
     async def _kline_yahoo(self, code: str, period: str, count: int) -> list[JSONDict]:
-        interval = {"1d": "1d", "60m": "60m", "30m": "30m", "15m": "15m", "5m": "5m"}.get(period, "1d")
-        range_value = "5y" if interval == "1d" else "60d"
+        interval = {"1d": "1d", "1wk": "1wk", "1mo": "1mo", "60m": "60m", "30m": "30m", "15m": "15m", "5m": "5m"}[period]
+        range_value = "5y" if interval in {"1d", "1wk", "1mo"} else "60d"
         payload = await self._yahoo_chart(_yahoo_symbol(code), range_value, interval)
         quote = ((payload.get("indicators") or {}).get("quote") or [{}])[0]
         adjusted = ((payload.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or []
@@ -697,14 +804,17 @@ class MarketDataService:
                 continue
             adjusted_close = adjusted[index] if index < len(adjusted) else None
             ratio = float(cast(Any, adjusted_close)) / float(close) if adjusted_close not in (None, 0) and close else 1.0
-            rows.append({
-                "day": datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"),
+            row = {
+                "day": datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d" if interval in {"1d", "1wk", "1mo"} else "%Y-%m-%d %H:%M"),
                 "open": float(open_) * ratio, "high": float(high) * ratio, "low": float(low) * ratio,
                 "close": float(cast(Any, adjusted_close)) if adjusted_close not in (None, 0) else float(close),
                 "volume": int(volume or 0),
                 "source": "yahoo",
                 "adjustment": "split_dividend_adjusted" if adjusted_close not in (None, 0) else "none",
-            })
+            }
+            if interval not in {"1d", "1wk", "1mo"}:
+                row["time"] = int(timestamp)
+            rows.append(row)
         if not rows:
             raise MarketError(f"无K线数据：{code}")
         return rows[-count:]

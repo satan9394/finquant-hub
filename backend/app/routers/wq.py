@@ -1,16 +1,67 @@
 """WorldQuant Alpha factor research and optional BRAIN bridge API."""
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from typing import Any
+from copy import deepcopy
+import threading
+import time
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
-from ..services import alpha_service
+from ..services import alpha_service, auth as auth_service
+from ..services.alpha_analytics import analyze_factor_observations
 from ..services.alpha_simulator import simulate_factor
 from ..services.alpha_templates import generate_factor_templates
 from ..services.alpha_brain import AlphaBrainClient, AlphaBrainError
 
 router = APIRouter(prefix="/api/wq", tags=["wq"])
+_FACTOR_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+_ANALYTICS_CACHE_TTL_SECONDS = 60 * 60
+_ANALYTICS_CACHE_MAX_ENTRIES = 128
+
+
+class _FactorAnalyticsCache:
+    """Bounded per-user cache of derived analytics; raw observations are never retained."""
+
+    def __init__(self, *, ttl_seconds: int, max_entries: int) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._max_entries = max_entries
+        self._items: OrderedDict[tuple[int, str], tuple[float, dict[str, Any]]] = OrderedDict()
+        self._lock = threading.RLock()
+
+    def _prune(self, now: float) -> None:
+        expired = [key for key, (expires_at, _) in self._items.items() if expires_at <= now]
+        for key in expired:
+            self._items.pop(key, None)
+
+    def put(self, user_id: int, factor_id: str, result: dict[str, Any]) -> None:
+        now = time.monotonic()
+        key = (user_id, factor_id)
+        with self._lock:
+            self._prune(now)
+            self._items.pop(key, None)
+            self._items[key] = (now + self._ttl_seconds, deepcopy(result))
+            while len(self._items) > self._max_entries:
+                self._items.popitem(last=False)
+
+    def get(self, user_id: int, factor_id: str) -> tuple[dict[str, Any], int] | None:
+        now = time.monotonic()
+        key = (user_id, factor_id)
+        with self._lock:
+            self._prune(now)
+            cached = self._items.get(key)
+            if cached is None:
+                return None
+            expires_at, result = cached
+            self._items.move_to_end(key)
+            return deepcopy(result), max(0, int(expires_at - now))
+
+
+_FACTOR_ANALYTICS_CACHE = _FactorAnalyticsCache(
+    ttl_seconds=_ANALYTICS_CACHE_TTL_SECONDS,
+    max_entries=_ANALYTICS_CACHE_MAX_ENTRIES,
+)
 
 
 def _catalogue_response(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -94,6 +145,41 @@ async def simulate_factor_locally(body: FactorSimulationIn) -> dict[str, Any]:
         quantile=body.quantile,
         periods_per_year=body.periods_per_year,
     )
+
+
+@router.post("/factors/{factor_id}/analytics")
+async def submit_factor_analytics(
+    factor_id: Annotated[str, Path(min_length=1, max_length=128, pattern=_FACTOR_ID_PATTERN)],
+    body: FactorSimulationIn,
+) -> dict[str, Any]:
+    """Analyze explicitly supplied observations and cache only the derived result for one hour."""
+    if len(body.observations) > 10_000:
+        raise HTTPException(status_code=413, detail="单次因子分析最多接收 10,000 条观察记录")
+    try:
+        result = analyze_factor_observations([item.model_dump() for item in body.observations])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    result.update({
+        "factor_id": factor_id,
+        "source": "user_supplied_observations",
+        "observation_count": len(body.observations),
+        "factor_autocorrelation_method": "mean_spearman_rank_on_shared_symbols_across_consecutive_valid_dates",
+    })
+    _FACTOR_ANALYTICS_CACHE.put(auth_service.current_user_id(), factor_id, result)
+    return {"factor_id": factor_id, "status": result["status"], "cache_ttl_seconds": _ANALYTICS_CACHE_TTL_SECONDS}
+
+
+@router.get("/factors/{factor_id}/analytics")
+async def get_factor_analytics(
+    factor_id: Annotated[str, Path(min_length=1, max_length=128, pattern=_FACTOR_ID_PATTERN)],
+) -> dict[str, Any]:
+    """Return the authenticated user's latest derived analytics for this factor ID."""
+    cached = _FACTOR_ANALYTICS_CACHE.get(auth_service.current_user_id(), factor_id)
+    if cached is None:
+        raise HTTPException(status_code=404, detail="分析不存在或已过期；请重新提交该因子的观察数据")
+    result, ttl_seconds = cached
+    result["cache_ttl_seconds"] = ttl_seconds
+    return result
 
 
 @router.post("/brain/simulations", status_code=202)

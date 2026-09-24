@@ -91,7 +91,7 @@ export default function Models() {
     try {
       const { base_url, api_key, api_key_env } = form.getFieldsValue();
       const { data } = await apiClient.post('/models/discover', {
-        base_url, api_key, api_key_env, model_id: editingModel?.id,
+        base_url, api_key, api_key_env, provider: selectedProvider ?? 'openai', model_id: editingModel?.id,
       });
       setModelOptions(data.items.map((value: string) => ({ value })));
       setDiscoverMessage(data.message);
@@ -322,9 +322,34 @@ export default function Models() {
               form.setFieldValue('provider', provider);
               const baseUrl = presetBaseUrl(provider);
               if (baseUrl) form.setFieldValue('base_url', baseUrl);
+              const defaultModel = presetById(provider)?.defaultModel;
+              if (defaultModel) form.setFieldValue('model_name', defaultModel);
               setModelOptions([]);
             }}
           />
+          <div
+            role="note"
+            style={{
+              display: 'grid',
+              gap: 4,
+              marginTop: 12,
+              padding: 10,
+              border: '1px solid var(--fq-border)',
+              borderRadius: 6,
+              background: 'var(--fq-surface-2)',
+            }}
+          >
+            <Text strong style={{ color: 'var(--fq-text-primary)' }}>
+              {t(presetById(selectedProvider)?.protocol === 'anthropic'
+                ? 'models.protocol.anthropic.title'
+                : 'models.protocol.openai.title')}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t(presetById(selectedProvider)?.protocol === 'anthropic'
+                ? 'models.protocol.anthropic.description'
+                : 'models.protocol.openai.description')}
+            </Text>
+          </div>
           <Form.Item
             name="base_url"
             label={t('models.form.baseUrl')}
@@ -341,8 +366,16 @@ export default function Models() {
               </a>
             </div>
           )}
-          <Form.Item name="api_key" label={t('models.form.apiKey')} extra={t('models.form.keyHelp')}>
-            <Input.Password placeholder={t('models.placeholder.apiKey')} />
+          <Form.Item
+            name="api_key"
+            label={t('models.form.apiKey')}
+            extra={t(presetById(selectedProvider)?.protocol === 'anthropic'
+              ? 'models.anthropic.keyHint'
+              : 'models.form.keyHelp')}
+          >
+            <Input.Password placeholder={t(presetById(selectedProvider)?.protocol === 'anthropic'
+              ? 'models.anthropic.keyPlaceholder'
+              : 'models.placeholder.apiKey')} />
           </Form.Item>
           <Button loading={discoverLoading} onClick={() => void fetchModels()}>{t('models.form.fetchModels')}</Button>
           {discoverMessage && <Alert style={{ marginTop: 8 }} type={modelOptions.length ? 'success' : 'warning'} message={discoverMessage} />}

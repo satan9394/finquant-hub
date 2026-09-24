@@ -11,6 +11,7 @@ from ..services import indicators
 from ..services.a_stock_extra import AStockExtraError, AStockExtraService
 from ..services.llm_client import LLMError
 from ..services.market_data import MarketDataService, MarketError
+from ..services.market_graph import MarketGraphService
 from ..services.market_overview import MarketOverviewService
 from ..services.market_review import create_market_review, get_market_review, list_market_reviews
 from ..services.source_settings import save_source_priority
@@ -79,6 +80,43 @@ async def sector_ranking(
         return await _overview(request).sectors(kind, limit)
     except MarketError as e:
         raise HTTPException(502, str(e)) from e
+
+
+@router.get("/sector-treemap")
+async def sector_treemap() -> dict[str, Any]:
+    stocks = AStockExtraService()
+    try:
+        return await MarketGraphService(stocks).sector_treemap()
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await stocks.aclose()
+
+
+@router.get("/dragon-tiger-network")
+async def dragon_tiger_network(days: int = Query(default=5, ge=1, le=30)) -> dict[str, Any]:
+    stocks = AStockExtraService()
+    try:
+        return await MarketGraphService(stocks).dragon_tiger_network(days)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await stocks.aclose()
+
+
+@router.get("/sentiment-ladder")
+async def sentiment_ladder(trading_date: date | None = Query(default=None, alias="date")) -> dict[str, Any]:
+    stocks = AStockExtraService()
+    try:
+        return await MarketGraphService(stocks).sentiment_ladder(trading_date)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except AStockExtraError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        await stocks.aclose()
 
 
 @router.get("/popular")
@@ -233,10 +271,20 @@ async def quote(request: Request, ticker: str = Query(min_length=1)) -> dict[str
 
 
 @router.get("/kline")
-async def kline(request: Request, ticker: str = Query(min_length=1),
-                period: str = "1d", count: int = Query(default=100, ge=1, le=800)) -> dict[str, Any]:
+async def kline(
+    request: Request,
+    ticker: str | None = Query(default=None, min_length=1),
+    symbol: str | None = Query(default=None, min_length=1),
+    period: Literal["day", "week", "month", "60m", "15m", "1d", "1wk", "1mo", "30m", "5m"] = "1d",
+    count: int = Query(default=100, ge=1, le=800),
+) -> dict[str, Any]:
+    requested_ticker = symbol or ticker
+    if not requested_ticker:
+        raise HTTPException(422, "必须提供 symbol 或 ticker")
+    if symbol and ticker and symbol != ticker:
+        raise HTTPException(400, "symbol 与 ticker 不一致")
     try:
-        return {"items": await _svc(request).kline(ticker, period, count)}
+        return {"items": await _svc(request).kline(requested_ticker, period, count)}
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     except MarketError as e:

@@ -11,6 +11,7 @@ import type {
   UsageStatsItem,
   UsageStatsResponse,
   UsageSummaryResponse,
+  UsageEfficiency,
 } from '../services/usageApi';
 
 export interface UsageHeroData {
@@ -29,6 +30,7 @@ export interface UsageHeroData {
   estimatedCost: number | null;
   unpricedModels: number;
   unpricedTotalTokens: number;
+  efficiency: UsageEfficiency | null;
 }
 
 function pickTopModel(items: UsageStatsItem[]): UsageStatsItem | null {
@@ -80,6 +82,7 @@ export function buildUsageHero(input: {
     estimatedCost: costTotal?.estimated_cost ?? null,
     unpricedModels: costTotal?.unpriced_models ?? 0,
     unpricedTotalTokens: costTotal?.unpriced_total_tokens ?? 0,
+    efficiency: stats?.efficiency ?? null,
   };
 }
 
@@ -91,6 +94,10 @@ export interface UsageStatsRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens: number | null;
+  cacheHitRate: number | null;
+  avgSpeedTps: number | null;
+  avgTtftMs: number | null;
   /** Share of the window total; null when the window has no tokens to divide by. */
   tokenShare: number | null;
   requestShare: number | null;
@@ -118,6 +125,10 @@ export function buildUsageStatsRows(response: UsageStatsResponse | null): UsageS
     promptTokens: item.prompt_tokens,
     completionTokens: item.completion_tokens,
     totalTokens: item.total_tokens,
+    cachedTokens: item.cached_tokens ?? null,
+    cacheHitRate: item.cache_hit_rate ?? null,
+    avgSpeedTps: item.avg_speed_tps ?? null,
+    avgTtftMs: item.avg_ttft_ms ?? null,
     tokenShare: share(item.total_tokens, totalTokens),
     requestShare: share(item.request_count, totalRequests),
     costStatus: item.cost_status,

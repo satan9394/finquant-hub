@@ -1,5 +1,5 @@
 /* Portfolio page: groups, summary, holdings, allocation, and paper simulation. */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert, Card, Row, Col, Table, Tabs, Button, Modal, Form, Input, InputNumber, Select, Statistic, Typography, message, Empty, Popconfirm, Spin, Progress, Space, Tag,
@@ -21,10 +21,187 @@ import TaskPageHeader from '../components/TaskPageHeader';
 import PortfolioRiskWorkbench from '../components/portfolio/PortfolioRiskWorkbench';
 import FinancialMetric from '../components/FinancialMetric';
 import PortfolioOverview from '../components/PortfolioOverview';
+import MonthlyHeatmap from '../components/portfolio/MonthlyHeatmap';
+import RollingRiskChart from '../components/portfolio/RollingRiskChart';
+import UnderwaterChart from '../components/portfolio/UnderwaterChart';
 import { LoadStateView, readStateOf } from '../components/LoadFailureAlert';
 import { useLanguage } from '../i18n/LanguageContext';
 
 const { Text } = Typography;
+
+type PortfolioTearSheetResult = {
+  status: 'ok' | 'partial' | 'insufficient';
+  reason: string | null;
+  as_of?: string;
+  currency: string | null;
+  method: string;
+  coverage: {
+    requested_assets: number;
+    priced_assets: number;
+    available_symbols: string[];
+    missing_symbols: string[];
+    source_metadata: Record<string, { sources: string[]; adjustments: string[] }>;
+    observation_count: number;
+    history_start: string | null;
+    history_end: string | null;
+  };
+  metrics: {
+    max_drawdown: number | null;
+    max_drawdown_duration_days: number | null;
+    annualized_volatility: number | null;
+    calmar_ratio: number | null;
+    sortino_ratio: number | null;
+    concentration_hhi: number | null;
+    effective_asset_count: number | null;
+    largest_weight: number | null;
+  };
+  underwater_series: Array<{ time: string; value: number }>;
+  rolling_metrics: Array<{ time: string; sharpe: number | null; volatility: number }>;
+  monthly_matrix: Array<{ year: number; months: Array<number | null>; annual_total: number | null; complete_year?: boolean }>;
+  risk_contributions: Array<{ symbol: string; weight: number; annualized_volatility: number | null; risk_contribution: number | null }>;
+  warnings: string[];
+};
+
+const metricValue = (value: number | null | undefined, digits = 2) => (
+  value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
+);
+const metricPercent = (value: number | null | undefined) => (
+  value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(2)}%`
+);
+
+export function PortfolioRiskTearSheet({ portfolioId }: { portfolioId: number | null }) {
+  const [loaded, setLoaded] = useState<{ portfolioId: number; data: PortfolioTearSheetResult } | null>(null);
+  const [failure, setFailure] = useState<{ portfolioId: number; message: string } | null>(null);
+  const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    const id = ++requestId.current;
+    if (portfolioId == null) {
+      setLoadingId(null);
+      return;
+    }
+    setLoaded(null);
+    setLoadingId(portfolioId);
+    setFailure(null);
+    void apiClient.get<PortfolioTearSheetResult>(`/portfolio/${portfolioId}/risk-tearsheet`)
+      .then((response) => {
+        if (id === requestId.current) {
+          setLoaded({ portfolioId, data: response.data });
+          setFailure(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (id !== requestId.current) return;
+        const response = typeof error === 'object' && error !== null && 'response' in error
+          ? (error as { response?: { data?: { detail?: unknown } } }).response
+          : undefined;
+        const detail = response?.data?.detail;
+        setFailure({
+          portfolioId,
+          message: typeof detail === 'string' ? detail : error instanceof Error ? error.message : '风险数据读取失败',
+        });
+      })
+      .finally(() => {
+        if (id === requestId.current) setLoadingId(null);
+      });
+    return () => { requestId.current += 1; };
+  }, [portfolioId, reloadVersion]);
+
+  const result = loaded?.portfolioId === portfolioId ? loaded.data : null;
+  const error = failure?.portfolioId === portfolioId ? failure.message : null;
+  const insufficientReason: Record<string, string> = {
+    empty_portfolio: '当前组合没有持仓，暂时无法计算风险指标。',
+    no_price_history: '没有取得可用的历史收盘价；风险指标保持未知。',
+    insufficient_common_price_dates: '持仓之间缺少足够的共同交易日；风险指标保持未知。',
+    unsupported_currency_conversion: '持仓币种与组合币种不一致，且当前没有可核实的汇率序列；风险指标保持未知。',
+    invalid_portfolio_equity: '行情无法组成有效的组合净值序列；风险指标保持未知。',
+  };
+
+  return (
+    <Card
+      className="surface-card"
+      title="投资组合量化体检报告"
+      extra={<Button icon={<ReloadOutlined />} loading={portfolioId != null && loadingId === portfolioId} disabled={portfolioId == null} onClick={() => setReloadVersion((version) => version + 1)}>刷新风险数据</Button>}
+    >
+      <Alert
+        type="info"
+        showIcon
+        message="历史重演口径"
+        description="按当前持仓股数回放真实历史收盘价，不代表真实账户历史收益；历史持仓变动未写入账本。跨币种缺少汇率时不合并估值。"
+        style={{ marginBottom: 12 }}
+      />
+      {error && <Alert type="error" showIcon message="风险数据读取失败" description={error} action={<Button size="small" onClick={() => setReloadVersion((version) => version + 1)}>重试</Button>} style={{ marginBottom: 12 }} />}
+      {portfolioId == null && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请先创建或选择一个组合。" />}
+      {portfolioId != null && loadingId === portfolioId && <div style={{ padding: 32, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}><Spin /><Text type="secondary">正在读取历史行情并计算风险…</Text></div>}
+      {result && result.status === 'insufficient' && (
+        <Alert type="warning" showIcon message="风险指标暂不可用" description={insufficientReason[result.reason ?? ''] ?? '有效行情或币种数据不足，相关指标保持未知。'} style={{ marginBottom: 12 }} />
+      )}
+      {result && result.status !== 'insufficient' && (
+        <>
+          {result.status === 'partial' && (
+            <Alert
+              type="warning"
+              showIcon
+              message="部分数据可用"
+              description={[
+                result.coverage.missing_symbols.length ? `以下持仓未取得历史行情：${result.coverage.missing_symbols.join('、')}。暴露权重按有行情的持仓计算。` : '',
+                result.coverage.observation_count < 60 ? `共同收益样本为 ${result.coverage.observation_count} 期，尚不足 60 期滚动窗口。` : '',
+                result.warnings.includes('mixed_adjustment_basis') ? '行情源的复权口径不一致，合并风险结果仅供参考。' : '',
+              ].filter(Boolean).join(' ')}
+              style={{ marginBottom: 12 }}
+            />
+          )}
+          <Space wrap style={{ marginBottom: 12 }}>
+            <Tag>行情区间：{result.coverage.history_start ?? '—'} 至 {result.coverage.history_end ?? '—'}</Tag>
+            <Tag>共同收益期：{result.coverage.observation_count}</Tag>
+            <Tag>行情覆盖：{result.coverage.priced_assets}/{result.coverage.requested_assets} 个持仓</Tag>
+            <Tag>行情来源：{[...new Set(Object.values(result.coverage.source_metadata).flatMap((item) => item.sources))].join('、') || '未知'}</Tag>
+            <Tag>币种：{result.currency ?? '未知'}</Tag>
+          </Space>
+          <Row gutter={[12, 12]}>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="最大回撤" value={metricPercent(result.metrics.max_drawdown)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="最长修复期" value={metricValue(result.metrics.max_drawdown_duration_days, 0)} suffix={result.metrics.max_drawdown_duration_days == null ? undefined : '天'} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="年化波动率" value={metricPercent(result.metrics.annualized_volatility)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="Calmar" value={metricValue(result.metrics.calmar_ratio, 3)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="Sortino" value={metricValue(result.metrics.sortino_ratio, 3)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="集中度 HHI" value={metricValue(result.metrics.concentration_hhi, 3)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="有效持仓数" value={metricValue(result.metrics.effective_asset_count, 2)} /></Card></Col>
+            <Col xs={12} sm={8} lg={6}><Card size="small"><Statistic title="最大持仓权重" value={metricPercent(result.metrics.largest_weight)} /></Card></Col>
+          </Row>
+          <Card size="small" title="水下回撤" style={{ marginTop: 12 }}>
+            {result.underwater_series.length ? <UnderwaterChart data={result.underwater_series} /> : <Text type="secondary">没有足够的净值观察点。</Text>}
+          </Card>
+          <Card size="small" title="月度收益矩阵" style={{ marginTop: 12 }}>
+            {result.monthly_matrix.length ? <MonthlyHeatmap rows={result.monthly_matrix} /> : <Text type="secondary">当前没有可汇总的月度收益。</Text>}
+          </Card>
+          <Card size="small" title="60 日滚动夏普与波动率" style={{ marginTop: 12 }}>
+            {result.rolling_metrics.length ? <RollingRiskChart data={result.rolling_metrics} /> : <Text type="secondary">共同收益样本不足 60 期，滚动指标保持未知。</Text>}
+          </Card>
+          <Card size="small" title="持仓风险暴露与贡献" style={{ marginTop: 12 }}>
+            <Text type="secondary">权重按最新共同行情日市值计算；风险贡献 = wᵢ × (Σw)ᵢ / (wᵀΣw)，协方差使用对齐后的日收益样本。</Text>
+            <Table
+              rowKey="symbol"
+              size="small"
+              pagination={false}
+              style={{ marginTop: 8 }}
+              dataSource={result.risk_contributions}
+              columns={[
+                { title: '标的', dataIndex: 'symbol' },
+                { title: '市值权重', dataIndex: 'weight', render: (value: number) => metricPercent(value) },
+                { title: '年化波动率', dataIndex: 'annualized_volatility', render: (value: number | null) => metricPercent(value) },
+                { title: '风险贡献', dataIndex: 'risk_contribution', render: (value: number | null) => metricPercent(value) },
+              ]}
+              scroll={{ x: 520 }}
+            />
+          </Card>
+          <Text type="secondary" style={{ display: 'block', marginTop: 10 }}>数据截至 {result.as_of ?? '—'}。收益与风险按共同交易日估算；首尾月份可能为不完整样本期。</Text>
+        </>
+      )}
+    </Card>
+  );
+}
 
 type PortfolioLoadArea = 'groups' | 'summary' | 'holdings' | 'allocation';
 
@@ -878,10 +1055,27 @@ export default function Portfolio() {
         </Col>
       </Row>
 
-      <PortfolioRiskWorkbench
-        holdings={holdings}
-        initialCapital={holdings.reduce((total, holding) => total + holding.shares * holding.cost_price, 0)}
-        portfolioName={activeGroupName}
+      <Tabs
+        defaultActiveKey="tearsheet"
+        items={[
+          {
+            key: 'tearsheet',
+            label: '量化体检报告',
+            children: <PortfolioRiskTearSheet portfolioId={activeGroupId} />,
+          },
+          {
+            key: 'simulation',
+            label: '组合风险模拟',
+            children: (
+              <PortfolioRiskWorkbench
+                holdings={holdings}
+                initialCapital={holdings.reduce((total, holding) => total + holding.shares * holding.cost_price, 0)}
+                portfolioName={activeGroupName}
+              />
+            ),
+          },
+        ]}
+        style={{ marginTop: 16 }}
       />
 
       {/* Add or edit holding. */}

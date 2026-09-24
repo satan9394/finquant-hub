@@ -13,7 +13,14 @@ from sse_starlette.sse import EventSourceResponse
 from .. import database
 from ..services.market_data import normalize_code
 from ..services.notifications import publish_research_status
-from ..services.llm_usage import reset_usage_context, set_usage_context
+from ..services.llm_usage import (
+    interleave_llm_metrics,
+    llm_metrics_event_payload,
+    reset_llm_metrics_sink,
+    reset_usage_context,
+    set_llm_metrics_sink,
+    set_usage_context,
+)
 from ..services.swarm_orch import (
     build_earnings_review_report,
     build_four_masters_report,
@@ -197,12 +204,16 @@ async def _analyze_with_team(
         completed = False
         swarm_stream: AsyncIterator[tuple[str, dict[str, Any]]] | None = None
         usage_token = set_usage_context("swarm", report_id, user_id)
+        metrics_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        metrics_token = set_llm_metrics_sink(
+            lambda record: metrics_queue.put_nowait(llm_metrics_event_payload(record))
+        )
         try:
             yield {
                 "event": "report_started",
                 "data": json.dumps({"report_id": report_id, "ticker": ticker}, ensure_ascii=False),
             }
-            swarm_stream = run_with_user()
+            swarm_stream = interleave_llm_metrics(run_with_user(), metrics_queue)
             async for event, data in swarm_stream:
                 status_message: str | None = None
                 async with _SWARM_EVENT_LOCK:
@@ -245,6 +256,7 @@ async def _analyze_with_team(
                 ),
             }
         finally:
+            reset_llm_metrics_sink(metrics_token)
             reset_usage_context(usage_token)
             close = getattr(swarm_stream, "aclose", None)
             if close is not None:

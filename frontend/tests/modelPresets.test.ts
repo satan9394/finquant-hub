@@ -23,6 +23,18 @@ describe('MODEL_PRESETS', () => {
     expect(presetBaseUrl('openrouter')).toBe('https://openrouter.ai/api/v1');
   });
 
+  it('includes the native Anthropic Messages preset with the documented default model', () => {
+    const anthropic = presetById('anthropic');
+    expect(anthropic).toMatchObject({
+      baseUrl: 'https://api.anthropic.com',
+      defaultModel: 'claude-3-7-sonnet',
+      protocol: 'anthropic',
+    });
+    expect(anthropic?.docsUrl).toMatch(/^https:\/\/docs\.anthropic\.com\//);
+    expect(translations.zh[anthropic!.labelKey]).toContain('Anthropic');
+    expect(translations.en[anthropic!.labelKey]).toContain('Anthropic');
+  });
+
   it('keeps the domestic presets with their verified base URLs', () => {
     const domestic = ['dashscope', 'glm', 'kimi', 'siliconflow', 'minimax', 'stepfun', 'hunyuan'];
     for (const id of domestic) {
