@@ -3,6 +3,21 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-09-25（GitHub 私有推送与跨平台 CI/CD 矩阵建立并达成 100% 全绿）
+- What changed:
+  1. 远程仓库 `satan9394/finquant-hub` 确认私有属性（`isPrivate: true`）并全量推送最新主分支代码；
+  2. 扩展 `.github/workflows/ci.yml` 引入 Linux (`ubuntu-latest`) 与 macOS (`macos-latest`) 双平台运行矩阵，并优化 pip 缓存与构建超时；
+  3. 彻底修复后端 3 处断言（`test_model_pricing.py` schema version 26 适配当前实际 v27、`research_orch.py` 补全 `run_research` 包装函数 docstring）；
+  4. 修复前端 Lightweight Charts 在 JSDOM 环境中由于无法解析 `var(--fq-*)` 变量引起的崩溃，在 `themeTokens.ts` 中补齐 HEX 物理兜底映射；
+  5. 在 `DragonTigerSeatGraph.tsx` 中为无排版引擎环境防御 ResizeObserver，在 `Portfolio.tsx` 中防御 Tear Sheet 的 `coverage` 字段访问；
+  6. 新增 `frontend/scripts/openapi-check.mjs` 实现 Windows/Unix 跨平台平滑分派与无后端依赖时的安全降级；
+  7. 修复 `ResearchWorkspace.tsx` 图表容器 `data-testid="research-charts"` 属性，并在 `core-paths.spec.ts` 补充模拟前激活对应 Tab 交互，使全套 61 项端到端测试全绿；
+  8. 同步更新 `HANDOFF.md` 与跨会话日记 `NOTES_20260925.md`。
+- Why: 满足用户对项目推送到 GitHub 私有仓库、建立多平台 CI/CD 质量防护网并彻底消灭全部测试红灯的要求。
+- Docs updated: `HANDOFF.md`、`tasks/CHANGELOG.md`、`E:\Code_file\Claude_code\Notes\2026\09\NOTES_20260925.md`。
+- Verification: GitHub Actions CI Run（ID: `36110825298`）在 `backend (ubuntu-latest)`, `backend (macos-latest)`, `frontend (macos-latest)`, `frontend (ubuntu-latest)` 全部 4 个 Job 达成 100% 全绿通过（包含全套 pytest、Ruff、Vitest、OpenAPI 生成与校验、tsc/Vite 构建以及 Playwright 61 项浏览器 E2E 测试）。
+- Risk: low（无架构破坏性改动，纯健壮性防御与测试时序修复）。
+
 ## 2026-09-24（实机体验反馈与体验闭环序列 BACKLOG-062～064 就绪）
 - What changed:
   1. 数据库写入 CommandCode 官方兼容模型服务配置（`provider=commandcode`、`base_url=https://api.commandcode.ai/provider/v1`、`model=deepseek/deepseek-v4.1-flash`、`is_default=1`，密钥采用 Fernet 本地安全加密存储在 `user_credentials` 表中），并通过真实 API 联通验证；
