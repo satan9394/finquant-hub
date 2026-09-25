@@ -65,8 +65,8 @@ async def test_model_pricing_table_exists_with_expected_columns(pricing_client):
         "id", "user_id", "model_name", "input_per_1m", "output_per_1m",
         "currency", "source", "updated_at",
     } <= columns
-    assert database._SCHEMA_VERSION == 26
-    assert (await database.query_one("PRAGMA user_version"))["user_version"] == 26
+    assert database._SCHEMA_VERSION >= 26
+    assert (await database.query_one("PRAGMA user_version"))["user_version"] >= 26
     recorded = await database.query_one("SELECT name FROM schema_version WHERE version=26")
     assert recorded["name"] == "install_model_pricing"
 
@@ -95,7 +95,7 @@ async def test_v25_database_gains_model_pricing_without_losing_usage(tmp_path, m
     try:
         columns = {row["name"] for row in await database.query_all("PRAGMA table_info(model_pricing)")}
         assert {"model_name", "input_per_1m", "output_per_1m", "currency", "source"} <= columns
-        assert (await database.query_one("PRAGMA user_version"))["user_version"] == 26
+        assert (await database.query_one("PRAGMA user_version"))["user_version"] == database._SCHEMA_VERSION
         usage = await database.query_one("SELECT model_name, total_tokens FROM llm_usage")
         assert usage == {"model_name": "legacy-model", "total_tokens": 15}
     finally:

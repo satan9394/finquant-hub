@@ -32,22 +32,57 @@ export function readToken(name: FinQuantToken): string {
   return getComputedStyle(root).getPropertyValue(name).trim() || tokenVar(name);
 }
 
+const CHART_FALLBACK_TOKENS: Record<FinQuantToken, string> = {
+  '--fq-surface-1': '#ffffff',
+  '--fq-surface-2': '#fafafa',
+  '--fq-border': '#d9d9d9',
+  '--fq-border-strong': '#bfbfbf',
+  '--fq-text-primary': '#172033',
+  '--fq-text-secondary': '#5c697a',
+  '--fq-text-tertiary': '#66707f',
+  '--fq-ai-primary': '#1677ff',
+  '--fq-ai-soft': '#e6f4ff',
+  '--fq-secondary': '#4096ff',
+  '--fq-bg-page': '#f5f7fa',
+  '--fq-bg-subtle': '#f0f2f5',
+  '--fq-evidence-fact': '#2563eb',
+  '--fq-evidence-inference': '#a85a00',
+  '--fq-evidence-model': '#7557c8',
+  '--fq-evidence-unknown': '#626c7d',
+  '--fq-price-up': '#d03f56',
+  '--fq-price-down': '#13805f',
+  '--fq-system-info': '#2561e6',
+  '--fq-system-warning': '#8f6000',
+  '--fq-system-error': '#b42318',
+  '--fq-opportunity': '#12785f',
+  '--fq-risk': '#d13c3c',
+  '--fq-warning': '#8f6000',
+};
+
+function readChartToken(name: FinQuantToken): string {
+  const val = readToken(name);
+  if (!val || val.startsWith('var(')) {
+    return CHART_FALLBACK_TOKENS[name] ?? '#888888';
+  }
+  return val;
+}
+
 export function readChartTokens() {
   return {
-    background: readToken('--fq-surface-1'),
-    surface: readToken('--fq-surface-2'),
-    grid: readToken('--fq-border'),
-    gridStrong: readToken('--fq-border-strong'),
-    text: readToken('--fq-text-secondary'),
-    textPrimary: readToken('--fq-text-primary'),
-    primary: readToken('--fq-ai-primary'),
-    secondary: readToken('--fq-secondary'),
-    up: readToken('--fq-price-up'),
-    down: readToken('--fq-price-down'),
-    warning: readToken('--fq-warning'),
-    model: readToken('--fq-evidence-model'),
-    unknown: readToken('--fq-evidence-unknown'),
-    risk: readToken('--fq-risk'),
+    background: readChartToken('--fq-surface-1'),
+    surface: readChartToken('--fq-surface-2'),
+    grid: readChartToken('--fq-border'),
+    gridStrong: readChartToken('--fq-border-strong'),
+    text: readChartToken('--fq-text-secondary'),
+    textPrimary: readChartToken('--fq-text-primary'),
+    primary: readChartToken('--fq-ai-primary'),
+    secondary: readChartToken('--fq-secondary'),
+    up: readChartToken('--fq-price-up'),
+    down: readChartToken('--fq-price-down'),
+    warning: readChartToken('--fq-warning'),
+    model: readChartToken('--fq-evidence-model'),
+    unknown: readChartToken('--fq-evidence-unknown'),
+    risk: readChartToken('--fq-risk'),
   };
 }
 

@@ -64,18 +64,24 @@ export default function DragonTigerSeatGraph() {
     const host = chartHostRef.current;
     if (!host) return;
     const updateVisibility = () => {
+      if (typeof ResizeObserver === 'undefined') {
+        setChartVisible(true);
+        return;
+      }
       const bounds = host.getBoundingClientRect();
       const visible = bounds.width > 0 && bounds.height > 0;
       setChartVisible((current) => current === visible ? current : visible);
     };
-    const observer = new ResizeObserver(updateVisibility);
-    observer.observe(host);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateVisibility) : null;
+    if (observer) {
+      observer.observe(host);
+    }
     const tabPane = host.closest('.ant-tabs-tabpane');
     const mutationObserver = new MutationObserver(updateVisibility);
     if (tabPane) mutationObserver.observe(tabPane, { attributes: true, attributeFilter: ['class', 'style'] });
     updateVisibility();
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       mutationObserver.disconnect();
     };
   }, [data?.nodes.length]);

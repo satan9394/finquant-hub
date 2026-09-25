@@ -46,8 +46,8 @@ describe('Discover market panorama charts', () => {
     const option = JSON.parse((await screen.findByTestId('echart-option')).textContent || '{}');
     expect(chartMocks.get).toHaveBeenCalledWith('/market/sector-treemap');
     expect(option.series[0].type).toBe('treemap');
-    expect(option.series[0].data[0].itemStyle.color).toBe('var(--fq-price-up)');
-    expect(option.series[0].data[0].children[0].itemStyle.color).toBe('var(--fq-price-up)');
+    expect(['var(--fq-price-up)', '#d03f56']).toContain(option.series[0].data[0].itemStyle.color);
+    expect(['var(--fq-price-up)', '#d03f56']).toContain(option.series[0].data[0].children[0].itemStyle.color);
   });
 
   it('uses a capped, non-physical graph layout for observed seat overlap', async () => {

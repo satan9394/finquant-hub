@@ -804,7 +804,13 @@ async def run_research(
     user_id: int,
     deadline_seconds: float | None = DEFAULT_RESEARCH_DEADLINE_SECONDS,
 ) -> AsyncIterator[tuple[str, JSONDict]]:
-    """Run the research pipeline and persist the measured call summary in its report."""
+    """并行执行四个 Agent 的研究，通过 yield (event, data) 推送 SSE 事件流并记录遥测。
+
+    deadline_seconds（VS27）：整轮（4 个并行 Agent + 串行主编）的聚合等待上界。
+    可判定上界：整轮墙钟 ≤ deadline_seconds + client.timeout（单次尝试超时），
+    前提是"只在两次调用之间检查截止，进行中的调用不打断"。
+    值必须为正有限数：0/负数/NaN/Inf ⇒ ValueError。
+    """
     telemetry_records: list[JSONDict] = []
     metrics_queue: asyncio.Queue[JSONDict] = asyncio.Queue()
     telemetry_token = set_llm_metrics_sink(telemetry_records.append)

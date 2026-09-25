@@ -138,7 +138,7 @@ export function PortfolioRiskTearSheet({ portfolioId }: { portfolioId: number | 
       {result && result.status === 'insufficient' && (
         <Alert type="warning" showIcon message="风险指标暂不可用" description={insufficientReason[result.reason ?? ''] ?? '有效行情或币种数据不足，相关指标保持未知。'} style={{ marginBottom: 12 }} />
       )}
-      {result && result.status !== 'insufficient' && (
+      {result && result.status !== 'insufficient' && result.coverage && (
         <>
           {result.status === 'partial' && (
             <Alert
@@ -146,18 +146,18 @@ export function PortfolioRiskTearSheet({ portfolioId }: { portfolioId: number | 
               showIcon
               message="部分数据可用"
               description={[
-                result.coverage.missing_symbols.length ? `以下持仓未取得历史行情：${result.coverage.missing_symbols.join('、')}。暴露权重按有行情的持仓计算。` : '',
-                result.coverage.observation_count < 60 ? `共同收益样本为 ${result.coverage.observation_count} 期，尚不足 60 期滚动窗口。` : '',
-                result.warnings.includes('mixed_adjustment_basis') ? '行情源的复权口径不一致，合并风险结果仅供参考。' : '',
+                result.coverage.missing_symbols?.length ? `以下持仓未取得历史行情：${result.coverage.missing_symbols.join('、')}。暴露权重按有行情的持仓计算。` : '',
+                (result.coverage.observation_count ?? 0) < 60 ? `共同收益样本为 ${result.coverage.observation_count} 期，尚不足 60 期滚动窗口。` : '',
+                result.warnings?.includes('mixed_adjustment_basis') ? '行情源的复权口径不一致，合并风险结果仅供参考。' : '',
               ].filter(Boolean).join(' ')}
               style={{ marginBottom: 12 }}
             />
           )}
           <Space wrap style={{ marginBottom: 12 }}>
             <Tag>行情区间：{result.coverage.history_start ?? '—'} 至 {result.coverage.history_end ?? '—'}</Tag>
-            <Tag>共同收益期：{result.coverage.observation_count}</Tag>
-            <Tag>行情覆盖：{result.coverage.priced_assets}/{result.coverage.requested_assets} 个持仓</Tag>
-            <Tag>行情来源：{[...new Set(Object.values(result.coverage.source_metadata).flatMap((item) => item.sources))].join('、') || '未知'}</Tag>
+            <Tag>共同收益期：{result.coverage.observation_count ?? '—'}</Tag>
+            <Tag>行情覆盖：{result.coverage.priced_assets ?? 0}/{result.coverage.requested_assets ?? 0} 个持仓</Tag>
+            <Tag>行情来源：{[...new Set(Object.values(result.coverage.source_metadata ?? {}).flatMap((item) => item.sources ?? []))].join('、') || '未知'}</Tag>
             <Tag>币种：{result.currency ?? '未知'}</Tag>
           </Space>
           <Row gutter={[12, 12]}>
