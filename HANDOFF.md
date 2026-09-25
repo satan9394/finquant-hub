@@ -1,7 +1,7 @@
 # HANDOFF —— 项目交接档案
 
 > 用途：跨会话/跨 agent 接续的权威档案。会话结束时更新；新会话先读本文件再动手。
-> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-24（BACKLOG-062～064 体验闭环序列完成并复核全量前端测试）。
+> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-25（推送到 GitHub 私有仓库、配置 Linux/macOS 双平台 CI 并彻底修复全部测试报错达成 100% 全绿）。
 
 ## 当前目标（Objective）
 
@@ -10,9 +10,7 @@
 
 用户在实机走查体验中发现的三项交互断裂已按卡完成：BACKLOG-062 原生策略演示与 Strategy Lab 预填、BACKLOG-063 候选模型搜索/回填/批量添加、BACKLOG-064 双协议选择与折叠公有云预设。逐卡证据见 `docs/ai/tasks/BACKLOG-062.md` 至 `BACKLOG-064.md`，状态见 `docs/ai/EXEC_PLAN.md`。
 
-逐卡测试和构建门禁通过。完整前端套件在当前工作树与干净基线提交 `f79d22ac9d8e74401e48920b3eb01cc1b347f271` 上都以相同的 4 个测试文件、18 个失败用例和 35 个错误退出；基线为 156 files / 682 passed，当前工作树为 157 files / 691 passed。失败落在未修改的 ResearchWorkspace/Followup、Portfolio 与 MarketTreemap 图表测试面；与基线相比没有新增失败。套件在基线也未全绿，具体 JSDOM/fixture 错误及对照证据已记入 `tasks/CHANGELOG.md`。
-
-当前实现与验证证据已全部合入本地主分支，提交为 `c8bc8b0`（feat(frontend): complete BACKLOG-062-064 experience loop），工作树干净，领先 `origin/main` 13 个提交。
+2026-09-25 响应用户“建议一”要求，将全仓代码推送到 GitHub 私有仓库并建立包含 Linux (`ubuntu-latest`) 与 macOS (`macos-latest`) 的多环境 GitHub Actions CI/CD 流水线。系统性清零修复了此前遗留的后端测试断言、前端 Lightweight Charts 在 JSDOM 环境下的样式崩溃、Tear Sheet 异常、构建脚本跨平台分派及 E2E 定位缺失问题。GitHub Actions 4 个 Job（pytest、Ruff、Vitest、TypeScript 构建、Playwright E2E 61 项）已达成 100% 全绿通过（Run ID `36110825298`）。工作树干净并已与 `origin/main` 完全同步。
 
 ---
 
@@ -372,3 +370,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-24 BACKLOG-062/063/064 card gates revalidated; full frontend suite failed outside the locked WorkSet | 验证: Focused tests 062 3/3, 063 4/4, 064 17/17 and bun run build exit 0; full bun run test exit 1 with 4 failed files (18/709 tests, 35 errors); git diff --check exit 0; no commit
 
 - 2026-09-24 Compared full frontend suite against clean HEAD baseline f79d22ac9d8e74401e48920b3eb01cc1b347f271; no additional failures from BACKLOG-062/063/064 | 验证: Baseline: 4 failed files, 18 failed/682 passed tests, 35 errors; worktree: same 4 files and 18 failures/35 errors, 691 passed incl. nine more tests. Focused card gates and bun run build pass; git diff --check passed; no commit
+
+- 2026-09-25 GitHub 私有推送与双平台 CI/CD 全绿（响应“建议一”）：确认远程仓库 `satan9394/finquant-hub` 属性为私有（isPrivate: true）；配置 GitHub Actions `ci.yml` 引入 Linux (`ubuntu-latest`) 与 macOS (`macos-latest`) 双平台构建与测试矩阵；系统性清零修复全部历史遗留缺陷（后端 schema/docstring、前端 JSDOM CSS/ResizeObserver 崩溃、Tear Sheet 异常、E2E 交互定位与 Tab 切换），CI 4 个 Job 达成 100% 全绿。 | 验证: GitHub Actions Run ID `36110825298` 4 个 Job 全部通过（backend ubuntu-latest 2m8s、backend macos-latest 1m56s、frontend macos-latest 6m39s、frontend ubuntu-latest 16m19s）；全套 pytest、Ruff、Vitest、OpenAPI 生成检查、bun run build、Playwright 61 项 E2E 测试全绿；工作树整洁。
