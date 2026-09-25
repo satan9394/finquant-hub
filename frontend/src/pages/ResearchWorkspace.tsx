@@ -672,7 +672,7 @@ function ResearchWorkspaceCore({ followupPrompt = '' }: { followupPrompt?: strin
           <ResultLayer layer="evidence" title={t('research.evidence.title')}>
             <Row gutter={[18, 18]} align="top">
             <Col xs={24} xl={17}>
-              <Card title={t('research.marketData')} className="surface-card">
+              <Card title={t('research.marketData')} className="surface-card" data-testid="research-charts">
                 <ProCandlestickChart symbol={currentSymbol} reports={reports} />
               </Card>
 

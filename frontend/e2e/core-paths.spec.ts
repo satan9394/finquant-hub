@@ -251,6 +251,7 @@ test('portfolio reaches sourced read-only risk evidence', async ({ page }) => {
   await page.goto('/portfolio');
 
   await expect(page.getByText('行情与盈亏已更新')).toBeVisible();
+  await page.getByRole('tab', { name: /组合风险模拟/ }).click();
   await page.getByRole('button', { name: /运行组合风险模拟/ }).click();
   await expect(page.getByText('首要关注：持仓集中度高')).toBeVisible();
   await expect(page.getByText('市场 2/2 · 币种 2/2 · 行业 0/2')).toBeVisible();
