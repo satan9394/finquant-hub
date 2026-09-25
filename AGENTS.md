@@ -8,6 +8,24 @@
 2. `docs/ai/EXEC_PLAN.md` — find the highest-numbered `[READY]` task
 3. That task's TASK file under `docs/ai/`
 
+## Development workflow (personal-dev-workflow)
+
+This repo carries the **personal-dev-workflow** skill at `.agents/skills/personal-dev-workflow/`
+(also mirrored at `.claude/skills/personal-dev-workflow/` for Claude Code). Read its `SKILL.md`
+before substantial multi-step work; load `references/` on demand.
+
+- Default mode is `standard`: one card, one closed loop, show evidence and stop.
+- `bounded` autonomous continuation requires explicit opt-in and a Mission envelope.
+- The machine source of truth for a bounded Mission is `.agent-state/run-state.json`
+  (gitignored); `RUN_STATE.md` is only its generated view.
+- Task cards live in `docs/ai/BACKLOG-NNN.md`; `docs/ai/tasks/` holds evidence and some cards —
+  see `docs/ai/tasks/README.md` before assuming which is which.
+- Keep a fact in exactly one place: task semantics in the card, code facts in git,
+  long-term decisions in `docs/`, user-visible changes in `CHANGELOG.md`.
+
+When this skill and the notes above conflict, the skill's `references/memory-policy.md` wins for
+recording questions, and `docs/ai/EXEC_PLAN.md` wins for task status.
+
 ## Quick commands
 
 ```bash
