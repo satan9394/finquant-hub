@@ -1,5 +1,11 @@
 # BACKLOG-033 — A6 主编降级诚实展示 + B8 文案术语收敛（前端为主 + 报告结构小改）
 
+- Status: done
+- Mission: A6 主编降级诚实展示（`lead_review_status` + 报告顶部提示）+ B8 专业指标文案中文化，均不改状态机语义
+- Source: planned
+- Risk: low
+- Evidence: `docs/ai/tasks/BACKLOG-033.md`（完成证据）；合入 commit `8ee4d31`（维护者复核通过）
+
 > 状态：`[READY]` ｜ 优先级：P2 ｜ 创建：2026-09-06 ｜ 完成：— ｜ 执行：DSH Worker
 > 背景：
 > - **A6**（Astra A6 断言，契约待决策但最小诚实方案可执行）：主编 LLMError 后研究仍落 completed + 成功通知，`build_unified_report` 内部已记 `team_lead_review.model_output_status: "parsed" if lead else "unknown"`（report_builder.py:331），但**前端不消费该字段**——用户看到 completed 报告却不知主编未审计。修复 = 让降级对用户可见（诚实提示），不改状态机语义。

@@ -1,5 +1,10 @@
 # BACKLOG-062: 资料库策略互动演示原生化与量化业务一键接通
 
+- Status: planned
+- Mission: 将资料库策略演示从静态 iframe 重构为原生交互组件，并一键接通 `/strategy-lab` 回测
+- Source: human-requested
+- Risk: medium
+
 ## 目标与背景
 用户在体验「资料库 (`/knowledge`)」时反馈：策略板块的动态图无法与真实业务联动，点击各种按钮无效，原有的 iframe 嵌套静态 HTML（m1~m8）脱离了真实行情与回测系统。
 本任务旨在将旧的静态 HTML 演示彻底淘汰，使用原生交互组件与真实图表（Lightweight Charts 或 ECharts）重构策略互动面板，并为每个策略打通一键直达「策略回测实验室 (`/strategy-lab`)」的真实量化业务闭环。

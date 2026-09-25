@@ -1,5 +1,11 @@
 # 长期任务书 — Astra 双会话审查处置（DSH 执行，BACKLOG-029）
 
+- Status: done
+- Mission: 对 Astra 双会话审查反馈先独立复核分级、再选择性修复并回归，最后诚实收口
+- Source: human-requested
+- Risk: medium
+- Evidence: `docs/ai/astra-review/verification-2026-09-04.md`（核验表）；收尾记录见 `EXEC_PLAN.md` 本卡段与 `task/CHANGELOG.md`（本目录无 `tasks/BACKLOG-029.md`）
+
 > 创建：2026-09-04 ｜ 执行模式：DSH 主维护 agent 自主执行（不再用 Codex）
 > 触发：用户提供长期任务书后在新对话开启，目标为跨多轮自动续跑。
 > 前置存档：Astra 两会话只读审查原文已存 `docs/ai/astra-review/session-A-architecture-2026-09-04.md`、`session-B-ui-2026-09-04.md`（commit 87bcdd9）。

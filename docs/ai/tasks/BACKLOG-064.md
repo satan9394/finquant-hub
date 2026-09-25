@@ -1,5 +1,10 @@
 # BACKLOG-064: 供应商管理界面精简净化与双协议直观驱动
 
+- Status: planned
+- Mission: 供应商管理改为 OpenAI/Anthropic 双协议卡片驱动，18 厂商预设折叠收起
+- Source: human-requested
+- Risk: medium
+
 ## 目标与背景
 用户在配置模型时强烈反馈：自己只配置并使用了一个专属供应商（如 CommandCode），但界面上强制平铺了 18 个包含国内外公有云厂商（智谱、千问、豆包、MiniMax、Cerebras 等）的庞大预设网格，产生了严重的信息噪音与无关内容污染。
 用户的真实心智模型非常清晰简洁：
