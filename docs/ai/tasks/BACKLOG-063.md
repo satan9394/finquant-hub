@@ -1,6 +1,6 @@
 # BACKLOG-063: 模型管理拉取模型交互闭环与候选模型直观选用
 
-- Status: planned
+- Status: completed
 - Mission: 打通"拉取模型 → 候选可视化 → 一键回填/批量添加"的模型配置交互闭环
 - Source: human-requested
 - Risk: low
@@ -33,3 +33,10 @@
 - 在模型弹窗中点击拉取模型，候选模型面板立即展开并呈现模型列表。
 - 点击任意候选模型标签，表单 `model_name` 字段被立即填入，点击保存能成功入库。
 - 前端测试与 `bun run build` 100% 通过。
+
+## 完成证据（2026-09-24）
+- `bun run test tests/ModelsForm.test.tsx`：4/4 passed；覆盖不支持模型列表接口时的手动输入指引、候选搜索与 Tag 回填名称、聚焦候选时展开 AutoComplete，以及复用当前地址/密钥批量创建配置。
+- `bun run build`：OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,280 modules built。
+- 新增 `DiscoveredModelSelector.tsx`，候选模型可搜索、逐个回填或勾选批量添加；批量请求复用现有 `/models` API，并报告部分失败。未填写 API Key 或环境变量名时会阻止批量创建。
+- 新增交互提示的中英文文案；没有候选模型时保留手动输入，并提示供应商可能未开放 `/models`。
+- `git diff --check` 通过；未改后端/API/schema/依赖，未删除文件。

@@ -1,23 +1,26 @@
 # HANDOFF —— 项目交接档案
 
 > 用途：跨会话/跨 agent 接续的权威档案。会话结束时更新；新会话先读本文件再动手。
-> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-24（BACKLOG-050～061 归档与 BACKLOG-062～064 体验闭环序列就绪）。
+> 由 harness-engineering v4.11.0 `bootstrap.py --init` 生成，首次真实工作替换于 2026-08-20，最近更新 2026-09-24（BACKLOG-062～064 体验闭环序列完成并复核全量前端测试）。
 
 ## 当前目标（Objective）
 
 **BACKLOG-050～061（含双模型协议、遥测流、专业K线图、Alpha/组合体检及浏览器自动化 E2E）已全部开发验证完毕并提交入库（commit `c39c06d`, `4ed0966`）。**
 **CommandCode 模型供应商与默认模型 `deepseek/deepseek-v4.1-flash` 已注入数据库（Fernet 加密密钥存储、用户隔离、默认标记）并通过真实 API 联通测试。**
 
-用户在实机走查体验中发现了三大核心业务与交互断裂问题，当前处于 **待执行 [READY]** 的演进序列为：
-1. **BACKLOG-062**：资料库策略互动演示原生化与量化业务一键接通（淘汰旧静态 HTML iframe，改用原生 Lightweight/ECharts 交互组件，支持调节参数并一键直达 `/strategy-lab` 回测实验室预填参数）。
-2. **BACKLOG-063**：模型管理拉取模型交互闭环与候选模型直观选用（拉取模型后动态展开可搜索过滤的模型 Tag/卡片列表，支持点击自动填表与快捷勾选批量添加，终结无反馈感）。
-3. **BACKLOG-064**：供应商管理界面精简净化与协议驱动（OpenAI/Anthropic）重构（淘汰 18 个外部厂商平铺大网格，改为协议驱动卡片，公有云厂商收折为次级抽屉，突出用户已配置供应商）。
+用户在实机走查体验中发现的三项交互断裂已按卡完成：BACKLOG-062 原生策略演示与 Strategy Lab 预填、BACKLOG-063 候选模型搜索/回填/批量添加、BACKLOG-064 双协议选择与折叠公有云预设。逐卡证据见 `docs/ai/tasks/BACKLOG-062.md` 至 `BACKLOG-064.md`，状态见 `docs/ai/EXEC_PLAN.md`。
+
+逐卡测试和构建门禁通过。完整前端套件在当前工作树与干净基线提交 `f79d22ac9d8e74401e48920b3eb01cc1b347f271` 上都以相同的 4 个测试文件、18 个失败用例和 35 个错误退出；基线为 156 files / 682 passed，当前工作树为 157 files / 691 passed。失败落在未修改的 ResearchWorkspace/Followup、Portfolio 与 MarketTreemap 图表测试面；与基线相比没有新增失败。套件在基线也未全绿，具体 JSDOM/fixture 错误及对照证据已记入 `tasks/CHANGELOG.md`。
+
+当前实现和记录仍在 `main` 工作树中，尚未提交；按仓库确认规则，本轮未创建 commit 或 push。
 
 ---
 
 ### 新会话接力协议（针对用户提问：“看看当前项目还有什么未完成的，或者要搞的”）
 
-当用户开启全新的会话窗口（无需恢复旧会话 ID），并提出类似问句时，接手的 Agent（Codex / Claude / agy 等）应直接按本约定回答用户，说明当前已就绪的 3 张任务卡与背景，并直接提供或执行如下为 Codex 准备的无缝启动 Prompt：
+当用户开启全新的会话窗口并询问当前未完成事项时，接手的 Agent（Codex / Claude / agy 等）应先查阅 `docs/ai/EXEC_PLAN.md` 与工作树。2026-09-25 的状态是 BACKLOG-062～064 均已完成，EXEC_PLAN 中没有 `[READY]` 任务；不要再次启动下方这段已完成序列的历史 Prompt。
+
+#### 历史启动 Prompt（BACKLOG-062～064 已完成，仅供追溯）
 
 ```text
 【你现在以首席量化系统架构师与前端资深全栈工程师身份，执行 FinQuant Hub 的用户真实体验闭环优化任务。
@@ -129,7 +132,7 @@ grep 分析 93 处技术栈匹配，结论：
 ## 未决问题与下一步（Open Questions / Next Steps）
 
 1. **P2-2 请求错误态清理**：46 个剩余调用点待逐项评估；按单实体、单请求推进，避免批量改写。Portfolio 真实持仓首批已完成。
-2. **BLOCKED/PARKED 项**：继续按 `docs/ai/EXEC_PLAN.md` 的触发条件管理；截至 2026-09-23 没有 `[READY]` 任务。
+2. **BLOCKED/PARKED 项**：继续按 `docs/ai/EXEC_PLAN.md` 的触发条件管理；截至 2026-09-25，BACKLOG-062～064 已完成，当前没有 `[READY]` 任务。
 3. **Design System 新老双轨**：长期维护项，不阻塞当前技术债演进。
 4. **生产 memory 方案**：Native FTS5 已由 ADR-005 采纳；可选 PoC 状态按 EXEC_PLAN 保留。
 5. **浏览器视觉证据**：历史记录确认 Dashboard hero、MarketBrief、LatestNews、DecisionCard 的 accessibility snapshot；不要把该记录扩张为全路由视觉矩阵验收。
@@ -359,3 +362,13 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-09-23 BACKLOG-058～061 浏览器 E2E 序列完成；BACKLOG-061 稳定化席位图悬停并更新任务记录 | 验证: BACKLOG-061 combined Chromium E2E 2/2 no retry; both specs standalone 1/1; pageerror=0 and console.error=0; git diff --check exit 0; AntD, React Router, and ECharts warnings recorded; screenshots inspected.
 
 - 2026-09-24 实机体验走查反馈与体验闭环任务规划（BACKLOG-062～064 就绪）：录入 CommandCode 供应商配置并在 DB 中安全加密持久化（默认模型 deepseek/deepseek-v4.1-flash 联通验证通过）；服务停机释放端口 8000；梳理实机反馈并立项三张任务卡（062 资料库原生化+回测联动、063 拉取模型直观选择卡片与一键填入、064 供应商协议驱动与外部预设折叠收拢）；更新 EXEC_PLAN、NEXT_BACKLOG 与接力 Prompt。 | 验证: 端口 8000 释放确认；新任务卡 docs/ai/tasks/BACKLOG-062~064.md 结构完整，注册状态 [READY]；git diff --check 通过。
+
+- 2026-09-24 Completed the BACKLOG-062/063/064 bounded WorkSet; all three cards are marked DONE with focused evidence. Changes remain uncommitted pending the repository confirmation rule. | 验证: 062 focused tests and Chromium E2E passed; 063 ModelsForm 4/4 and build passed; 064 ProviderPresetSelector/ModelsCards/ModelsForm 17/17 and build passed; responsive Chromium review at 1440 and 390 px; git diff --check passed.
+
+- 2026-09-24 BACKLOG-062/063/064 closeout: corrected the 063/064 evidence dates to the workspace local date and consolidated the changelog entries. | 验证: git diff --check passed; card-specific gates are recorded as passed. Full bun run test was interrupted after prolonged JSDOM chart errors with 14 ResearchWorkspaceEvidence and 1 ResearchFollowupPrompt failures observed; no final suite summary or lingering Vitest process. No commit made.
+
+- 2026-09-24 Current-tree revalidation of BACKLOG-062/063/064 gates and refreshed 064 Chromium visual captures. | 验证: 062 KnowledgeInteractive 3/3, build, Chromium E2E 1/1; 063 ModelsForm 4/4 and build; 064 selector/cards/form 17/17 and build; all builds have fresh 60-schema types and zero TS errors. git diff --check passes. The full bun run test remains incomplete after unrelated unchanged ProCandlestickChart/JSDOM failures; no Vite server or test process remains. Mission run-state stays active; no commit.
+
+- 2026-09-24 BACKLOG-062/063/064 card gates revalidated; full frontend suite failed outside the locked WorkSet | 验证: Focused tests 062 3/3, 063 4/4, 064 17/17 and bun run build exit 0; full bun run test exit 1 with 4 failed files (18/709 tests, 35 errors); git diff --check exit 0; no commit
+
+- 2026-09-24 Compared full frontend suite against clean HEAD baseline f79d22ac9d8e74401e48920b3eb01cc1b347f271; no additional failures from BACKLOG-062/063/064 | 验证: Baseline: 4 failed files, 18 failed/682 passed tests, 35 errors; worktree: same 4 files and 18 failures/35 errors, 691 passed incl. nine more tests. Focused card gates and bun run build pass; git diff --check passed; no commit

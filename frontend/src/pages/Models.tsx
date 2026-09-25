@@ -10,6 +10,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { presetBaseUrl, presetById } from '../features/modelPresets';
 import ProviderCard from '../components/models/ProviderCard';
 import ProviderPresetSelector from '../components/models/ProviderPresetSelector';
+import DiscoveredModelSelector from '../components/models/DiscoveredModelSelector';
 import { modelCredentialLabel } from '../components/models/providerLabels';
 import {
   forgetProviderHealth, healthStatusOf, isProviderEnabled, readDisabledProviderIds, readProviderHealth,
@@ -34,8 +35,11 @@ export default function Models() {
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [form] = Form.useForm();
   const [testLoading, setTestLoading] = useState<number | null>(null);
-  const [modelOptions, setModelOptions] = useState<Array<{ value: string }>>([]);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [selectedDiscoveredModels, setSelectedDiscoveredModels] = useState<string[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [batchAdding, setBatchAdding] = useState(false);
+  const [modelNameFocused, setModelNameFocused] = useState(false);
   const [discoverMessage, setDiscoverMessage] = useState('');
   const [testResult, setTestResult] = useState<{ id: number; result: ModelTestResult } | null>(null);
   const [health, setHealth] = useState<ProviderHealthMap>({});
@@ -73,6 +77,7 @@ export default function Models() {
   const openModal = (model?: ModelConfig) => {
     form.resetFields();
     setModelOptions([]);
+    setSelectedDiscoveredModels([]);
     setDiscoverMessage('');
     if (model) {
       setEditingModel(model);
@@ -88,18 +93,74 @@ export default function Models() {
     await form.validateFields(['base_url']);
     setDiscoverLoading(true);
     setModelOptions([]);
+    setSelectedDiscoveredModels([]);
+    setDiscoverMessage('');
     try {
       const { base_url, api_key, api_key_env } = form.getFieldsValue();
       const { data } = await apiClient.post('/models/discover', {
         base_url, api_key, api_key_env, provider: selectedProvider ?? 'openai', model_id: editingModel?.id,
       });
-      setModelOptions(data.items.map((value: string) => ({ value })));
-      setDiscoverMessage(data.message);
+      const discoveredItems: unknown[] = Array.isArray(data.items) ? data.items : [];
+      const items: string[] = Array.from(new Set(discoveredItems.flatMap((item) => (
+        typeof item === 'string' && item.trim() ? [item.trim()] : []
+      ))));
+      setModelOptions(items);
+      setDiscoverMessage(data.message || '');
     } catch (error: any) {
-      setDiscoverMessage(error.message);
+      setDiscoverMessage(error.message || t('models.discover.failed'));
     } finally {
       setDiscoverLoading(false);
     }
+  };
+
+  const pickDiscoveredModel = (modelName: string) => {
+    form.setFieldsValue({ model_name: modelName, name: modelName });
+    window.setTimeout(() => {
+      document.querySelector<HTMLButtonElement>('[data-testid="models-save-button"]')?.focus();
+    }, 0);
+  };
+
+  const toggleDiscoveredModel = (modelName: string, selected: boolean) => {
+    setSelectedDiscoveredModels((current) => (
+      selected
+        ? current.includes(modelName) ? current : [...current, modelName]
+        : current.filter((item) => item !== modelName)
+    ));
+  };
+
+  const addDiscoveredModels = async () => {
+    if (selectedDiscoveredModels.length === 0) return;
+    const values = form.getFieldsValue(true);
+    if (!values.api_key && !values.api_key_env) {
+      message.warning(t('models.discover.batchCredentialRequired'));
+      return;
+    }
+    try {
+      await form.validateFields(['base_url']);
+    } catch {
+      return;
+    }
+
+    setBatchAdding(true);
+    const results = await Promise.allSettled(selectedDiscoveredModels.map((modelName) => apiClient.post('/models', {
+      name: modelName,
+      model_name: modelName,
+      provider: values.provider || 'openai',
+      base_url: values.base_url,
+      api_key: values.api_key || undefined,
+      api_key_env: values.api_key_env || undefined,
+      temperature: values.temperature ?? 0.7,
+      max_tokens: values.max_tokens ?? 4096,
+    })));
+    const createdCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failedCount = results.length - createdCount;
+    if (createdCount > 0) {
+      message.success(t('models.discover.batchCreated', { count: createdCount }));
+      setSelectedDiscoveredModels([]);
+      void loadModels();
+    }
+    if (failedCount > 0) message.error(t('models.discover.batchFailed', { count: failedCount }));
+    setBatchAdding(false);
   };
 
   const handleSave = async () => {
@@ -308,48 +369,32 @@ export default function Models() {
         okText={t('models.action.save')}
         cancelText={t('models.action.cancel')}
         width={640}
+        okButtonProps={{ 'data-testid': 'models-save-button' }}
       >
         <Form form={form} layout="vertical" initialValues={{ provider: 'openai', temperature: 0.7, max_tokens: 4096 }}>
-          <Form.Item name="name" label={t('models.column.name')} rules={[{ required: true, message: t('models.validation.name') }]}>
-            <Input placeholder={t('models.placeholder.name')} />
-          </Form.Item>
           <Form.Item name="provider" label={t('models.column.provider')} hidden>
             <Input />
           </Form.Item>
           <ProviderPresetSelector
             value={selectedProvider}
+            configuredProviders={models}
             onChange={(provider) => {
+              const previousProtocol = presetById(selectedProvider)?.protocol ?? 'openai-compatible';
+              const nextProtocol = presetById(provider)?.protocol ?? 'openai-compatible';
               form.setFieldValue('provider', provider);
               const baseUrl = presetBaseUrl(provider);
               if (baseUrl) form.setFieldValue('base_url', baseUrl);
               const defaultModel = presetById(provider)?.defaultModel;
-              if (defaultModel) form.setFieldValue('model_name', defaultModel);
+              if (nextProtocol !== previousProtocol) form.setFieldValue('model_name', defaultModel);
+              else if (defaultModel) form.setFieldValue('model_name', defaultModel);
               setModelOptions([]);
+              setSelectedDiscoveredModels([]);
+              setDiscoverMessage('');
             }}
           />
-          <div
-            role="note"
-            style={{
-              display: 'grid',
-              gap: 4,
-              marginTop: 12,
-              padding: 10,
-              border: '1px solid var(--fq-border)',
-              borderRadius: 6,
-              background: 'var(--fq-surface-2)',
-            }}
-          >
-            <Text strong style={{ color: 'var(--fq-text-primary)' }}>
-              {t(presetById(selectedProvider)?.protocol === 'anthropic'
-                ? 'models.protocol.anthropic.title'
-                : 'models.protocol.openai.title')}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t(presetById(selectedProvider)?.protocol === 'anthropic'
-                ? 'models.protocol.anthropic.description'
-                : 'models.protocol.openai.description')}
-            </Text>
-          </div>
+          <Form.Item name="name" label={t('models.column.name')} rules={[{ required: true, message: t('models.validation.name') }]}>
+            <Input placeholder={t('models.placeholder.name')} />
+          </Form.Item>
           <Form.Item
             name="base_url"
             label={t('models.form.baseUrl')}
@@ -357,7 +402,7 @@ export default function Models() {
             rules={[{ required: true }, { type: 'url' }]}
             style={{ marginTop: 16 }}
           >
-            <Input placeholder="https://api.openai.com/v1" onChange={() => { setModelOptions([]); setDiscoverMessage(''); }} />
+            <Input placeholder="https://api.openai.com/v1" onChange={() => { setModelOptions([]); setSelectedDiscoveredModels([]); setDiscoverMessage(''); }} />
           </Form.Item>
           {presetById(selectedProvider) && (
             <div style={{ marginTop: -14, marginBottom: 12, fontSize: 12 }}>
@@ -373,14 +418,38 @@ export default function Models() {
               ? 'models.anthropic.keyHint'
               : 'models.form.keyHelp')}
           >
-            <Input.Password placeholder={t(presetById(selectedProvider)?.protocol === 'anthropic'
+            <Input.Password onChange={() => { setModelOptions([]); setSelectedDiscoveredModels([]); setDiscoverMessage(''); }} placeholder={t(presetById(selectedProvider)?.protocol === 'anthropic'
               ? 'models.anthropic.keyPlaceholder'
               : 'models.placeholder.apiKey')} />
           </Form.Item>
           <Button loading={discoverLoading} onClick={() => void fetchModels()}>{t('models.form.fetchModels')}</Button>
-          {discoverMessage && <Alert style={{ marginTop: 8 }} type={modelOptions.length ? 'success' : 'warning'} message={discoverMessage} />}
+          {discoverMessage && (
+            <Alert
+              style={{ marginTop: 8 }}
+              type={modelOptions.length ? 'success' : 'warning'}
+              message={discoverMessage}
+              description={!modelOptions.length ? t('models.discover.manualHint') : undefined}
+            />
+          )}
+          {modelOptions.length > 0 && (
+            <DiscoveredModelSelector
+              models={modelOptions}
+              selectedModels={selectedDiscoveredModels}
+              adding={batchAdding}
+              onPick={pickDiscoveredModel}
+              onToggle={toggleDiscoveredModel}
+              onBatchAdd={() => void addDiscoveredModels()}
+            />
+          )}
           <Form.Item name="model_name" label={t('models.column.model')} rules={[{ required: true }]} style={{ marginTop: 12 }}>
-            <AutoComplete options={modelOptions} placeholder={t('models.form.modelHelp')} filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())} />
+            <AutoComplete
+              options={modelOptions.map((value) => ({ value }))}
+              placeholder={t('models.form.modelHelp')}
+              filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())}
+              open={modelNameFocused && modelOptions.length > 0}
+              onFocus={() => setModelNameFocused(true)}
+              onBlur={() => setModelNameFocused(false)}
+            />
           </Form.Item>
           <details><summary>{t('models.form.advanced')}</summary>
           <Form.Item name="api_key_env" label={t('models.form.apiKeyEnv')}>

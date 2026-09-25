@@ -4,27 +4,30 @@
 
 ---
 
-## [READY] BACKLOG-062: 资料库策略互动演示原生化与量化业务一键接通
+## [DONE] BACKLOG-062: 资料库策略互动演示原生化与量化业务一键接通
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-062.md`
 **范围**: 移除 `Knowledge.tsx` 中的静态 HTML iframe 与断开的返回链接；重构为原生 Lightweight/ECharts 交互动态组件，支持时间滑块、核心参数调节与买卖信号标记；为 8 类策略一键打通直达 `/strategy-lab` 回测实验室并预填参数。
 **门禁**: `bun run test tests/KnowledgeInteractive.test.tsx`，`bun run build` 成功。
+**证据**: KnowledgeInteractive 3/3、Knowledge 2/2、StrategyLab 11/11 focused tests 通过；Chromium Knowledge interactive E2E 1/1 通过（真实 ECharts canvas、参数编辑、symbol/MA query prefill）；生产构建通过（OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,279 modules）。现有日线数据失败时不做伪造回退；五类无专用数据/引擎的策略标为规则代理并在实验室提示不支持回测。
 
 ---
 
-## [READY] BACKLOG-063: 模型管理拉取模型交互闭环与候选模型直观选用
+## [DONE] BACKLOG-063: 模型管理拉取模型交互闭环与候选模型直观选用
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-063.md`
 **范围**: 模型管理弹窗拉取模型后，动态展开「候选模型列表/标签区（支持关键词搜索过滤）」；点击任意模型 Tag 一键自动填入 `model_name` 和配置名称；支持常用模型快捷多选批量保存，给出明确可操作指引。
 **门禁**: 模型弹窗中点击拉取模型，候选模型面板立即展开并可点击回填，测试通过，`bun run build` 成功。
+**证据**: `bun run test tests/ModelsForm.test.tsx` 4/4 passed；`bun run build` passed（OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,280 modules）。候选面板支持搜索、单选回填、批量创建及错误指引；批量创建使用已有 `/models` API 和当前表单凭据。
 
 ---
 
-## [READY] BACKLOG-064: 供应商管理界面精简净化与协议驱动（OpenAI/Anthropic）重构
+## [DONE] BACKLOG-064: 供应商管理界面精简净化与协议驱动（OpenAI/Anthropic）重构
 
 **优先级**: P1 ｜ **任务卡**: `docs/ai/tasks/BACKLOG-064.md`
 **范围**: 净化添加模型弹窗，摆脱 18 个公有云厂商预设网格铺屏；改为核心协议卡片驱动（OpenAI 兼容协议 vs Anthropic 原生协议）；公有云预设降级为折叠抽屉或下拉辅助填入，默认不平铺；优先高亮展示用户已配置的专属供应商（如 CommandCode）。
 **门禁**: 弹窗界面清爽，仅显示协议选择与自定义表单，外部厂商网格默认隐藏，前端单测与构建 100% 通过。
+**证据**: `ProviderPresetSelector`、`ModelsCards`、`ModelsForm` 3 个 focused suites 17/17 passed；`bun run build` passed（OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,280 modules）。Chromium fixture 视觉检查覆盖 1440×1080 与 390×844 默认/展开状态，窄屏无横向溢出；已配置 CommandCode 高亮，预设默认收起。
 
 ---
 

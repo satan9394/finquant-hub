@@ -81,6 +81,17 @@ describe('StrategyLab', { timeout: 15_000 }, () => {
     expect((screen.getByLabelText('股票代码') as HTMLInputElement).value).toBe('sh600519');
   });
 
+  test('prefills symbol, validated MA parameters, and the strategy prompt from a Knowledge link', async () => {
+    render(<MemoryRouter initialEntries={['/strategy-lab/ma-crossover?symbol=600519&short_window=8&long_window=24&prompt=%E5%8F%8C%E5%9D%87%E7%BA%BF%E7%AD%96%E7%95%A5']}><StrategyLab /></MemoryRouter>);
+
+    expect((screen.getByLabelText('股票代码') as HTMLInputElement).value).toBe('600519');
+    fireEvent.click(screen.getByText('高级：均线、费用与风控参数'));
+    expect((screen.getByLabelText('短均线') as HTMLInputElement).value).toBe('8');
+    expect((screen.getByLabelText('长均线') as HTMLInputElement).value).toBe('24');
+    await expandRuleEntry();
+    expect((screen.getByLabelText('策略描述') as HTMLTextAreaElement).value).toBe('双均线策略');
+  });
+
   test('restores an owner-checked Thesis intent, carries only the ticker, and never runs', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ data: {
       schema_version: 'thesis-validation-experiment/v1',

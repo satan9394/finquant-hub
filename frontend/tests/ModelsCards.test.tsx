@@ -86,12 +86,27 @@ describe('Models provider cards', () => {
     expect(screen.getByTestId('provider-card-4')).toBeTruthy();
   });
 
-  it('offers the grouped preset selector when adding a provider', async () => {
+  it('puts protocol choices and configured providers before collapsed quick-fill presets', async () => {
     renderPage();
+    await screen.findByTestId('provider-card-3');
     fireEvent.click(await screen.findByRole('button', { name: /新增模型/ }));
     expect(await screen.findByRole('dialog', { name: '新增模型' })).toBeTruthy();
     expect(screen.getByTestId('provider-preset-selector')).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'OpenAI 兼容协议' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Anthropic 原生协议' })).toBeTruthy();
+    const highlights = screen.getByTestId('configured-provider-highlights');
+    expect(highlights.textContent).toContain('DeepSeek（OpenAI 兼容）');
+    expect(highlights.textContent).toContain('月之暗面 Kimi（OpenAI 兼容）');
+    expect(screen.queryByTestId('provider-preset-drawer')).toBeNull();
+    expect(screen.queryByRole('button', { name: '阶跃星辰 StepFun（OpenAI 兼容）' })).toBeNull();
 
+    fireEvent.click(screen.getByRole('radio', { name: 'Anthropic 原生协议' }));
+    expect(screen.getByDisplayValue('https://api.anthropic.com')).toBeTruthy();
+    expect(screen.getByDisplayValue('claude-3-7-sonnet')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'OpenAI 兼容协议' }));
+    expect(screen.getByDisplayValue('https://api.openai.com/v1')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '从常见厂商快速填入（可选）' }));
     fireEvent.click(screen.getByRole('button', { name: '阶跃星辰 StepFun（OpenAI 兼容）' }));
     expect(screen.getByDisplayValue('https://api.stepfun.com/v1')).toBeTruthy();
 

@@ -1,6 +1,6 @@
 # BACKLOG-062: 资料库策略互动演示原生化与量化业务一键接通
 
-- Status: planned
+- Status: completed
 - Mission: 将资料库策略演示从静态 iframe 重构为原生交互组件，并一键接通 `/strategy-lab` 回测
 - Source: human-requested
 - Risk: medium
@@ -35,3 +35,11 @@
 - `bun run test tests/KnowledgeInteractive.test.tsx` 全部通过。
 - `bun run build` 成功通过，0 TypeScript 错误。
 - 浏览器中打开 `/knowledge`，切换各个策略，图表渲染正常，点击回测按钮能正常跳转并回填参数。
+
+## 完成证据（2026-09-24）
+- `bun run test tests/KnowledgeInteractive.test.tsx`：3/3 passed；`tests/Knowledge.test.tsx`：2/2 passed；`tests/StrategyLab.test.tsx`：11/11 passed。
+- `bun run build`：OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,279 modules built。
+- `bun run test:e2e e2e/knowledge-interactive.spec.ts`：Chromium 1/1 passed；验证实际 ECharts canvas、无 iframe、策略切换、参数编辑及 `/strategy-lab/ma-crossover` 的 symbol/短长均线预填。
+- 行情从现有 `/api/instruments/{symbol}/bars` 读取并展示 provider/as-of；无数据时显示不可用，不生成替代行情。策略信号按日线和可调规则计算；市场中性、统计套利、事件驱动、机器学习与高频均显式标为规则代理/输入能力边界。
+- 其他策略将对应参数写入 Strategy Lab 预填说明；现有可执行回测表单只消费双均线的 `short_window`/`long_window`，且预填文案会说明当前不支持的策略不可回测。
+- `git diff --check` 通过；`Knowledge.tsx` 不再引用 `iframe`、`/knowledge/m*.html` 或 `index.html`；新图表组件无硬编码颜色值。未改后端/API/schema/依赖，未删除静态资源。

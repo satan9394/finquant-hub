@@ -924,3 +924,41 @@
 - Docs updated: `docs/ai/tasks/BACKLOG-061.md`, `docs/ai/EXEC_PLAN.md`, `docs/ai/evo/NEXT_BACKLOG.md`, `HANDOFF.md`, `docs/HANDOVER.md`, and this log.
 - Verification: exact combined `bun run test:e2e e2e/portfolio-tear-sheet.spec.ts e2e/market-panorama.spec.ts` passed 2/2 in Chromium with no retry; each current spec also passed standalone 1/1. `pageerror=0`, `console.error=0`; AntD deprecation, React Router future-flag, and nonfatal ECharts DOM sizing warnings were observed and recorded. Required `--fq-*` variables resolve; positive/negative monthly cell backgrounds differ and source derives them from `--fq-price-up/down`. Screenshots were saved and visually inspected. API responses use deterministic fixtures; no live market calls.
 - Risk: low; E2E validates frontend behavior against fixtures, not live provider availability. ECharts sizing warnings remain observable during hidden/initial chart layout; no Canvas/WebGL crash or instance-disposal leak warning was observed. No dependency, API, backend, or schema changes.
+
+## 2026-09-24
+
+### BACKLOG-062 — Native strategy demos and Strategy Lab handoff
+- What changed: replaced the Knowledge static iframe paths with a native eight-strategy ECharts demo using existing daily-bars API data, adjustable parameters, timeline playback, and buy/sell markers; added Strategy Lab query prefill for symbol, MA windows, and strategy prompt.
+- Why: connect strategy learning to sourced market data and the existing backtest workflow while keeping unsupported strategy capabilities explicit.
+- Docs updated: `docs/ai/tasks/BACKLOG-062.md`, `docs/ai/EXEC_PLAN.md`, and this log.
+- Verification: KnowledgeInteractive 3/3, Knowledge 2/2, StrategyLab 11/11; Knowledge Chromium E2E 1/1; `bun run build` passed (OpenAPI 60 schemas fresh, TypeScript 0 errors, Vite 4,279 modules); `git diff --check` passed.
+- Risk: medium; only the existing dual-MA strategy is executable by the current Strategy Lab backtest form. Other strategy concepts use clearly labeled rule proxies and carry their parameters as a draft prompt; no event feed, trained ML model, pair-cointegration engine, or intraday bars were added. No dependency/backend/schema changes or file deletion.
+
+### BACKLOG-063 — Discovered model selection and batch add
+- What changed: added `frontend/src/components/models/DiscoveredModelSelector.tsx`; upgraded the model dialog to display/search fetched models, fill both configuration and model names, batch-create selected configurations, and keep AutoComplete suggestions available on focus.
+- Why: close the model discovery loop so fetched provider models can be selected or added without manual retyping; show a direct manual-entry path when discovery returns no candidates.
+- Docs updated: `docs/ai/tasks/BACKLOG-063.md`, `docs/ai/EXEC_PLAN.md`, and this log.
+- Verification: `bun run test tests/ModelsForm.test.tsx` passed 4/4; `bun run build` passed (OpenAPI 60 schemas fresh, TypeScript 0 errors, Vite 4,280 modules); `git diff --check` passed.
+- Risk: low; batch creation uses one existing `/models` request per selected model and reports partial failures. It requires a supplied API key or environment variable name. No dependency, backend, API, or schema changes.
+
+### BACKLOG-064 — Protocol-first provider selection
+- What changed: refactored `frontend/src/components/models/ProviderPresetSelector.tsx` and the model dialog so OpenAI-compatible and native Anthropic protocols are the primary radio cards; configured providers are highlighted; public presets load only from a collapsed, protocol-filtered quick-fill drawer.
+- Why: keep users focused on the actual connection protocol and their saved providers while reducing the default modal’s vendor noise.
+- Docs updated: `docs/ai/tasks/BACKLOG-064.md`, `docs/ai/EXEC_PLAN.md`, and this log.
+- Verification: `bun run test tests/ProviderPresetSelector.test.tsx tests/ModelsCards.test.tsx tests/ModelsForm.test.tsx` passed 17/17; `bun run build` passed (OpenAPI 60 schemas fresh, TypeScript 0 errors, Vite 4,280 modules); Chromium fixture screenshots reviewed at 1440×1080 and 390×844; `git diff --check` passed.
+- Risk: low; no dependency, backend, API, or schema changes. Browser visual checks used deterministic `/api/models` fixtures and do not represent a live provider connection.
+
+### Verification closeout
+- What changed: corrected the BACKLOG-063/064 evidence dates to the workspace local date and consolidated all three card entries under `2026-09-24`.
+- Why: keep the recorded completion dates consistent with the actual local work date.
+- Docs updated: `docs/ai/tasks/BACKLOG-063.md`, `docs/ai/tasks/BACKLOG-064.md`, and this log.
+- Verification: current-tree card gates rerun successfully: 062 `KnowledgeInteractive` 3/3 + Chromium E2E 1/1; 063 `ModelsForm` 4/4; 064 ProviderPresetSelector/ModelsCards/ModelsForm 17/17; all three builds passed with fresh 60-schema OpenAPI types and zero TypeScript errors. Chromium fixture captures were regenerated and inspected at 1440×1080 and 390×844; `git diff --check` passed. The full `bun run test` did not complete; 14 failures were observed in `ResearchWorkspaceEvidence.test.tsx` and 1 in `ResearchFollowupPrompt.test.tsx`, with `ProCandlestickChart` failing to parse `var(--fq-text-primary)` in the test environment. The run was stopped after prolonged JSDOM warnings without a final summary. The implicated component and test files are unchanged in this worktree, and no Bun/Vitest process remains.
+- Risk: focused card gates remain recorded as passed; the full-suite DoD is unmet.
+
+### Full frontend suite revalidation
+- What changed: reran the exact `bun run test` command after the focused BACKLOG-062/063/064 gates passed.
+- Why: resolve the bounded Mission's remaining aggregate frontend test gate and capture a final result.
+- Docs updated: `HANDOFF.md` and this log.
+- Verification: Vitest completed with exit code 1 after 1,055.91 seconds: 4 test files failed, 157 passed; 18/709 tests failed, 691 passed, and 35 errors were reported. Failure groups were `ResearchWorkspaceEvidence.test.tsx` (14; Lightweight Charts rejected `var(--fq-text-primary)` while mounting unchanged `ProCandlestickChart`), `ResearchFollowupPrompt.test.tsx` (1; the empty-prompt case could not find the page marker), `Portfolio.test.tsx` (2; render failures after `PortfolioRiskTearSheet` read missing `coverage.history_start`), and `MarketTreemapChart.test.tsx` (1; `DragonTigerSeatGraph` threw because JSDOM has no `ResizeObserver`, then the chart option was absent). These source/test files are unchanged in this worktree; no out-of-WorkSet fixes were made.
+- Baseline comparison: clean frontend archive from explicit commit `f79d22ac9d8e74401e48920b3eb01cc1b347f271` produced the same 4 failed files, 18 failed tests, and 35 errors; baseline summary was 160 files, 18 failed / 682 passed tests. The current worktree adds one test file and nine passing tests (161 files, 18 failed / 691 passed), with no additional failure group. The full suite is red at baseline; this comparison establishes no new failures from BACKLOG-062/063/064.
+- Risk: the aggregate suite remains nonzero on both baseline and current worktree. All three card-specific gates and the production build pass; no dependencies or files were deleted, and no commit was made.

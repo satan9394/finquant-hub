@@ -1,6 +1,6 @@
 # BACKLOG-064: 供应商管理界面精简净化与双协议直观驱动
 
-- Status: planned
+- Status: completed
 - Mission: 供应商管理改为 OpenAI/Anthropic 双协议卡片驱动，18 厂商预设折叠收起
 - Source: human-requested
 - Risk: medium
@@ -39,3 +39,11 @@
 - 打开「添加模型」弹窗，界面清爽干净，顶部仅有 OpenAI 兼容 / Anthropic 原生两大协议选项。
 - 18 个外部厂商按钮不再常驻平铺；用户输入 CommandCode 名称与 Base URL 体验丝滑无干扰。
 - 前端测试与 `bun run build` 100% 成功。
+
+## 完成证据（2026-09-24）
+- `bun run test tests/ProviderPresetSelector.test.tsx tests/ModelsCards.test.tsx tests/ModelsForm.test.tsx`：3 个测试文件、17/17 passed；覆盖双协议切换、Anthropic URL/模型默认值、已配置供应商高亮、预设默认收起及按协议过滤。
+- `bun run build`：OpenAPI 60 schemas fresh，TypeScript 0 errors，Vite 4,280 modules built。
+- 添加/编辑模型弹窗顶部使用 OpenAI 兼容与 Anthropic 原生两张单选协议卡；切换时驱动 provider、Base URL 与 Anthropic 默认模型。18 个公有云预设只在展开辅助入口后挂载，并按协议过滤。
+- 当前已配置供应商在预设入口上方集中高亮；只显示供应商标签，不暴露 API Key。模型表单的名称、Base URL、密钥和模型字段保持可直接填写。
+- 2026-09-24 Chromium fixture 浏览器复核并重新生成 1440×1080 / 390×844 默认、预设展开与 Anthropic 状态截图；桌面弹窗宽 640px，窄屏弹窗宽 374px、文档宽 390px；`pageerror=0`。运行期间观察到一条由 `rc-util/es/isEqual.js` warning helper 输出的 `There may be circular references` 控制台消息，按 warning 记录。截图：`frontend/test-results/backlog-064-default-1440.png`、`frontend/test-results/backlog-064-default-390.png`、`frontend/test-results/backlog-064-presets-1440.png`、`frontend/test-results/backlog-064-presets-390.png`、`frontend/test-results/backlog-064-anthropic-390.png`。
+- `git diff --check` 通过；未改后端/API/schema/依赖，未删除文件。

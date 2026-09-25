@@ -46,6 +46,20 @@ const initialValues = (symbol: string): BacktestFormValues => ({
   benchmark: 'buy_and_hold',
 });
 
+function initialValuesFromSearch(searchParams: URLSearchParams): BacktestFormValues {
+  const values = initialValues(searchParams.get('symbol') ?? '');
+  const shortWindow = Number(searchParams.get('short_window'));
+  const longWindow = Number(searchParams.get('long_window'));
+  if (
+    Number.isInteger(shortWindow) && Number.isInteger(longWindow)
+    && shortWindow >= 2 && shortWindow <= 100
+    && longWindow > shortWindow && longWindow <= 250
+  ) {
+    return { ...values, short_window: shortWindow, long_window: longWindow };
+  }
+  return values;
+}
+
 const feePresets = {
   eastmoney_cn: {
     labelKey: 'strategy.fee.eastmoney', commission_bps: 2.5, slippage_bps: 2,
@@ -130,7 +144,7 @@ export default function StrategyLab() {
   const { lang, t } = useLanguage();
   const listSeparator = lang === 'zh' ? '、' : ', ';
   const [searchParams] = useSearchParams();
-  const [values, setValues] = useState<BacktestFormValues>(() => initialValues(searchParams.get('symbol') ?? ''));
+  const [values, setValues] = useState<BacktestFormValues>(() => initialValuesFromSearch(searchParams));
   const [errors, setErrors] = useState<BacktestFormErrors>({});
   const [run, setRun] = useState<BacktestRun | null>(null);
   const [bars, setBars] = useState<Bar[]>([]);
@@ -143,7 +157,7 @@ export default function StrategyLab() {
   const [strategyPreset, setStrategyPreset] = useState<StrategyPresetKey>('standard');
   const [referenceCandidates, setReferenceCandidates] = useState<WeeklyMarketMover[]>([]);
   const [referenceLoading, setReferenceLoading] = useState(true);
-  const [strategyDescription, setStrategyDescription] = useState('');
+  const [strategyDescription, setStrategyDescription] = useState(() => searchParams.get('prompt') ?? '');
   const [strategyIRResponse, setStrategyIRResponse] = useState<StrategyIRResponse | null>(null);
   const [strategyIRLoading, setStrategyIRLoading] = useState(false);
   const [strategyIRError, setStrategyIRError] = useState('');
