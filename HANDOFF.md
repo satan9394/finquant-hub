@@ -12,7 +12,7 @@
 
 逐卡测试和构建门禁通过。完整前端套件在当前工作树与干净基线提交 `f79d22ac9d8e74401e48920b3eb01cc1b347f271` 上都以相同的 4 个测试文件、18 个失败用例和 35 个错误退出；基线为 156 files / 682 passed，当前工作树为 157 files / 691 passed。失败落在未修改的 ResearchWorkspace/Followup、Portfolio 与 MarketTreemap 图表测试面；与基线相比没有新增失败。套件在基线也未全绿，具体 JSDOM/fixture 错误及对照证据已记入 `tasks/CHANGELOG.md`。
 
-当前实现和记录仍在 `main` 工作树中，尚未提交；按仓库确认规则，本轮未创建 commit 或 push。
+当前实现与验证证据已全部合入本地主分支，提交为 `c8bc8b0`（feat(frontend): complete BACKLOG-062-064 experience loop），工作树干净，领先 `origin/main` 13 个提交。
 
 ---
 

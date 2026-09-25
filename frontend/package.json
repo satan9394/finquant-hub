@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "../backend/.venv/Scripts/python.exe ../scripts/openapi_tsgen.py --check",
+    "prebuild": "node scripts/openapi-check.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
