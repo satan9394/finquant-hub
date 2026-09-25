@@ -9,10 +9,10 @@ Full-stack (FastAPI + React) web app running locally on Windows 11.
 
 **开始新会话时先读**：`docs/ai/EXEC_PLAN.md` 了解当前任务状态。
 
-**开发工作流**：本仓库装有 **personal-dev-workflow** skill（`.claude/skills/personal-dev-workflow/`，
-另有 `.agents/skills/personal-dev-workflow/` 供 Codex/OpenCode/DSH/Antigravity）。做多步开发前先读其
-`SKILL.md`，细节按需加载 `references/`。默认 `standard` 模式（一卡一停，交证即停）；`bounded` 连续自治
-需显式授权并定义 Mission 边界，其机器状态在 `.agent-state/run-state.json`（已忽略）。
+**开发工作流**：本仓库装有 **personal-dev-workflow** skill（`.agents/skills/personal-dev-workflow/`，
+Codex/OpenCode/DSH/Antigravity 均从此处发现）。做多步开发前先读其 `SKILL.md`，细节按需加载 `references/`。
+默认 `standard` 模式（一卡一停，交证即停）；`bounded` 连续自治需显式授权并定义 Mission 边界，
+其机器状态在 `.agent-state/run-state.json`（已忽略）。
 
 ## Quick commands
 

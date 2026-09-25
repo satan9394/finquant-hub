@@ -11,8 +11,8 @@
 ## Development workflow (personal-dev-workflow)
 
 This repo carries the **personal-dev-workflow** skill at `.agents/skills/personal-dev-workflow/`
-(also mirrored at `.claude/skills/personal-dev-workflow/` for Claude Code). Read its `SKILL.md`
-before substantial multi-step work; load `references/` on demand.
+(discovered by Codex / OpenCode / DSH / Antigravity). Read its `SKILL.md` before substantial
+multi-step work; load `references/` on demand.
 
 - Default mode is `standard`: one card, one closed loop, show evidence and stop.
 - `bounded` autonomous continuation requires explicit opt-in and a Mission envelope.
