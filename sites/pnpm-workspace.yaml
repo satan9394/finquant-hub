@@ -2,3 +2,12 @@ allowBuilds:
   esbuild: true
   sharp: true
   workerd: true
+
+# Security: pin transitive deps above their advisory fix lines.
+overrides:
+  esbuild: 0.28.2
+  postcss: 8.5.18
+  sharp: 0.35.5
+  undici: 7.29.1
+  ws: 8.21.0
+  image-size: 2.0.3
