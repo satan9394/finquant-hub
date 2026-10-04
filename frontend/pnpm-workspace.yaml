@@ -1,2 +1,6 @@
 allowBuilds:
   esbuild: true
+
+# Security: pin transitive deps above their advisory fix lines.
+overrides:
+  path-to-regexp: 8.4.0

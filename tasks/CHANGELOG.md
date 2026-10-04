@@ -3,6 +3,16 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-04（传递依赖安全收敛：pnpm overrides 落位 + 升级到修复线）
+- What changed:
+  1. `sites/pnpm-workspace.yaml`、`frontend/pnpm-workspace.yaml`：新增 pnpm 11 的顶层 `overrides`（pnpm 11 只读该处，不再读 `package.json` 的 `pnpm` 字段）；`sites/package.json` 移除**从未生效**的顶层 `overrides`（npm 风格，pnpm 忽略）；
+  2. 升级到公告修复线：`sites` → undici `7.24.8→7.29.1`、sharp `0.35.5`、ws `8.18.0→8.21.0`、esbuild `0.28.2`、image-size `2.0.2→2.0.3`；`frontend` → path-to-regexp `8.2.0→8.4.0`（同大版本）；
+  3. GitHub 侧：`braces`（`sites`，范围 `<= 3.0.3`，**上游无修复版**）按 `no_bandwidth` dismiss 并注明"待上游发布修复后重新评估"。
+- Why: PR #1 合并后 `sites/pnpm-lock.yaml`、`frontend/pnpm-lock.yaml` 首次进入 main，Dependabot 暴露 34 条**真实传递依赖**告警（high 13/medium 15/low 6）。根因之一是 `sites/package.json` 的 overrides 放在 pnpm 不认识的位置，从未生效。
+- Docs updated: `tasks/CHANGELOG.md`（本条目）+ `HANDOFF.md` 变更日志。无端点/表/架构变更。
+- Verification: `sites` → `pnpm install` 后 lockfile 全部收敛到修复版（旧 undici 7.24.8 / ws 8.18.0 / sharp 0.34.5 / image-size 2.0.2 / esbuild 0.27.3 **均 0 残留**）、`pnpm build` 通过、`pnpm test` 全绿（node --test 1/1 + bun test 26/26）；`frontend` → `pnpm install` 后 path-to-regexp=8.4.0、`pnpm run build` 通过。**未处理**：`react-router` 6.30.6（公告要求 ≥7.18.0，即 6→7 大版本，单独评估；其中一条为 SSR-only）。
+- Risk: low-medium（仅传递依赖补丁级提升，未改业务代码；`sites` 的 undici/sharp/ws 为开发期/工具链传递依赖；构建与测试均通过）。
+
 ## 2026-10-04（sites 依赖安全升级 + bun→pnpm 迁移收口 + CI 对齐）
 - What changed:
   1. `sites/package.json`：`next` 16.2.11 → 16.3.8，消除 3 条 Dependabot **critical**（`next/og` ImageResponse RCE、Image Optimization API AVIF RCE、Windows-hosted server RCE），并同步更新 `sites/pnpm-lock.yaml`；
