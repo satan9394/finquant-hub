@@ -3,6 +3,17 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-04（sites 依赖安全升级 + bun→pnpm 迁移收口 + CI 对齐）
+- What changed:
+  1. `sites/package.json`：`next` 16.2.11 → 16.3.8，消除 3 条 Dependabot **critical**（`next/og` ImageResponse RCE、Image Optimization API AVIF RCE、Windows-hosted server RCE），并同步更新 `sites/pnpm-lock.yaml`；
+  2. `sites/pnpm-workspace.yaml`、`frontend/pnpm-workspace.yaml`：把 pnpm 11 遗留的占位符 `allowBuilds: set this to true or false` 填为实际布尔值（esbuild/sharp/workerd → true），修复 `ERR_PNPM_IGNORED_BUILDS` 导致的 `pnpm install`/`build` 失败；
+  3. `.github/workflows/ci.yml`：frontend job 由 bun 改为 pnpm（`frontend/bun.lock` 已在 `7dd0c50` 移除，原 `bun install --frozen-lockfile` 一旦推送即红）；新增 `sites` job（ubuntu-latest，pnpm 安装/构建 + bun 作测试运行器）；
+  4. GitHub 侧：对 `reference/**` 下第三方只读参考快照的 Dependabot 告警按 `not_used` dismiss（不修改 `reference/` 文件）。
+- Why: GitHub 健康度巡检发现 finquant-hub 有 100 条开放依赖告警，其中 3 条为**本项目真实 critical**（`sites/next`），其余来自只读参考快照；巡检同时暴露 bun→pnpm 迁移未完成（CI 仍用 bun、构建被 `allowBuilds` 占位符卡住）。
+- Docs updated: `tasks/CHANGELOG.md`（本条目）。无端点/路由/表/架构变更，`docs/API_CONTRACT.md`/`docs/ARCHITECTURE.md`/`docs/HANDOVER.md` 无需改动。
+- Verification: `sites` → `pnpm install` 成功、`pnpm build` 通过、`pnpm test` 全绿（`node --test` 1/1 + `bun test` 26/26）；`frontend` → `pnpm install --frozen-lockfile` 与 `pnpm run build` 通过（`vitest run` 本机 15min 超时，属本仓记录的已知环境问题，未作为门禁）；`ci.yml` 经 YAML 解析通过（jobs = backend/frontend/sites）；Dependabot 开放告警 **100 → 3**（仅剩 `sites/next`，待本次升级推送后自动关闭）。
+- Risk: medium（CI 结构变更 + 依赖次版本升级。`sites` 为 Next-on-Vite/Cloudflare Workers，不启动 Next 服务器，RCE 面本就小；改动**未 commit、未 push**）。
+
 ## 2026-09-25（GitHub 私有推送与跨平台 CI/CD 矩阵建立并达成 100% 全绿）
 - What changed:
   1. 远程仓库 `satan9394/finquant-hub` 确认私有属性（`isPrivate: true`）并全量推送最新主分支代码；
