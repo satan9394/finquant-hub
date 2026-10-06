@@ -3,6 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-06（修复 test_model_pricing 的硬编码日期时间炸弹，backend CI 转绿）
+- What changed: `backend/tests/test_model_pricing.py`——`_usage()` 的默认日期由硬编码 `"2026-09-01"` 改为 `_today()`（当前 UTC 日，与端点窗口对齐）；`test_records_carry_estimate_and_unpriced_flag` 的两处显式日期 `2026-09-02/03` 一并移除。断言**一条未改**。
+- Why: `/api/usage/cost` 的默认窗口是 `resolve_range(days=30)` = `[today-29, today]`（UTC）。测试把用量数据写死在 `2026-09-01`，约 2026-10-01 起该日期滑出 30 天窗口，`items` 变空 → 4 个用例失败（`estimated_cost=None`、`list index out of range`、`mixed_currency=False`）。这是**测试的时间炸弹**，与业务逻辑无关；9-25 时窗口尚含 09-01 故当时全绿。
+- Docs updated: `tasks/CHANGELOG.md` + `HANDOFF.md`。无端点/表/架构变更。
+- Verification: `pytest tests/test_model_pricing.py -q --no-cov` → **12 passed**；`ruff check tests/test_model_pricing.py` → All checks passed。未跑全量 pytest（本机沙箱会挂起，仓库既有约定）。
+- Risk: low（仅测试数据改为相对当前日期；被测端点与生产代码未动；断言强度未降低）。
+
 ## 2026-10-05（source-map-js 传递依赖修复：1.2.1 → 1.2.2）
 - What changed: `sites/pnpm-workspace.yaml`、`frontend/pnpm-workspace.yaml` 的 `overrides` 新增 `source-map-js: 1.2.2`。
 - Why: Dependabot 新公告命中 `sites`/`frontend` 两个 lockfile 的 `source-map-js@1.2.1`（range `>=1.0.0, <1.2.2`，high）。修复版 1.2.2 已在同一 minor 内，属补丁级收敛。
