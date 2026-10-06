@@ -3,6 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-05（sites postcss override 修正：8.5.18 → 8.5.28）
+- What changed: `sites/pnpm-workspace.yaml` 的 `overrides.postcss` 由 `8.5.18` 改为 `8.5.28`。
+- Why: 上一轮的 override 沿用了旧值 8.5.18，而该版本落在告警范围 `<= 8.5.22` 内（GHSA-fxqj-rqcc-2cmp，修复线 8.5.23）——**是 override 自己把版本钉在了漏洞带上**。锁文件里 webpack peer 用的 8.5.28 才是安全版。
+- Docs updated: `tasks/CHANGELOG.md` + `HANDOFF.md`。无端点/表/架构变更。
+- Verification: `sites` `pnpm install` 后 lockfile 中 postcss **仅剩 8.5.28**（8.5.18 零残留）；`pnpm build` 通过；`pnpm test` 全绿（node --test 1/1 + bun test 26/26）。
+- Risk: low（单条 override 值修正，无业务代码改动）。
+
 ## 2026-10-04（传递依赖安全收敛：pnpm overrides 落位 + 升级到修复线）
 - What changed:
   1. `sites/pnpm-workspace.yaml`、`frontend/pnpm-workspace.yaml`：新增 pnpm 11 的顶层 `overrides`（pnpm 11 只读该处，不再读 `package.json` 的 `pnpm` 字段）；`sites/package.json` 移除**从未生效**的顶层 `overrides`（npm 风格，pnpm 忽略）；
