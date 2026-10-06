@@ -1,8 +1,19 @@
 name: CI
 
+# Cost note: private-repo Actions minutes are metered (macOS ~10x Linux), and a
+# `push` on every branch duplicated every PR run. So:
+#   * push runs only on main; PRs are validated by pull_request alone
+#   * the macOS leg runs only on main (and manual dispatch); PRs run ubuntu only
+#   * docs-only changes skip CI entirely
+# Nothing about *what* is tested changed - only when and on which runners.
 on:
   push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
   pull_request:
+    paths-ignore:
+      - '**.md'
   workflow_dispatch:
 
 permissions:
@@ -17,8 +28,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # Full [ubuntu, macos] matrix on main/manual; ubuntu-only on pull_request.
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     timeout-minutes: 15
     defaults:
       run:
@@ -44,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     timeout-minutes: 20
     defaults:
       run:

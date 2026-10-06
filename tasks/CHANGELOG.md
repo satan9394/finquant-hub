@@ -3,6 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-06（CI 降本：按事件分平台矩阵 + 防重复触发）
+- What changed: `.github/workflows/ci.yml`——① `push` 仅在 `main` 触发并忽略纯文档改动（`paths-ignore: **.md`）；`pull_request` 同样忽略纯文档；② `backend`/`frontend` 的 `matrix.os` 改为按事件动态：**PR 只跑 `ubuntu-latest`，`main`/手动才跑 `ubuntu+macos`**（`fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]')`）。**检测内容零改动**（仍是同一套 pytest/ruff/vitest/build/Playwright/sites）。
+- Why: 私有仓库 Actions 按分钟计费且 macOS 约为 Linux 的 **10 倍**（$0.062 vs $0.006/min）；原配置"每个分支 push 都跑 + 每个 PR 又跑一次"造成**每次 PR 提交重复整轮**，且 PR 也跑 macOS 双腿。账单显示本月 finquant-hub 占 `$11.96`（全账号 87%），而免费额度已被抵扣至 $0 净额后触发了"作业未启动"拦截。
+- Docs updated: `tasks/CHANGELOG.md` + `HANDOFF.md`。无端点/表/架构变更。
+- Verification: `ci.yml` YAML 解析通过（jobs=backend/frontend/sites；`on`= push[branches=[main], paths-ignore] / pull_request[paths-ignore] / workflow_dispatch；两条 matrix 表达式已就位）。⚠️ 因 Actions 计费被拦，本 PR **无法在 CI 上实跑**；工作流表达式待计费恢复后首次运行验证。
+- Risk: low-medium（仅触发条件与平台矩阵调整，检测内容未变；若需回退，恢复 `on.push` 无 branches 过滤 + 固定 `os: [ubuntu, macos]` 即可）。
+
 ## 2026-10-06（frontend react-router-dom 6 → 7.18.4，清掉最后 2 条依赖告警）
 - What changed: `frontend/package.json` 的 `react-router-dom` 由 `^6.28.2` 升到 `^7.18.4`（解析 `react-router`/`react-router-dom` 均为 7.18.4），更新 `frontend/pnpm-lock.yaml`。**代码零改动**——`src/` 无一处修改。
 - Why: 两条 Dependabot medium（`GHSA-337j-9hxr-rhxg` SSR hydration 构造器注入、`GHSA-wrjc-x8rr-h8h6` `<Link>`/`useNavigate` 开放重定向）修复线均为 `>= 7.18.0`，6.x 无补丁。清掉后仓库 Dependabot 开放告警归 **0**。
