@@ -11,3 +11,4 @@ overrides:
   undici: 7.29.1
   ws: 8.21.0
   image-size: 2.0.3
+  source-map-js: 1.2.2

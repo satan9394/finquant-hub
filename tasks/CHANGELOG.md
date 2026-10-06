@@ -3,6 +3,13 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-05（source-map-js 传递依赖修复：1.2.1 → 1.2.2）
+- What changed: `sites/pnpm-workspace.yaml`、`frontend/pnpm-workspace.yaml` 的 `overrides` 新增 `source-map-js: 1.2.2`。
+- Why: Dependabot 新公告命中 `sites`/`frontend` 两个 lockfile 的 `source-map-js@1.2.1`（range `>=1.0.0, <1.2.2`，high）。修复版 1.2.2 已在同一 minor 内，属补丁级收敛。
+- Docs updated: `tasks/CHANGELOG.md` + `HANDOFF.md`。无端点/表/架构变更。
+- Verification: `sites`/`frontend` 各自 `pnpm install` 后 lockfile 的 source-map-js 均为 **1.2.2**；`sites` `pnpm build` + `pnpm test` 全绿（1/1 + 26/26）；`frontend` `pnpm run build` 通过。
+- Risk: low（补丁级传递依赖收敛，无业务代码改动）。
+
 ## 2026-10-05（sites postcss override 修正：8.5.18 → 8.5.28）
 - What changed: `sites/pnpm-workspace.yaml` 的 `overrides.postcss` 由 `8.5.18` 改为 `8.5.28`。
 - Why: 上一轮的 override 沿用了旧值 8.5.18，而该版本落在告警范围 `<= 8.5.22` 内（GHSA-fxqj-rqcc-2cmp，修复线 8.5.23）——**是 override 自己把版本钉在了漏洞带上**。锁文件里 webpack peer 用的 8.5.28 才是安全版。

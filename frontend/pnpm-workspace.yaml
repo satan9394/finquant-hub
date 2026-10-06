@@ -4,3 +4,4 @@ allowBuilds:
 # Security: pin transitive deps above their advisory fix lines.
 overrides:
   path-to-regexp: 8.4.0
+  source-map-js: 1.2.2
