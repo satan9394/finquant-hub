@@ -1,6 +1,7 @@
 """BACKLOG-044: 计价模块——表迁移/CRUD/校验/用户隔离/费用估算 unpriced（确定性，不联网）。"""
 
 import hashlib
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -46,12 +47,19 @@ async def pricing_client(tmp_path, monkeypatch):
             )
 
 
-async def _usage(model: str, prompt: int, completion: int, user_id: int, day: str = "2026-09-01") -> None:
+def _today() -> str:
+    """Current UTC calendar day (YYYY-MM-DD) - matches the API's UTC window."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+async def _usage(
+    model: str, prompt: int, completion: int, user_id: int, day: str | None = None
+) -> None:
     await database.execute(
         "INSERT INTO llm_usage "
         "(session_type, model_name, prompt_tokens, completion_tokens, total_tokens, user_id, created_at) "
         "VALUES ('chat', ?, ?, ?, ?, ?, ?)",
-        (model, prompt, completion, prompt + completion, user_id, f"{day} 00:00:00"),
+        (model, prompt, completion, prompt + completion, user_id, f"{day or _today()} 00:00:00"),
     )
 
 
@@ -326,8 +334,8 @@ async def test_records_carry_estimate_and_unpriced_flag(pricing_client):
         json={"model_name": "priced", "input_per_1m": 2.0, "output_per_1m": 4.0, "currency": "CNY"},
         headers=owner_auth,
     )
-    await _usage("priced", 1_000_000, 250_000, owner_id, day="2026-09-02")
-    await _usage("unpriced", 10, 5, owner_id, day="2026-09-03")
+    await _usage("priced", 1_000_000, 250_000, owner_id)
+    await _usage("unpriced", 10, 5, owner_id)
 
     body = (await client.get("/api/usage/records", headers=owner_auth)).json()
     by_model = {item["model_name"]: item for item in body["items"]}
