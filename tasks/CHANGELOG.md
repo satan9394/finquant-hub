@@ -3,6 +3,15 @@
 > Codex 每次开发后将改动记录在此。格式见 CLAUDE.md → Change record convention。
 > 只记架构级变更（新增路由/服务/表/端点），纯重构不记。
 
+## 2026-10-06（frontend react-router-dom 6 → 7.18.4，清掉最后 2 条依赖告警）
+- What changed: `frontend/package.json` 的 `react-router-dom` 由 `^6.28.2` 升到 `^7.18.4`（解析 `react-router`/`react-router-dom` 均为 7.18.4），更新 `frontend/pnpm-lock.yaml`。**代码零改动**——`src/` 无一处修改。
+- Why: 两条 Dependabot medium（`GHSA-337j-9hxr-rhxg` SSR hydration 构造器注入、`GHSA-wrjc-x8rr-h8h6` `<Link>`/`useNavigate` 开放重定向）修复线均为 `>= 7.18.0`，6.x 无补丁。清掉后仓库 Dependabot 开放告警归 **0**。
+- 兼容性依据：本项目路由用法为声明式 v6 API（`BrowserRouter`/`Routes`/`Route`/`Navigate`/`Link`/`useNavigate`/`useLocation`/`useParams`/`useSearchParams`），**未使用** data-router（`loader`/`action`/`json`/`defer`/`errorElement`/`useRouteError`）或已废弃 API（`useHistory`/`Redirect`）；v7 保留上述全部 API 且语义一致；peer 要求 `react >=18`（本项目 18.3.1 ✅）。
+- Docs updated: `tasks/CHANGELOG.md` + `HANDOFF.md`。无端点/表/架构变更。
+- Verification: `pnpm run build`（`tsc -b + vite build`）**0 类型错误**通过；定向单测 **20 文件 / 133 用例全绿**（vite 配置聚合）。
+- ⚠️ **CI 未运行**：GitHub Actions 因账号计费停用（job「未启动即失败」），经用户**明确授权**改为"仅本地验证后合并"。CI 恢复后建议补跑一次确认。
+- Risk: medium（跨大版本依赖升级；但零代码改动、本地构建与定向测试全绿，回退即改回 `^6.28.2` + `pnpm install`）。
+
 ## 2026-10-06（修复 test_model_pricing 的硬编码日期时间炸弹，backend CI 转绿）
 - What changed: `backend/tests/test_model_pricing.py`——`_usage()` 的默认日期由硬编码 `"2026-09-01"` 改为 `_today()`（当前 UTC 日，与端点窗口对齐）；`test_records_carry_estimate_and_unpriced_flag` 的两处显式日期 `2026-09-02/03` 一并移除。断言**一条未改**。
 - Why: `/api/usage/cost` 的默认窗口是 `resolve_range(days=30)` = `[today-29, today]`（UTC）。测试把用量数据写死在 `2026-09-01`，约 2026-10-01 起该日期滑出 30 天窗口，`items` 变空 → 4 个用例失败（`estimated_cost=None`、`list index out of range`、`mixed_currency=False`）。这是**测试的时间炸弹**，与业务逻辑无关；9-25 时窗口尚含 09-01 故当时全绿。

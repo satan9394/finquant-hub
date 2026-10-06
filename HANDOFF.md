@@ -382,3 +382,5 @@ grep 分析 93 处技术栈匹配，结论：
 - 2026-10-05 source-map-js 传递依赖修复 1.2.1->1.2.2（sites+frontend 两个 overrides）。文件：sites/pnpm-workspace.yaml、frontend/pnpm-workspace.yaml、两处 pnpm-lock.yaml、tasks/CHANGELOG.md。 | 验证: 两处 lockfile source-map-js 均为 1.2.2；sites build+test 全绿(1/1 + 26/26)；frontend build 通过
 
 - 2026-10-05 修复 test_model_pricing 时间炸弹：_usage 默认日期由硬编码 2026-09-01 改为当前 UTC 日，records 用例两处显式日期移除；断言未改。文件：backend/tests/test_model_pricing.py、tasks/CHANGELOG.md。 | 验证: pytest tests/test_model_pricing.py -q --no-cov -> 12 passed；ruff 该文件 All checks passed。根因：/api/usage/cost 默认 30 天窗口 [today-29,today]，硬编码 09-01 约 10-01 起滑出窗口致 4 用例失败（与业务无关）。
+
+- 2026-10-06 frontend react-router-dom 6.28.2 -> 7.18.4（清最后 2 条 Dependabot medium：SSR 构造器注入 + Link 开放重定向，修复线 7.18.0）。代码零改动。文件：frontend/package.json、frontend/pnpm-lock.yaml、tasks/CHANGELOG.md。经用户授权，CI 因计费停用故仅本地验证后合并。 | 验证: pnpm run build（tsc -b + vite build）0 类型错误通过；定向 vitest 20 文件 133 用例全绿（vite.config 聚合）。用法画像：仅声明式 v6 API，未用 data-router/useHistory/Redirect。
