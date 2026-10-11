@@ -34,8 +34,8 @@ importers:
         specifier: 3.0.6
         version: 3.0.6(echarts@6.1.0)(react@18.3.1)
       lightweight-charts:
-        specifier: ^4.2.1
-        version: 4.2.3
+        specifier: ^5.2.1
+        version: 5.2.1
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -1043,8 +1043,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  lightweight-charts@4.2.3:
-    resolution: {integrity: sha512-5kS/2hY3wNYNzhnS8Gb+GAS07DX8GPF2YVDnd2NMC85gJVQ6RLU6YrXNgNJ6eg0AnWPwCnvaGtYmGky3HiLQEw==}
+  lightweight-charts@5.2.1:
+    resolution: {integrity: sha512-IVwoK1RLFiLPubaKIjNbtjWLnpPMqiABSrTay6whmNa8L1+19292VtHJ+BWyPUuLCwF0tcQlhEWd1CLB2a1nsQ==}
 
   lodash-es@4.18.1:
     resolution: {integrity: sha512-J8xewKD/Gk22OZbhpOVSwcs60zhd95ESDwezOFuA3/099925PdHJ7OFHNTGtajL3AlZkykD32HykiMo+BIBI8A==}
@@ -2644,7 +2644,7 @@ snapshots:
 
   json5@2.2.3: {}
 
-  lightweight-charts@4.2.3:
+  lightweight-charts@5.2.1:
     dependencies:
       fancy-canvas: 2.1.0
 
