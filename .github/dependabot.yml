@@ -1,40 +1,45 @@
 version: 2
 updates:
-  # Python backend — grouped into a single PR per run.
+  # Python backend. Minor/patch are grouped into one PR; major updates stay
+  # as individual PRs so a breaking bump is reviewed on its own.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
     groups:
-      backend:
+      backend-minor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # Frontend (pnpm) — grouped into a single PR per run.
+  # Frontend (pnpm). Same rule: group minor/patch, isolate majors.
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
     groups:
-      frontend:
+      frontend-minor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # Marketing/demo sites (pnpm) — grouped into a single PR per run.
+  # Marketing/demo sites (pnpm). Same rule.
   - package-ecosystem: "npm"
     directory: "/sites"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
     groups:
-      sites:
+      sites-minor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # GitHub Actions used by the workflows — grouped into a single PR per run.
+  # GitHub Actions. Same rule.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     groups:
-      actions:
+      actions-minor:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
