@@ -14,7 +14,7 @@
     "measure:build": "node scripts/measure-build.mjs"
   },
   "dependencies": {
-    "@ant-design/icons": "^5.5.2",
+    "@ant-design/icons": "^6.3.4",
     "@ant-design/pro-layout": "^7.22.7",
     "antd": "^5.24.6",
     "axios": "^1.7.9",
