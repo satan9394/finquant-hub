@@ -13,7 +13,7 @@
     "test": "bun run build && node --test tests/rendered-html.test.mjs && bun test tests/market.test.ts tests/pdf.test.ts tests/backtest.test.ts tests/auth.test.ts tests/database-ownership.test.ts tests/research.test.ts"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
