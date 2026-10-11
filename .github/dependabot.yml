@@ -1,28 +1,40 @@
 version: 2
 updates:
-  # Python backend
+  # Python backend — grouped into a single PR per run.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      backend:
+        patterns: ["*"]
 
-  # Frontend (pnpm)
+  # Frontend (pnpm) — grouped into a single PR per run.
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      frontend:
+        patterns: ["*"]
 
-  # Marketing/demo sites (pnpm)
+  # Marketing/demo sites (pnpm) — grouped into a single PR per run.
   - package-ecosystem: "npm"
     directory: "/sites"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      sites:
+        patterns: ["*"]
 
-  # GitHub Actions used by the workflows
+  # GitHub Actions used by the workflows — grouped into a single PR per run.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
