@@ -59,7 +59,7 @@ test('mcp market renders tools and persists a toggle through the mocked PATCH', 
   const toggle = page.getByRole('switch', { name: '行情查询 工具启用状态' });
   await toggle.click();
   await expect(toggle).toBeChecked();
-  expect(patchBody).toEqual({ enabled: true });
+  await expect.poll(() => patchBody).toEqual({ enabled: true });
 });
 
 test('alerts renders signal rules and persists the enabled-state interaction', async ({ page }) => {
