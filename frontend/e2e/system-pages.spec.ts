@@ -88,7 +88,7 @@ test('alerts renders signal rules and persists the enabled-state interaction', a
   await expect(page.getByRole('cell', { name: '茅台价格突破', exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: '向上突破', exact: true })).toBeVisible();
   await page.getByRole('switch', { name: '茅台价格突破启用状态' }).click();
-  expect(updateBody).toEqual({ is_enabled: false });
+  await expect.poll(() => updateBody).toEqual({ is_enabled: false });
 });
 
 test('settings renders the system form and sends the edited PATCH payload', async ({ page }) => {
