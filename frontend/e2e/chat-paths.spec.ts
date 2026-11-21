@@ -223,7 +223,7 @@ test('chat restores the selected historical session from its messages route', as
 
   await expect(page.getByText('复盘宁德时代', { exact: true })).toBeVisible();
   await expect(page.getByText('历史结论：趋势保持强势', { exact: true })).toBeVisible();
-  expect(requestedMessagePaths).toEqual(['/api/chat/sessions/8/messages']);
+  await expect.poll(() => requestedMessagePaths).toEqual(['/api/chat/sessions/8/messages']);
 });
 
 test('chat uses the first agent role as the default for a new session', async ({ page }) => {
@@ -301,7 +301,7 @@ test('chat keeps streamed session A messages isolated while switching through se
   await page.getByText(session.title, { exact: true }).click();
   await expect(page.getByText('A 会话流式答案', { exact: true })).toBeVisible();
   await expect(page.getByText('B 会话独立历史', { exact: true })).toHaveCount(0);
-  expect(requestedMessagePaths).toEqual([
+  await expect.poll(() => requestedMessagePaths).toEqual([
     '/api/chat/sessions/7/messages',
     '/api/chat/sessions/8/messages',
     '/api/chat/sessions/7/messages',
